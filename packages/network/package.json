@@ -1,0 +1,27 @@
+{
+  "name": "@miskatonic/network",
+  "version": "0.1.0",
+  "description": "Network state synchronization for Miskatonic Engine",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.6.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.1"
+  }
+}
