@@ -26,75 +26,43 @@ export enum PrimitiveMode {
 /**
  * Shader types
  */
-export enum ShaderType {
-  VERTEX = 'vertex',
-  FRAGMENT = 'fragment',
-}
+export type ShaderType = 'vertex' | 'fragment';
 
 /**
  * Texture formats
  */
-export enum TextureFormat {
-  RGB = 'rgb',
-  RGBA = 'rgba',
-  DEPTH = 'depth',
-  DEPTH_STENCIL = 'depth_stencil',
-}
+export type TextureFormat = 'rgb' | 'rgba' | 'depth' | 'depth_stencil';
 
 /**
  * Texture filtering modes
  */
-export enum TextureFilter {
-  NEAREST = 'nearest',
-  LINEAR = 'linear',
-  NEAREST_MIPMAP_NEAREST = 'nearest_mipmap_nearest',
-  LINEAR_MIPMAP_NEAREST = 'linear_mipmap_nearest',
-  NEAREST_MIPMAP_LINEAR = 'nearest_mipmap_linear',
-  LINEAR_MIPMAP_LINEAR = 'linear_mipmap_linear',
-}
+export type TextureFilter =
+  | 'nearest'
+  | 'linear'
+  | 'nearest_mipmap_nearest'
+  | 'linear_mipmap_nearest'
+  | 'nearest_mipmap_linear'
+  | 'linear_mipmap_linear';
 
 /**
  * Texture wrapping modes
  */
-export enum TextureWrap {
-  REPEAT = 'repeat',
-  CLAMP_TO_EDGE = 'clamp_to_edge',
-  MIRRORED_REPEAT = 'mirrored_repeat',
-}
+export type TextureWrap = 'repeat' | 'clamp_to_edge' | 'mirrored_repeat';
 
 /**
  * Blend modes
  */
-export enum BlendMode {
-  NONE = 'none',
-  ALPHA = 'alpha',
-  ADDITIVE = 'additive',
-  MULTIPLY = 'multiply',
-}
+export type BlendMode = 'none' | 'alpha' | 'additive' | 'multiply';
 
 /**
  * Depth test modes
  */
-export enum DepthTest {
-  NEVER = 'never',
-  LESS = 'less',
-  EQUAL = 'equal',
-  LEQUAL = 'lequal',
-  GREATER = 'greater',
-  NOTEQUAL = 'notequal',
-  GEQUAL = 'gequal',
-  ALWAYS = 'always',
-}
+export type DepthTest = 'never' | 'less' | 'equal' | 'lequal' | 'greater' | 'notequal' | 'gequal' | 'always';
 
 /**
  * Cull modes
  */
-export enum CullMode {
-  NONE = 'none',
-  FRONT = 'front',
-  BACK = 'back',
-  FRONT_AND_BACK = 'front_and_back',
-}
+export type CullMode = 'none' | 'front' | 'back' | 'front_and_back';
 
 /**
  * Vertex attribute data types
@@ -125,11 +93,7 @@ export enum UniformType {
 /**
  * Buffer usage hint
  */
-export enum BufferUsage {
-  STATIC_DRAW = 'static_draw',
-  DYNAMIC_DRAW = 'dynamic_draw',
-  STREAM_DRAW = 'stream_draw',
-}
+export type BufferUsage = 'static_draw' | 'dynamic_draw' | 'stream_draw';
 
 /**
  * Vertex attribute descriptor
@@ -186,10 +150,10 @@ export interface RenderState {
  * Default render state
  */
 export const DEFAULT_RENDER_STATE: RenderState = {
-  blendMode: BlendMode.NONE,
-  depthTest: DepthTest.LESS,
+  blendMode: 'none',
+  depthTest: 'less',
   depthWrite: true,
-  cullMode: CullMode.BACK,
+  cullMode: 'back',
 };
 
 /**
@@ -205,18 +169,39 @@ export enum RenderCommandType {
 }
 
 /**
+ * Vertex layout descriptor
+ */
+export interface VertexLayout {
+  attributes: Array<{
+    name: string;
+    size: number; // 1-4 components
+    type: 'float' | 'int' | 'byte' | 'short';
+    normalized?: boolean;
+    stride?: number;
+    offset?: number;
+  }>;
+}
+
+/**
+ * Index buffer type
+ */
+export type IndexType = 'uint8' | 'uint16' | 'uint32';
+
+/**
  * Draw command
  */
 export interface DrawCommand {
   type: RenderCommandType.DRAW;
   shader: string; // Shader program ID
   mode: PrimitiveMode;
-  vertexBuffer: WebGLBuffer;
-  indexBuffer?: WebGLBuffer;
+  vertexBufferId: string; // Buffer ID instead of raw WebGLBuffer
+  indexBufferId?: string; // Buffer ID instead of raw WebGLBuffer
+  indexType?: IndexType; // Type of indices (uint8, uint16, uint32)
   vertexCount: number;
+  vertexLayout: VertexLayout; // How to interpret vertex data
   instanceCount?: number;
   uniforms?: Map<string, Uniform>;
-  textures?: Map<number, WebGLTexture>; // texture unit -> texture
+  textures?: Map<number, string>; // texture unit -> texture ID
   state?: Partial<RenderState>;
 }
 
