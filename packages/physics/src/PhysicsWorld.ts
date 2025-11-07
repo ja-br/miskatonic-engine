@@ -473,6 +473,95 @@ export class PhysicsWorld<TUserData = unknown> {
   }
 
   /**
+   * Serialize the current physics world state
+   *
+   * Captures all rigid bodies, joints, and simulation state for deterministic replay,
+   * network synchronization, or save/load functionality.
+   *
+   * @returns Complete serialized physics state
+   *
+   * @example
+   * // Save physics state
+   * const state = physicsWorld.serializeState();
+   * localStorage.setItem('savedGame', JSON.stringify(state));
+   *
+   * // Later, restore state
+   * const savedState = JSON.parse(localStorage.getItem('savedGame'));
+   * physicsWorld.deserializeState(savedState);
+   */
+  serializeState(): import('./types').SerializedPhysicsState {
+    return this.engine.serializeState();
+  }
+
+  /**
+   * Restore physics world state from serialized data
+   *
+   * Completely replaces the current physics state with the provided state.
+   * Returns handle mapping so external code can update their references.
+   *
+   * Used for replay, rollback, network synchronization, or loading saved games.
+   *
+   * WARNING: This clears all existing bodies and joints. The accumulator is reset.
+   * IMPORTANT: You must rebuild user data associations using the returned handle mapping.
+   *
+   * @param state Previously serialized physics state
+   * @returns DeserializationResult with handle mappings for updating external references
+   *
+   * @example
+   * // Restore from saved state with user data migration
+   * const oldUserData = new Map(physicsWorld.bodies); // Save before deserialize
+   * const savedState = JSON.parse(localStorage.getItem('savedGame'));
+   * const { bodyHandleMap } = physicsWorld.deserializeState(savedState);
+   * physicsWorld.rebuildUserData(oldUserData, bodyHandleMap);
+   *
+   * // Replay from network snapshot
+   * socket.on('stateSync', (state) => {
+   *   physicsWorld.deserializeState(state);
+   * });
+   */
+  deserializeState(state: import('./types').SerializedPhysicsState): import('./types').DeserializationResult {
+    const result = this.engine.deserializeState(state);
+
+    // Clear user data map since bodies have been recreated
+    // Warn if there was user data that needs migration
+    if (this.bodies.size > 0) {
+      console.warn(
+        `PhysicsWorld.deserializeState: Clearing ${this.bodies.size} user data entries. ` +
+        `Use rebuildUserData() to restore them with the returned handle mapping.`
+      );
+    }
+    this.bodies.clear();
+
+    // Reset accumulator for clean simulation restart
+    this.accumulator = 0;
+
+    return result;
+  }
+
+  /**
+   * Helper to rebuild user data map after deserialization
+   *
+   * @param oldUserData - Map of old handles to user data (saved before deserialize)
+   * @param handleMapping - Body handle mapping from deserializeState()
+   *
+   * @example
+   * const oldUserData = new Map(physicsWorld.bodies); // Save before deserialize
+   * const { bodyHandleMap } = physicsWorld.deserializeState(state);
+   * physicsWorld.rebuildUserData(oldUserData, bodyHandleMap);
+   */
+  rebuildUserData(
+    oldUserData: Map<import('./types').RigidBodyHandle, unknown>,
+    handleMapping: Map<import('./types').RigidBodyHandle, import('./types').RigidBodyHandle>
+  ): void {
+    for (const [oldHandle, userData] of oldUserData.entries()) {
+      const newHandle = handleMapping.get(oldHandle);
+      if (newHandle !== undefined) {
+        this.bodies.set(newHandle, userData);
+      }
+    }
+  }
+
+  /**
    * Dispose of the physics world
    */
   dispose(): void {

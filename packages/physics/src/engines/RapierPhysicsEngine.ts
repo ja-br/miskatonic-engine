@@ -18,6 +18,10 @@ import type {
   JointDescriptor,
   JointHandle,
   JointMotor,
+  JointAnchor,
+  SerializedPhysicsState,
+  SerializedRigidBody,
+  SerializedJoint,
 } from '../types';
 import { RigidBodyType, CollisionShapeType, JointType } from '../types';
 
@@ -99,6 +103,14 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }>();
   private nextJointHandle: JointHandle = 1;
 
+  // Simulation tracking for determinism
+  private simulationTime: number = 0;
+  private stepCount: number = 0;
+
+  // Descriptor storage for deterministic serialization
+  private bodyDescriptors = new Map<RigidBodyHandle, RigidBodyDescriptor>();
+  private jointDescriptors = new Map<JointHandle, JointDescriptor>();
+
   async initialize(config: PhysicsWorldConfig): Promise<void> {
     // Initialize Rapier WASM module
     await RAPIER.init();
@@ -111,13 +123,17 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     this.eventQueue = new RAPIER.EventQueue(true);
   }
 
-  step(_deltaTime: number): void {
+  step(deltaTime: number): void {
     if (!this.world || !this.eventQueue) {
       throw new Error('Physics engine not initialized');
     }
 
     // Step the simulation
     this.world.step(this.eventQueue);
+
+    // Track simulation time and step count for determinism
+    this.simulationTime += deltaTime;
+    this.stepCount++;
 
     // Process collision events
     // Clear array without reallocating (performance optimization)
@@ -280,6 +296,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     this.bodies.set(handle, rigidBody);
     this.colliders.set(handle, colliders);
 
+    // Store descriptor for deterministic serialization
+    this.bodyDescriptors.set(handle, descriptor);
+
     return handle;
   }
 
@@ -293,6 +312,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
       // Delete from maps first
       this.colliders.delete(handle);
+      this.bodyDescriptors.delete(handle); // Clean up stored descriptor
 
       // Clean up collider mappings atomically
       for (const colliderHandle of colliderHandles) {
@@ -309,6 +329,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       // Ensure cleanup completes even on partial failure
       this.bodies.delete(handle);
       this.colliders.delete(handle);
+      this.bodyDescriptors.delete(handle);
       throw error;
     }
   }
@@ -922,6 +943,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       breakForce: descriptor.breakForce
     });
 
+    // Store descriptor for deterministic serialization
+    this.jointDescriptors.set(handle, descriptor);
+
     // Apply motor if specified (for revolute and prismatic joints)
     if ('motor' in descriptor && descriptor.motor) {
       this.setJointMotor(handle, descriptor.motor);
@@ -946,6 +970,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     // Remove from our tracking
     this.joints.delete(handle);
     this.jointMetadata.delete(handle);
+    this.jointDescriptors.delete(handle);
   }
 
   setJointMotor(handle: JointHandle, motor: JointMotor | null): void {
@@ -1319,5 +1344,283 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     }
 
     return brokenJoints;
+  }
+
+  /**
+   * Serialize the current physics world state
+   * Uses stored descriptors for complete serialization including colliders
+   */
+  serializeState(): SerializedPhysicsState {
+    if (!this.world) {
+      throw new Error('Physics world not initialized');
+    }
+
+    const bodies: SerializedRigidBody[] = [];
+    const joints: SerializedJoint[] = [];
+
+    // Sort handles for deterministic ordering
+    const sortedBodyHandles = Array.from(this.bodyDescriptors.keys()).sort((a, b) => a - b);
+
+    // Serialize all rigid bodies using stored descriptors
+    for (const handle of sortedBodyHandles) {
+      const descriptor = this.bodyDescriptors.get(handle);
+      const rapierBody = this.bodies.get(handle);
+
+      if (!descriptor || !rapierBody) {
+        // Skip if descriptor or body is missing (shouldn't happen)
+        console.warn(`Missing descriptor or body for handle ${handle}, skipping`);
+        continue;
+      }
+
+      // Get current runtime state from Rapier
+      const position = rapierBody.translation();
+      const rotation = rapierBody.rotation();
+      const linvel = rapierBody.linvel();
+      const angvel = rapierBody.angvel();
+
+      // Serialize colliders from descriptor
+      const colliders = this.serializeCollisionShape(
+        descriptor.collisionShape,
+        descriptor.friction ?? 0.5,
+        descriptor.restitution ?? 0.0,
+        1.0, // density - we use mass instead
+        descriptor.isSensor ?? false,
+        descriptor.collisionGroups ?? 0xFFFF,
+        descriptor.collisionMask ?? 0xFFFF
+      );
+
+      bodies.push({
+        handle,
+        type: descriptor.type,
+        position: { x: position.x, y: position.y, z: position.z },
+        rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
+        linearVelocity: { x: linvel.x, y: linvel.y, z: linvel.z },
+        angularVelocity: { x: angvel.x, y: angvel.y, z: angvel.z },
+        isSleeping: rapierBody.isSleeping(),
+        isEnabled: rapierBody.isEnabled(),
+        mass: descriptor.mass ?? 1.0,
+        linearDamping: descriptor.linearDamping ?? 0.0,
+        angularDamping: descriptor.angularDamping ?? 0.05,
+        colliders
+      });
+    }
+
+    // Sort joint handles for deterministic ordering
+    const sortedJointHandles = Array.from(this.jointDescriptors.keys()).sort((a, b) => a - b);
+
+    // Serialize all joints using stored descriptors
+    for (const handle of sortedJointHandles) {
+      const descriptor = this.jointDescriptors.get(handle);
+
+      if (!descriptor) {
+        console.warn(`Missing descriptor for joint handle ${handle}, skipping`);
+        continue;
+      }
+
+      joints.push({
+        handle,
+        descriptor,
+        value: this.getJointValue(handle)
+      });
+    }
+
+    const gravity = this.world.gravity;
+
+    return {
+      version: 1,
+      time: this.simulationTime,
+      step: this.stepCount,
+      gravity: { x: gravity.x, y: gravity.y, z: gravity.z },
+      bodies,
+      joints
+    };
+  }
+
+  /**
+   * Restore physics world state from serialized data
+   * Returns handle mapping for updating external references
+   */
+  deserializeState(state: SerializedPhysicsState): DeserializationResult {
+    if (!this.world) {
+      throw new Error('Physics world not initialized');
+    }
+
+    // Validate version
+    if (state.version !== 1) {
+      throw new Error(`Unsupported serialization version: ${state.version}`);
+    }
+
+    // Clear existing state (but keep world configuration)
+    const bodyHandles = Array.from(this.bodies.keys());
+    for (const handle of bodyHandles) {
+      this.removeRigidBody(handle);
+    }
+
+    const jointHandles = Array.from(this.joints.keys());
+    for (const handle of jointHandles) {
+      this.removeJoint(handle);
+    }
+
+    // Restore gravity
+    this.world.gravity = new RAPIER.Vector3(state.gravity.x, state.gravity.y, state.gravity.z);
+
+    // Restore simulation time
+    this.simulationTime = state.time;
+    this.stepCount = state.step;
+
+    // Handle mappings for external reference updates
+    const bodyHandleMap = new Map<RigidBodyHandle, RigidBodyHandle>();
+    const jointHandleMap = new Map<JointHandle, JointHandle>();
+
+    // Restore rigid bodies with full descriptors
+    for (const serializedBody of state.bodies) {
+      // Reconstruct collision shape from serialized colliders
+      const collisionShape = this.deserializeCollisionShape(serializedBody.colliders);
+
+      // Reconstruct full RigidBodyDescriptor
+      const descriptor: RigidBodyDescriptor = {
+        type: serializedBody.type,
+        position: serializedBody.position,
+        rotation: serializedBody.rotation,
+        mass: serializedBody.mass,
+        linearDamping: serializedBody.linearDamping,
+        angularDamping: serializedBody.angularDamping,
+        collisionShape,
+        // Extract material properties from first collider
+        friction: serializedBody.colliders[0]?.friction,
+        restitution: serializedBody.colliders[0]?.restitution,
+        isSensor: serializedBody.colliders[0]?.isSensor,
+        collisionGroups: serializedBody.colliders[0]?.collisionGroups,
+        collisionMask: serializedBody.colliders[0]?.collisionMask
+      };
+
+      // Create body using the standard API (which stores the descriptor)
+      const newHandle = this.createRigidBody(descriptor);
+
+      // Store handle mapping
+      bodyHandleMap.set(serializedBody.handle, newHandle);
+
+      // Restore runtime state
+      const rapierBody = this.bodies.get(newHandle);
+      if (rapierBody) {
+        rapierBody.setLinvel(
+          new RAPIER.Vector3(
+            serializedBody.linearVelocity.x,
+            serializedBody.linearVelocity.y,
+            serializedBody.linearVelocity.z
+          ),
+          true
+        );
+        rapierBody.setAngvel(
+          new RAPIER.Vector3(
+            serializedBody.angularVelocity.x,
+            serializedBody.angularVelocity.y,
+            serializedBody.angularVelocity.z
+          ),
+          true
+        );
+
+        if (serializedBody.isSleeping) {
+          rapierBody.sleep();
+        } else {
+          rapierBody.wakeUp();
+        }
+
+        if (!serializedBody.isEnabled) {
+          rapierBody.setEnabled(false);
+        }
+      }
+    }
+
+    // Restore joints with remapped body handles
+    for (const serializedJoint of state.joints) {
+      const descriptor = serializedJoint.descriptor;
+
+      // Remap body handles from old to new
+      const newBodyA = bodyHandleMap.get(descriptor.bodyA);
+      const newBodyB = bodyHandleMap.get(descriptor.bodyB);
+
+      if (newBodyA === undefined || newBodyB === undefined) {
+        console.warn(
+          `Cannot restore joint ${serializedJoint.handle}: referenced bodies not found ` +
+          `(bodyA: ${descriptor.bodyA} -> ${newBodyA}, bodyB: ${descriptor.bodyB} -> ${newBodyB})`
+        );
+        continue;
+      }
+
+      // Create remapped descriptor
+      const remappedDescriptor: JointDescriptor = {
+        ...descriptor,
+        bodyA: newBodyA,
+        bodyB: newBodyB
+      };
+
+      // Create joint using the standard API (which stores the descriptor)
+      const newJointHandle = this.createJoint(remappedDescriptor);
+
+      // Store handle mapping
+      jointHandleMap.set(serializedJoint.handle, newJointHandle);
+    }
+
+    return {
+      bodyHandleMap,
+      jointHandleMap
+    };
+  }
+
+  /**
+   * Helper: Serialize a collision shape and its properties into SerializedCollider(s)
+   * For compound shapes, we serialize the entire shape structure as-is (not flattened)
+   */
+  private serializeCollisionShape(
+    shape: CollisionShape,
+    friction: number,
+    restitution: number,
+    density: number,
+    isSensor: boolean,
+    collisionGroups: number,
+    collisionMask: number
+  ): SerializedCollider[] {
+    // Return the shape as-is with material properties
+    // This preserves compound shape structure including transforms
+    return [
+      {
+        shape,
+        friction,
+        restitution,
+        density,
+        isSensor,
+        collisionGroups,
+        collisionMask
+      }
+    ];
+  }
+
+  /**
+   * Helper: Deserialize SerializedCollider(s) back into a CollisionShape
+   * Handles reconstruction of compound shapes
+   */
+  private deserializeCollisionShape(colliders: SerializedCollider[]): CollisionShape {
+    if (colliders.length === 0) {
+      throw new Error('Cannot deserialize empty collider array');
+    }
+
+    if (colliders.length === 1) {
+      // Single collider - return its shape directly
+      return colliders[0].shape;
+    }
+
+    // Multiple colliders would only happen if we had multiple separate colliders per body
+    // For now, this shouldn't happen as we store one collider per body
+    // If it does happen, combine as compound shape (though this loses some information)
+    console.warn('Deserializing multiple colliders - combining as compound shape');
+    return {
+      type: CollisionShapeType.COMPOUND,
+      shapes: colliders.map(c => ({
+        shape: c.shape,
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0, w: 1 }
+      }))
+    };
   }
 }

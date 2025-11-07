@@ -7,6 +7,16 @@
 // Core
 export { PhysicsWorld } from './PhysicsWorld';
 export type { CollisionCallback } from './PhysicsWorld';
+export { PhysicsSnapshotManager } from './PhysicsSnapshotManager';
+export type { SnapshotManagerConfig } from './PhysicsSnapshotManager';
+export { PhysicsDeterminismVerifier } from './PhysicsDeterminismVerifier';
+export type {
+  DeterminismVerificationResult,
+  DeterminismMismatch,
+  DeterminismVerifierConfig
+} from './PhysicsDeterminismVerifier';
+export { PhysicsReplayPlayer, ReplayPlayerState } from './PhysicsReplayPlayer';
+export type { ReplayPlayerConfig } from './PhysicsReplayPlayer';
 
 // Types
 export type {
@@ -29,6 +39,12 @@ export type {
   PrismaticJointDescriptor,
   SphericalJointDescriptor,
   GenericJointDescriptor,
+  SerializedPhysicsState,
+  SerializedRigidBody,
+  SerializedJoint,
+  SerializedCollider,
+  DeserializationResult,
+  PhysicsSnapshot,
 } from './types';
 
 export {

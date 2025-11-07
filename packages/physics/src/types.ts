@@ -451,6 +451,22 @@ export interface IPhysicsEngine {
     bodyB: RigidBodyHandle;
     force: number;
   }>;
+
+  /**
+   * Serialize the current physics world state
+   * Captures all rigid bodies, joints, and simulation state for deterministic replay
+   * @returns Complete serialized physics state
+   */
+  serializeState(): SerializedPhysicsState;
+
+  /**
+   * Restore physics world state from serialized data
+   * Used for replay, rollback, and network synchronization
+   * WARNING: This completely replaces the current physics state
+   * @param state Previously serialized physics state
+   * @returns Handle mapping for updating external references
+   */
+  deserializeState(state: SerializedPhysicsState): DeserializationResult;
 }
 
 /**
@@ -464,3 +480,111 @@ export const DEFAULT_PHYSICS_CONFIG: PhysicsWorldConfig = {
   enableCCD: true,
   enableSleeping: true,
 };
+
+// ============================================================================
+// Physics State Serialization (Deterministic Simulation)
+// ============================================================================
+
+/**
+ * Serialized collider shape for deterministic simulation
+ */
+export interface SerializedCollider {
+  /** Collision shape descriptor */
+  shape: CollisionShape;
+  /** Friction coefficient (0-1) */
+  friction: number;
+  /** Restitution/bounciness (0-1) */
+  restitution: number;
+  /** Density (kg/m³) - used to calculate mass */
+  density: number;
+  /** Whether this is a sensor (trigger) that doesn't cause physical collision response */
+  isSensor: boolean;
+  /** Collision groups bitmask - which groups this collider belongs to */
+  collisionGroups: number;
+  /** Collision mask bitmask - which groups this collider can collide with */
+  collisionMask: number;
+}
+
+/**
+ * Serialized rigid body state for deterministic simulation
+ */
+export interface SerializedRigidBody {
+  /** Unique handle identifier */
+  handle: RigidBodyHandle;
+  /** Body type (dynamic/kinematic/static) */
+  type: RigidBodyType;
+  /** Position in world space */
+  position: Vector3;
+  /** Rotation as quaternion */
+  rotation: Quaternion;
+  /** Linear velocity */
+  linearVelocity: Vector3;
+  /** Angular velocity */
+  angularVelocity: Vector3;
+  /** Whether body is currently sleeping */
+  isSleeping: boolean;
+  /** Whether body is enabled */
+  isEnabled: boolean;
+  /** Mass of the body (kg) */
+  mass: number;
+  /** Linear damping coefficient */
+  linearDamping: number;
+  /** Angular damping coefficient */
+  angularDamping: number;
+  /** All colliders attached to this body */
+  colliders: SerializedCollider[];
+}
+
+/**
+ * Serialized joint state for deterministic simulation
+ */
+export interface SerializedJoint {
+  /** Unique handle identifier */
+  handle: JointHandle;
+  /** Full joint descriptor for reconstruction */
+  descriptor: JointDescriptor;
+  /** Current joint value (angle or distance) - for verification */
+  value: number;
+}
+
+/**
+ * Complete serialized physics world state
+ * Used for deterministic simulation, replay, and network synchronization
+ */
+export interface SerializedPhysicsState {
+  /** Version number for compatibility checking */
+  version: number;
+  /** Simulation time in seconds */
+  time: number;
+  /** Step counter for determinism verification */
+  step: number;
+  /** Gravity vector */
+  gravity: Vector3;
+  /** All rigid bodies in the simulation */
+  bodies: SerializedRigidBody[];
+  /** All joints in the simulation */
+  joints: SerializedJoint[];
+}
+
+/**
+ * Result of deserialization containing handle mapping for external reference updates
+ */
+export interface DeserializationResult {
+  /** Mapping from old handles to new handles for rigid bodies */
+  bodyHandleMap: Map<RigidBodyHandle, RigidBodyHandle>;
+  /** Mapping from old handles to new handles for joints */
+  jointHandleMap: Map<JointHandle, JointHandle>;
+}
+
+/**
+ * Physics snapshot for replay and rollback
+ * Lightweight structure for storing physics state at specific frames
+ */
+export interface PhysicsSnapshot {
+  /** Frame number */
+  frame: number;
+  /** Simulation time */
+  time: number;
+  /** Serialized state */
+  state: SerializedPhysicsState;
+}
