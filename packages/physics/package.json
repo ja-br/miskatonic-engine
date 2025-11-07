@@ -1,0 +1,23 @@
+{
+  "name": "@miskatonic/physics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@miskatonic/events": "*",
+    "@dimforge/rapier3d-compat": "^0.11.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4",
+    "@types/node": "^20.10.5"
+  }
+}

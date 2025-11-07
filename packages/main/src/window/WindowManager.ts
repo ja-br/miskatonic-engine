@@ -92,11 +92,37 @@ export class WindowManager {
     }
 
     // Show when ready
+    let windowShown = false;
     window.once('ready-to-show', () => {
-      window.show();
-      if (process.env.NODE_ENV === 'development') {
-        window.webContents.openDevTools();
+      if (!windowShown) {
+        windowShown = true;
+        window.show();
+        if (process.env.NODE_ENV === 'development') {
+          window.webContents.openDevTools();
+        }
+        log.info(`Window ${window.id} shown after ready-to-show`);
       }
+    });
+
+    // Fallback: Force show window after 3 seconds if ready-to-show never fires
+    setTimeout(() => {
+      if (!windowShown && !window.isDestroyed()) {
+        windowShown = true;
+        log.warn(`Window ${window.id} forced to show after timeout (ready-to-show didn't fire)`);
+        window.show();
+        if (process.env.NODE_ENV === 'development') {
+          window.webContents.openDevTools();
+        }
+      }
+    }, 3000);
+
+    // Debug renderer loading issues
+    window.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+      log.error(`Window ${window.id} failed to load: ${errorDescription} (${errorCode}) - URL: ${validatedURL}`);
+    });
+
+    window.webContents.on('did-finish-load', () => {
+      log.info(`Window ${window.id} finished loading renderer`);
     });
 
     log.info(`Created window ${window.id}`);

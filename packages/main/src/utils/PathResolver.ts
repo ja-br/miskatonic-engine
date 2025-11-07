@@ -7,7 +7,8 @@ import path from 'path';
 export class PathResolver {
   static getPreloadPath(): string {
     if (process.env.NODE_ENV === 'development') {
-      return path.join(__dirname, '../../preload/dist/index.js');
+      // In dev, main is at dist/main/, preload is at dist/preload/
+      return path.join(__dirname, '../preload/index.js');
     }
     return path.join(__dirname, '../preload/index.js');
   }

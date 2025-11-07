@@ -8,6 +8,8 @@ export { Renderer } from './Renderer';
 
 // Core rendering classes
 export { RenderContext } from './RenderContext';
+export { Camera, OrbitControls } from './Camera';
+export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
 export { ShaderManager, type ShaderManagerConfig } from './ShaderManager';
 export { BufferManager, type BufferDescriptor } from './BufferManager';
 export { TextureManager, type TextureConfig, type TextureDescriptor } from './TextureManager';
@@ -21,17 +23,19 @@ export {
   // Enums
   RenderBackend,
   PrimitiveMode,
-  ShaderType,
-  TextureFormat,
-  TextureFilter,
-  TextureWrap,
-  BlendMode,
-  DepthTest,
-  CullMode,
   AttributeType,
   UniformType,
-  BufferUsage,
   RenderCommandType,
+
+  // Type aliases
+  type ShaderType,
+  type TextureFormat,
+  type TextureFilter,
+  type TextureWrap,
+  type BlendMode,
+  type DepthTest,
+  type CullMode,
+  type BufferUsage,
 
   // Interfaces
   type VertexAttribute,

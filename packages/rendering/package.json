@@ -28,6 +28,6 @@
     "vitest": "^1.0.4"
   },
   "dependencies": {
-    "@miskatonic/events": "workspace:*"
+    "@miskatonic/events": "*"
   }
 }
