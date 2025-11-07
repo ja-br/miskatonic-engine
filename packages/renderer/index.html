@@ -56,6 +56,77 @@
         border-radius: 4px;
         font-size: 14px;
       }
+
+      #controls {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 14px;
+      }
+
+      .control-group {
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .control-group:last-child {
+        margin-bottom: 0;
+      }
+
+      button {
+        background: #444;
+        color: #fff;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: monospace;
+        font-size: 14px;
+        transition: background 0.2s;
+      }
+
+      button:hover {
+        background: #666;
+      }
+
+      button:active {
+        background: #333;
+      }
+
+      #dice-sets {
+        color: #0f0;
+        font-size: 18px;
+        font-weight: bold;
+        min-width: 40px;
+        text-align: center;
+      }
+
+      #roll-btn {
+        background: #0a0;
+        padding: 10px 20px;
+        font-size: 16px;
+        font-weight: bold;
+      }
+
+      #roll-btn:hover {
+        background: #0c0;
+      }
+
+      #roll-btn:active {
+        background: #080;
+      }
+
+      #dice-count {
+        color: #888;
+        font-size: 12px;
+        margin-top: 5px;
+      }
     </style>
   </head>
   <body>
@@ -69,6 +140,17 @@
       <div id="info">
         Miskatonic Engine - 3D Demo<br>
         Mouse: Drag to rotate camera
+      </div>
+      <div id="controls">
+        <div class="control-group">
+          <button id="minus-btn">-</button>
+          <span id="dice-sets">1</span>
+          <button id="plus-btn">+</button>
+        </div>
+        <div class="control-group">
+          <button id="roll-btn">ROLL DICE</button>
+        </div>
+        <div id="dice-count">6 dice total</div>
       </div>
     </div>
 

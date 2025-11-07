@@ -43,9 +43,10 @@ export class Demo {
 
   // Physics
   private physicsWorld: PhysicsWorld | null = null;
-  private diceBodies: Array<{ handle: RigidBodyHandle; sides: number }> = [];
+  private diceBodies: Array<{ handle: RigidBodyHandle; sides: number; spawnPos: { x: number; y: number; z: number }; angularVel: { x: number; y: number; z: number } }> = [];
   private groundBody: RigidBodyHandle | null = null;
   private lastTime: number = 0;
+  private diceSets: number = 1; // Number of dice sets to roll (1 set = 6 dice)
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -76,11 +77,11 @@ export class Demo {
       // Initialize renderer (constructor does all initialization)
       this.renderer = new Renderer(config);
 
-      // Create camera
+      // Create camera - positioned higher and farther to see larger play area
       const aspect = this.canvas.width / this.canvas.height;
-      this.camera = new Camera(45, aspect, 0.1, 100);
-      this.camera.setPosition(0, 8, 12);
-      this.camera.setTarget(0, 2, 0);
+      this.camera = new Camera(45, aspect, 0.1, 300); // Far plane at 300 for large viewing distance
+      this.camera.setPosition(0, 25, 35);
+      this.camera.setTarget(0, 0, 0);
 
       // Setup orbit controls
       this.controls = new OrbitControls(this.camera, this.canvas);
@@ -234,22 +235,22 @@ export class Demo {
       timestep: 1 / 60,
     });
 
-    // Create ground plane (static) - larger table surface
+    // Create ground plane (static) - larger table surface sized for up to 1200 dice
+    const tableSize = 40; // 80x80 total area
     this.groundBody = this.physicsWorld.createRigidBody({
       type: RigidBodyType.STATIC,
       position: { x: 0, y: -1, z: 0 },
       collisionShape: {
         type: CollisionShapeType.BOX,
-        halfExtents: { x: 8, y: 0.2, z: 8 },
+        halfExtents: { x: tableSize, y: 0.2, z: tableSize },
       },
       friction: 0.6,
       restitution: 0.2,
     });
 
     // Create invisible walls to contain the dice
-    const wallHeight = 5;
+    const wallHeight = 10;
     const wallThickness = 0.5;
-    const tableSize = 8;
 
     // Back wall
     this.physicsWorld.createRigidBody({
@@ -346,7 +347,12 @@ export class Demo {
         angularVelocity: die.angularVel,
       });
 
-      this.diceBodies.push({ handle, sides: die.sides });
+      this.diceBodies.push({
+        handle,
+        sides: die.sides,
+        spawnPos: die.position,
+        angularVel: die.angularVel,
+      });
     }
 
     // Add collision callback to log collisions
@@ -538,10 +544,18 @@ export class Demo {
           0, 0, 1,
         ]));
 
-        // Add depth-based darkening for visual interest
+        // Add depth-based darkening and respawn pulse
         const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
         const [r, g, b] = getDieColor(die.sides);
-        const brightness = 0.7 + depth * 0.3; // Brighter when higher up
+        let brightness = 0.7 + depth * 0.3; // Brighter when higher up
+
+        // Add pulsing effect when near respawn time
+        const respawnProgress = this.respawnTimer / this.respawnDelay;
+        if (respawnProgress > 0.7) {
+          const pulse = Math.sin((respawnProgress - 0.7) * Math.PI * 10) * 0.2 + 1.0;
+          brightness *= pulse;
+        }
+
         gl.uniform3f(baseColorLoc, r * brightness, g * brightness, b * brightness);
 
         const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
@@ -564,6 +578,114 @@ export class Demo {
 
     this.animationId = requestAnimationFrame(this.renderLoop);
   };
+
+  private respawnDice(): void {
+    if (!this.physicsWorld) return;
+
+    // Respawn all current dice
+    for (const die of this.diceBodies) {
+      // Reset position to spawn point with random offset (spread across larger area)
+      const randomOffset = {
+        x: (Math.random() - 0.5) * 20.0,
+        y: Math.random() * 5.0,
+        z: (Math.random() - 0.5) * 20.0,
+      };
+
+      this.physicsWorld.setPosition(die.handle, {
+        x: die.spawnPos.x + randomOffset.x,
+        y: die.spawnPos.y + randomOffset.y,
+        z: die.spawnPos.z + randomOffset.z,
+      });
+
+      // Random rotation
+      const randomRot = Math.random() * Math.PI * 2;
+      const axis = Math.random() < 0.33 ? { x: 1, y: 0, z: 0 } : Math.random() < 0.5 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
+      const halfAngle = randomRot / 2;
+      const s = Math.sin(halfAngle);
+      this.physicsWorld.setRotation(die.handle, {
+        x: axis.x * s,
+        y: axis.y * s,
+        z: axis.z * s,
+        w: Math.cos(halfAngle),
+      });
+
+      // Set linear velocity to zero
+      this.physicsWorld.setLinearVelocity(die.handle, { x: 0, y: 0, z: 0 });
+
+      // Set new random angular velocity
+      const newAngularVel = {
+        x: die.angularVel.x * (0.5 + Math.random()),
+        y: die.angularVel.y * (0.5 + Math.random()),
+        z: die.angularVel.z * (0.5 + Math.random()),
+      };
+      this.physicsWorld.setAngularVelocity(die.handle, newAngularVel);
+
+      // Wake up the body
+      this.physicsWorld.wakeUp(die.handle);
+    }
+  }
+
+  private addMoreDice(count: number): void {
+    if (!this.physicsWorld) return;
+
+    // Dice template
+    const diceTemplates = [
+      { sides: 4, shape: CollisionShapeType.SPHERE, radius: 0.4 },
+      { sides: 6, shape: CollisionShapeType.BOX, halfExtents: { x: 0.5, y: 0.5, z: 0.5 } },
+      { sides: 8, shape: CollisionShapeType.SPHERE, radius: 0.5 },
+      { sides: 10, shape: CollisionShapeType.CYLINDER, radius: 0.45, height: 1.0 },
+      { sides: 12, shape: CollisionShapeType.SPHERE, radius: 0.55 },
+      { sides: 20, shape: CollisionShapeType.SPHERE, radius: 0.6 },
+    ];
+
+    for (let i = 0; i < count; i++) {
+      const template = diceTemplates[Math.floor(Math.random() * diceTemplates.length)];
+
+      let collisionShape: any;
+      if (template.shape === CollisionShapeType.BOX) {
+        collisionShape = { type: CollisionShapeType.BOX, halfExtents: template.halfExtents };
+      } else if (template.shape === CollisionShapeType.SPHERE) {
+        collisionShape = { type: CollisionShapeType.SPHERE, radius: template.radius };
+      } else if (template.shape === CollisionShapeType.CYLINDER) {
+        collisionShape = { type: CollisionShapeType.CYLINDER, radius: template.radius, height: template.height };
+      }
+
+      const spawnPos = {
+        x: (Math.random() - 0.5) * 70, // Spread across larger 80x80 area
+        y: 15 + Math.random() * 10,
+        z: (Math.random() - 0.5) * 70,
+      };
+
+      const angularVel = {
+        x: (Math.random() - 0.5) * 6,
+        y: (Math.random() - 0.5) * 6,
+        z: (Math.random() - 0.5) * 6,
+      };
+
+      const handle = this.physicsWorld.createRigidBody({
+        type: RigidBodyType.DYNAMIC,
+        position: spawnPos,
+        collisionShape,
+        mass: 0.02,
+        friction: 0.4,
+        restitution: 0.5,
+        angularVelocity: angularVel,
+      });
+
+      this.diceBodies.push({ handle, sides: template.sides, spawnPos, angularVel });
+    }
+  }
+
+  private removeExcessDice(keepCount: number): void {
+    if (!this.physicsWorld) return;
+
+    while (this.diceBodies.length > keepCount) {
+      const die = this.diceBodies.pop();
+      if (die) {
+        this.physicsWorld.removeRigidBody(die.handle);
+      }
+    }
+  }
 
   private createModelMatrix(position: { x: number; y: number; z: number }, rotation: { x: number; y: number; z: number; w: number }): Float32Array {
     // Convert quaternion to rotation matrix
@@ -623,6 +745,48 @@ export class Demo {
     if (fpsEl) fpsEl.textContent = fps.toString();
     if (drawCallsEl) drawCallsEl.textContent = drawCalls.toString();
     if (trianglesEl) trianglesEl.textContent = triangles.toString();
+  }
+
+  // Public API for UI controls
+  public incrementDiceSets(): void {
+    if (this.diceSets < 200) { // Cap at 200 sets (1200 dice)
+      this.diceSets++;
+      this.updateDiceCountDisplay();
+    }
+  }
+
+  public decrementDiceSets(): void {
+    if (this.diceSets > 1) {
+      this.diceSets--;
+      this.updateDiceCountDisplay();
+    }
+  }
+
+  public manualRoll(): void {
+    // Set dice to the target count
+    const targetDiceCount = this.diceSets * 6;
+    const currentDiceCount = this.diceBodies.length;
+
+    if (targetDiceCount > currentDiceCount) {
+      this.addMoreDice(targetDiceCount - currentDiceCount);
+    } else if (targetDiceCount < currentDiceCount) {
+      this.removeExcessDice(targetDiceCount);
+    }
+
+    // Respawn all dice
+    this.respawnDice();
+  }
+
+  public getDiceSets(): number {
+    return this.diceSets;
+  }
+
+  private updateDiceCountDisplay(): void {
+    const diceCountEl = document.getElementById('dice-count');
+    if (diceCountEl) {
+      const totalDice = this.diceSets * 6;
+      diceCountEl.textContent = `${totalDice} dice total`;
+    }
   }
 
   dispose(): void {

@@ -236,8 +236,16 @@ export class OrbitControls {
   constructor(camera: Camera, canvas: HTMLCanvasElement) {
     this.camera = camera;
     this.canvas = canvas;
+
+    // Calculate initial radius from camera position
+    const pos = this.camera.getPosition();
+    this.radius = Math.sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2]);
+
+    // Calculate initial angles from camera position
+    this.phi = Math.acos(pos[1] / this.radius);
+    this.theta = Math.atan2(pos[2], pos[0]);
+
     this.setupEventListeners();
-    this.updateCameraPosition();
   }
 
   private setupEventListeners(): void {
@@ -279,7 +287,7 @@ export class OrbitControls {
   private onWheel(e: WheelEvent): void {
     e.preventDefault();
     this.radius += e.deltaY * 0.01;
-    this.radius = Math.max(1, Math.min(20, this.radius));
+    this.radius = Math.max(1, Math.min(100, this.radius)); // Allow zooming out to 100 units
     this.updateCameraPosition();
   }
 

@@ -35,6 +35,36 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.log('3D Demo initialized successfully');
     demo.start();
 
+    // Wire up UI controls
+    const minusBtn = document.getElementById('minus-btn');
+    const plusBtn = document.getElementById('plus-btn');
+    const rollBtn = document.getElementById('roll-btn');
+    const diceSetsEl = document.getElementById('dice-sets');
+
+    if (minusBtn) {
+      minusBtn.addEventListener('click', () => {
+        demo.decrementDiceSets();
+        if (diceSetsEl) {
+          diceSetsEl.textContent = demo.getDiceSets().toString();
+        }
+      });
+    }
+
+    if (plusBtn) {
+      plusBtn.addEventListener('click', () => {
+        demo.incrementDiceSets();
+        if (diceSetsEl) {
+          diceSetsEl.textContent = demo.getDiceSets().toString();
+        }
+      });
+    }
+
+    if (rollBtn) {
+      rollBtn.addEventListener('click', () => {
+        demo.manualRoll();
+      });
+    }
+
     // Make demo available for debugging
     if (process.env.NODE_ENV === 'development') {
       window.__MISKATONIC_DEBUG__ = {
