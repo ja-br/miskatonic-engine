@@ -1,0 +1,39 @@
+{
+  "name": "@miskatonic/resources",
+  "version": "0.1.0",
+  "description": "Resource management system for Miskatonic Engine",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src/**/*.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "miskatonic",
+    "resources",
+    "assets",
+    "loader",
+    "cache"
+  ],
+  "author": "Miskatonic Engine Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.1"
+  },
+  "dependencies": {
+    "async-mutex": "^0.5.0",
+    "chokidar": "^4.0.3"
+  }
+}
