@@ -8,8 +8,16 @@ import {
   Camera,
   OrbitControls,
   createCube,
+  createSphere,
   type RendererConfig,
 } from '../../rendering/src';
+import {
+  PhysicsWorld,
+  RapierPhysicsEngine,
+  RigidBodyType,
+  CollisionShapeType,
+  type RigidBodyHandle,
+} from '../../physics/src';
 
 export class Demo {
   private canvas: HTMLCanvasElement;
@@ -24,10 +32,20 @@ export class Demo {
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
-  private vertexBufferId: string = 'cube-positions';
-  private normalBufferId: string = 'cube-normals';
-  private indexBufferId: string = 'cube-indices';
-  private indexCount: number = 0;
+  private cubeVertexBufferId: string = 'cube-positions';
+  private cubeNormalBufferId: string = 'cube-normals';
+  private cubeIndexBufferId: string = 'cube-indices';
+  private cubeIndexCount: number = 0;
+  private sphereVertexBufferId: string = 'sphere-positions';
+  private sphereNormalBufferId: string = 'sphere-normals';
+  private sphereIndexBufferId: string = 'sphere-indices';
+  private sphereIndexCount: number = 0;
+
+  // Physics
+  private physicsWorld: PhysicsWorld | null = null;
+  private diceBodies: Array<{ handle: RigidBodyHandle; sides: number }> = [];
+  private groundBody: RigidBodyHandle | null = null;
+  private lastTime: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -72,6 +90,9 @@ export class Demo {
 
       // Create cube geometry
       this.createGeometry();
+
+      // Initialize physics world
+      await this.initializePhysics();
 
       console.log('Renderer initialized successfully');
       console.log('Backend:', RenderBackend.WEBGL2);
@@ -156,34 +177,130 @@ export class Demo {
   private createGeometry(): void {
     if (!this.renderer) return;
 
-    const cubeData = createCube(1.0);
     const bufferManager = this.renderer.getBufferManager();
 
-    // Create vertex buffer
+    // Create cube geometry
+    const cubeData = createCube(1.0);
     bufferManager.createBuffer(
-      this.vertexBufferId,
+      this.cubeVertexBufferId,
       'vertex',
       cubeData.positions,
       'static_draw'
     );
-
-    // Create normal buffer
     bufferManager.createBuffer(
-      this.normalBufferId,
+      this.cubeNormalBufferId,
       'vertex',
       cubeData.normals,
       'static_draw'
     );
-
-    // Create index buffer
     bufferManager.createBuffer(
-      this.indexBufferId,
+      this.cubeIndexBufferId,
       'index',
       cubeData.indices,
       'static_draw'
     );
+    this.cubeIndexCount = cubeData.indices.length;
 
-    this.indexCount = cubeData.indices.length;
+    // Create sphere geometry
+    const sphereData = createSphere(0.5, 16, 12);
+    bufferManager.createBuffer(
+      this.sphereVertexBufferId,
+      'vertex',
+      sphereData.positions,
+      'static_draw'
+    );
+    bufferManager.createBuffer(
+      this.sphereNormalBufferId,
+      'vertex',
+      sphereData.normals,
+      'static_draw'
+    );
+    bufferManager.createBuffer(
+      this.sphereIndexBufferId,
+      'index',
+      sphereData.indices,
+      'static_draw'
+    );
+    this.sphereIndexCount = sphereData.indices.length;
+  }
+
+  private async initializePhysics(): Promise<void> {
+    console.log('Initializing physics...');
+
+    // Create physics world with Rapier engine
+    const engine = new RapierPhysicsEngine();
+    this.physicsWorld = await PhysicsWorld.create(engine, {
+      gravity: { x: 0, y: -9.81, z: 0 },
+      timestep: 1 / 60,
+    });
+
+    // Create ground plane (static)
+    this.groundBody = this.physicsWorld.createRigidBody({
+      type: RigidBodyType.STATIC,
+      position: { x: 0, y: -2, z: 0 },
+      collisionShape: {
+        type: CollisionShapeType.BOX,
+        halfExtents: { x: 10, y: 0.5, z: 10 },
+      },
+      friction: 0.5,
+      restitution: 0.3,
+    });
+
+    // Create gaming dice set
+    const dice = [
+      // D4 (tetrahedron - use small sphere as approximation)
+      { sides: 4, position: { x: -4, y: 10, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.4 },
+      // D6 (cube)
+      { sides: 6, position: { x: -2, y: 12, z: 0 }, shape: CollisionShapeType.BOX, halfExtents: { x: 0.5, y: 0.5, z: 0.5 } },
+      // D8 (octahedron - use sphere)
+      { sides: 8, position: { x: 0, y: 14, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.5 },
+      // D10 (pentagonal trapezohedron - use cylinder)
+      { sides: 10, position: { x: 2, y: 16, z: 0 }, shape: CollisionShapeType.CYLINDER, radius: 0.45, height: 1.0 },
+      // D12 (dodecahedron - use sphere)
+      { sides: 12, position: { x: 4, y: 18, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.55 },
+      // D20 (icosahedron - use sphere)
+      { sides: 20, position: { x: 0, y: 20, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.6 },
+    ];
+
+    for (const die of dice) {
+      let collisionShape: any;
+
+      if (die.shape === CollisionShapeType.BOX) {
+        collisionShape = {
+          type: CollisionShapeType.BOX,
+          halfExtents: die.halfExtents,
+        };
+      } else if (die.shape === CollisionShapeType.SPHERE) {
+        collisionShape = {
+          type: CollisionShapeType.SPHERE,
+          radius: die.radius,
+        };
+      } else if (die.shape === CollisionShapeType.CYLINDER) {
+        collisionShape = {
+          type: CollisionShapeType.CYLINDER,
+          radius: die.radius,
+          height: die.height,
+        };
+      }
+
+      const handle = this.physicsWorld.createRigidBody({
+        type: RigidBodyType.DYNAMIC,
+        position: die.position,
+        collisionShape,
+        mass: 0.02, // Lighter like real dice
+        friction: 0.4,
+        restitution: 0.5,
+      });
+
+      this.diceBodies.push({ handle, sides: die.sides });
+    }
+
+    // Add collision callback to log collisions
+    this.physicsWorld.onCollision((event) => {
+      console.log('Collision detected:', event);
+    });
+
+    console.log('Physics initialized successfully');
   }
 
   start(): void {
@@ -253,7 +370,14 @@ export class Demo {
     if (!this.renderer || !this.camera) return;
 
     const now = performance.now();
-    const deltaTime = (now - this.startTime) / 1000;
+    const deltaTime = this.lastTime ? (now - this.lastTime) / 1000 : 0;
+    this.lastTime = now;
+
+    // Step physics simulation
+    let alpha = 0; // Interpolation factor
+    if (this.physicsWorld && deltaTime > 0) {
+      alpha = this.physicsWorld.step(deltaTime);
+    }
 
     const gl = this.renderer.getContext().gl;
     const shaderManager = this.renderer.getShaderManager();
@@ -272,21 +396,10 @@ export class Demo {
     // Use shader
     gl.useProgram(program.program);
 
-    // Create model matrix (identity for now)
-    const modelMatrix = new Float32Array([
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1,
-    ]);
-
     // Get view-projection matrix
     const viewProjMatrix = this.camera.getViewProjectionMatrix();
 
-    // Compute MVP matrix (projection * view * model)
-    const mvpMatrix = this.multiplyMatrices(viewProjMatrix, modelMatrix);
-
-    // Set uniforms
+    // Get uniform locations
     const mvpLoc = gl.getUniformLocation(program.program, 'uModelViewProjection');
     const modelLoc = gl.getUniformLocation(program.program, 'uModel');
     const normalMatLoc = gl.getUniformLocation(program.program, 'uNormalMatrix');
@@ -294,54 +407,118 @@ export class Demo {
     const cameraPosLoc = gl.getUniformLocation(program.program, 'uCameraPos');
     const baseColorLoc = gl.getUniformLocation(program.program, 'uBaseColor');
 
-    gl.uniformMatrix4fv(mvpLoc, false, mvpMatrix);
-    gl.uniformMatrix4fv(modelLoc, false, modelMatrix);
-    gl.uniformMatrix3fv(normalMatLoc, false, new Float32Array([
-      1, 0, 0,
-      0, 1, 0,
-      0, 0, 1,
-    ]));
+    // Set common uniforms
     gl.uniform3f(lightDirLoc, 0.5, 1.0, 0.5);
     const camPos = this.camera.getPosition();
     gl.uniform3f(cameraPosLoc, camPos[0], camPos[1], camPos[2]);
-    gl.uniform3f(baseColorLoc, 0.3, 0.6, 0.9);
 
-    // Bind vertex attributes
+    // Get attribute locations
     const posLoc = gl.getAttribLocation(program.program, 'aPosition');
     const normLoc = gl.getAttribLocation(program.program, 'aNormal');
 
-    const vertexBuffer = bufferManager.getBuffer(this.vertexBufferId);
-    if (vertexBuffer) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer.buffer);
-      gl.enableVertexAttribArray(posLoc);
-      gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-    }
+    let drawCalls = 0;
 
-    const normalBuffer = bufferManager.getBuffer(this.normalBufferId);
-    if (normalBuffer) {
-      gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer.buffer);
-      gl.enableVertexAttribArray(normLoc);
-      gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
-    }
+    // Helper function to get die color based on number of sides
+    const getDieColor = (sides: number): [number, number, number] => {
+      switch (sides) {
+        case 4: return [1.0, 0.3, 0.3];   // Red - D4
+        case 6: return [0.3, 0.8, 0.3];   // Green - D6
+        case 8: return [0.3, 0.5, 1.0];   // Blue - D8
+        case 10: return [0.9, 0.7, 0.2];  // Yellow - D10
+        case 12: return [0.8, 0.3, 0.9];  // Purple - D12
+        case 20: return [1.0, 0.5, 0.0];  // Orange - D20
+        default: return [0.7, 0.7, 0.7];  // Gray
+      }
+    };
 
-    // Bind index buffer and draw
-    const indexBuffer = bufferManager.getBuffer(this.indexBufferId);
-    if (indexBuffer) {
-      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer.buffer);
-      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_SHORT, 0);
+    // Get buffers
+    const cubeVertexBuffer = bufferManager.getBuffer(this.cubeVertexBufferId);
+    const cubeNormalBuffer = bufferManager.getBuffer(this.cubeNormalBufferId);
+    const cubeIndexBuffer = bufferManager.getBuffer(this.cubeIndexBufferId);
+    const sphereVertexBuffer = bufferManager.getBuffer(this.sphereVertexBufferId);
+    const sphereNormalBuffer = bufferManager.getBuffer(this.sphereNormalBufferId);
+    const sphereIndexBuffer = bufferManager.getBuffer(this.sphereIndexBufferId);
+
+    // Draw all dice
+    if (this.physicsWorld && this.diceBodies.length > 0) {
+      for (const die of this.diceBodies) {
+        const position = this.physicsWorld.getPosition(die.handle);
+        const rotation = this.physicsWorld.getRotation(die.handle);
+        const modelMatrix = this.createModelMatrix(position, rotation);
+        const mvpMatrix = this.multiplyMatrices(viewProjMatrix, modelMatrix);
+
+        // Use cube mesh for D6, sphere for everything else
+        const useCube = die.sides === 6;
+
+        if (useCube && cubeVertexBuffer && cubeNormalBuffer && cubeIndexBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexBuffer.buffer);
+          gl.enableVertexAttribArray(posLoc);
+          gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeNormalBuffer.buffer);
+          gl.enableVertexAttribArray(normLoc);
+          gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeIndexBuffer.buffer);
+        } else if (!useCube && sphereVertexBuffer && sphereNormalBuffer && sphereIndexBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, sphereVertexBuffer.buffer);
+          gl.enableVertexAttribArray(posLoc);
+          gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer.buffer);
+          gl.enableVertexAttribArray(normLoc);
+          gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer.buffer);
+        } else {
+          continue;
+        }
+
+        gl.uniformMatrix4fv(mvpLoc, false, mvpMatrix);
+        gl.uniformMatrix4fv(modelLoc, false, modelMatrix);
+        gl.uniformMatrix3fv(normalMatLoc, false, new Float32Array([
+          1, 0, 0,
+          0, 1, 0,
+          0, 0, 1,
+        ]));
+
+        const [r, g, b] = getDieColor(die.sides);
+        gl.uniform3f(baseColorLoc, r, g, b);
+
+        const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
+        gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+        drawCalls++;
+      }
     }
 
     // Update FPS counter
     this.frameCount++;
     if (now - this.lastFpsUpdate >= 1000) {
       const fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
-      this.updateStats(fps, 1, this.indexCount / 3);
+      const triangles = (this.indexCount / 3) * drawCalls;
+      this.updateStats(fps, drawCalls, triangles);
       this.frameCount = 0;
       this.lastFpsUpdate = now;
     }
 
     this.animationId = requestAnimationFrame(this.renderLoop);
   };
+
+  private createModelMatrix(position: { x: number; y: number; z: number }, rotation: { x: number; y: number; z: number; w: number }): Float32Array {
+    // Convert quaternion to rotation matrix
+    const x = rotation.x, y = rotation.y, z = rotation.z, w = rotation.w;
+    const x2 = x + x, y2 = y + y, z2 = z + z;
+    const xx = x * x2, xy = x * y2, xz = x * z2;
+    const yy = y * y2, yz = y * z2, zz = z * z2;
+    const wx = w * x2, wy = w * y2, wz = w * z2;
+
+    return new Float32Array([
+      1 - (yy + zz), xy + wz,       xz - wy,       0,
+      xy - wz,       1 - (xx + zz), yz + wx,       0,
+      xz + wy,       yz - wx,       1 - (xx + yy), 0,
+      position.x,    position.y,    position.z,    1,
+    ]);
+  }
 
   private multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
     const out = new Float32Array(16);
@@ -402,6 +579,12 @@ export class Demo {
       this.controls = null;
     }
 
+    // Dispose physics world
+    if (this.physicsWorld) {
+      this.physicsWorld.dispose();
+      this.physicsWorld = null;
+    }
+
     // Dispose renderer
     if (this.renderer) {
       this.renderer.dispose();
@@ -409,5 +592,7 @@ export class Demo {
     }
 
     this.camera = null;
+    this.diceBodies = [];
+    this.groundBody = null;
   }
 }
