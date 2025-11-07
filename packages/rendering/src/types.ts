@@ -166,6 +166,7 @@ export enum RenderCommandType {
   SET_SHADER = 'set_shader',
   SET_UNIFORM = 'set_uniform',
   BIND_TEXTURE = 'bind_texture',
+  BIND_FRAMEBUFFER = 'bind_framebuffer',
 }
 
 /**
@@ -249,6 +250,14 @@ export interface BindTextureCommand {
 }
 
 /**
+ * Bind framebuffer command
+ */
+export interface BindFramebufferCommand {
+  type: RenderCommandType.BIND_FRAMEBUFFER;
+  framebufferId: string | null; // null = default framebuffer (screen)
+}
+
+/**
  * Union of all render commands
  */
 export type RenderCommand =
@@ -257,7 +266,8 @@ export type RenderCommand =
   | SetStateCommand
   | SetShaderCommand
   | SetUniformCommand
-  | BindTextureCommand;
+  | BindTextureCommand
+  | BindFramebufferCommand;
 
 /**
  * Rendering statistics

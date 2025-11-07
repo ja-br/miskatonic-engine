@@ -32,6 +32,10 @@ export interface FramebufferDescriptor {
   colorTextures: string[];
   depthTexture?: string;
   stencilTexture?: string;
+  // MSAA renderbuffers (used instead of textures when samples > 1)
+  msaaColorRenderbuffers?: WebGLRenderbuffer[];
+  msaaDepthRenderbuffer?: WebGLRenderbuffer;
+  msaaStencilRenderbuffer?: WebGLRenderbuffer;
 }
 
 /**
@@ -94,13 +98,52 @@ export class FramebufferManager {
 
     const colorTextures: string[] = [];
     const drawBuffers: number[] = [];
+    const msaaColorRenderbuffers: WebGLRenderbuffer[] = [];
+    const samples = config.samples ?? 0;
+    const isMultisampled = samples > 1;
 
-    // Attach color textures
+    // Validate sample count
+    if (isMultisampled) {
+      const maxSamples = this.gl.getParameter(this.gl.MAX_SAMPLES);
+      if (samples > maxSamples) {
+        this.gl.deleteFramebuffer(framebuffer);
+        throw new Error(`Sample count ${samples} exceeds maximum supported samples ${maxSamples}`);
+      }
+    }
+
+    // Attach color attachments (textures or MSAA renderbuffers)
     if (config.colorAttachments) {
       for (let i = 0; i < config.colorAttachments.length; i++) {
         const attachment = config.colorAttachments[i];
-        if (attachment.texture) {
-          // Validate texture format
+
+        if (isMultisampled) {
+          // Use renderbuffer for MSAA
+          const format = attachment.format === 'rgb' ? this.gl.RGB8 : this.gl.RGBA8;
+          const renderbuffer = this.gl.createRenderbuffer();
+          if (!renderbuffer) {
+            this.cleanupFramebufferResources(framebuffer, msaaColorRenderbuffers, undefined, undefined);
+            throw new Error(`Failed to create MSAA color renderbuffer ${i}`);
+          }
+
+          this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
+          this.gl.renderbufferStorageMultisample(
+            this.gl.RENDERBUFFER,
+            samples,
+            format,
+            config.width,
+            config.height
+          );
+          this.gl.framebufferRenderbuffer(
+            this.gl.FRAMEBUFFER,
+            this.gl.COLOR_ATTACHMENT0 + i,
+            this.gl.RENDERBUFFER,
+            renderbuffer
+          );
+
+          msaaColorRenderbuffers.push(renderbuffer);
+          drawBuffers.push(this.gl.COLOR_ATTACHMENT0 + i);
+        } else if (attachment.texture) {
+          // Use texture for non-MSAA
           const metadata = getTextureMetadata(attachment.texture);
           if (!metadata) {
             this.gl.deleteFramebuffer(framebuffer);
@@ -136,77 +179,135 @@ export class FramebufferManager {
       this.gl.drawBuffers(drawBuffers);
     }
 
-    // Attach depth texture
+    // Attach depth attachment (texture or MSAA renderbuffer)
     let depthTexture: string | undefined;
-    if (config.depthAttachment?.texture) {
-      // Validate depth texture format
-      const metadata = getTextureMetadata(config.depthAttachment.texture);
-      if (!metadata) {
-        this.gl.deleteFramebuffer(framebuffer);
-        throw new Error(`Depth texture metadata not found: ${config.depthAttachment.texture}`);
-      }
-      if (metadata.format !== 'depth' && metadata.format !== 'depth_stencil') {
-        this.gl.deleteFramebuffer(framebuffer);
-        throw new Error(`Invalid depth attachment format: ${metadata.format} (must be depth or depth_stencil)`);
-      }
-      if (metadata.width !== config.width || metadata.height !== config.height) {
-        this.gl.deleteFramebuffer(framebuffer);
-        throw new Error(`Depth texture dimensions don't match framebuffer`);
-      }
+    let msaaDepthRenderbuffer: WebGLRenderbuffer | undefined;
+    if (config.depthAttachment) {
+      if (isMultisampled) {
+        // Use renderbuffer for MSAA
+        const format = config.depthAttachment.format === 'depth_stencil'
+          ? this.gl.DEPTH24_STENCIL8
+          : this.gl.DEPTH_COMPONENT24;
+        const renderbuffer = this.gl.createRenderbuffer();
+        if (!renderbuffer) {
+          this.cleanupFramebufferResources(framebuffer, msaaColorRenderbuffers, undefined, undefined);
+          throw new Error(`Failed to create MSAA depth renderbuffer`);
+        }
 
-      const texture = getTexture(config.depthAttachment.texture);
-      if (texture) {
-        this.gl.framebufferTexture2D(
+        this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
+        this.gl.renderbufferStorageMultisample(
+          this.gl.RENDERBUFFER,
+          samples,
+          format,
+          config.width,
+          config.height
+        );
+        this.gl.framebufferRenderbuffer(
           this.gl.FRAMEBUFFER,
           this.gl.DEPTH_ATTACHMENT,
-          this.gl.TEXTURE_2D,
-          texture,
-          0
+          this.gl.RENDERBUFFER,
+          renderbuffer
         );
-        depthTexture = config.depthAttachment.texture;
+
+        msaaDepthRenderbuffer = renderbuffer;
+      } else if (config.depthAttachment.texture) {
+        // Use texture for non-MSAA
+        const metadata = getTextureMetadata(config.depthAttachment.texture);
+        if (!metadata) {
+          this.gl.deleteFramebuffer(framebuffer);
+          throw new Error(`Depth texture metadata not found: ${config.depthAttachment.texture}`);
+        }
+        if (metadata.format !== 'depth' && metadata.format !== 'depth_stencil') {
+          this.gl.deleteFramebuffer(framebuffer);
+          throw new Error(`Invalid depth attachment format: ${metadata.format} (must be depth or depth_stencil)`);
+        }
+        if (metadata.width !== config.width || metadata.height !== config.height) {
+          this.gl.deleteFramebuffer(framebuffer);
+          throw new Error(`Depth texture dimensions don't match framebuffer`);
+        }
+
+        const texture = getTexture(config.depthAttachment.texture);
+        if (texture) {
+          this.gl.framebufferTexture2D(
+            this.gl.FRAMEBUFFER,
+            this.gl.DEPTH_ATTACHMENT,
+            this.gl.TEXTURE_2D,
+            texture,
+            0
+          );
+          depthTexture = config.depthAttachment.texture;
+        }
       }
     }
 
-    // Attach stencil texture
+    // Attach stencil attachment (texture or MSAA renderbuffer)
     let stencilTexture: string | undefined;
-    if (config.stencilAttachment?.texture) {
-      // Validate stencil texture format
-      const metadata = getTextureMetadata(config.stencilAttachment.texture);
-      if (!metadata) {
-        this.gl.deleteFramebuffer(framebuffer);
-        throw new Error(`Stencil texture metadata not found: ${config.stencilAttachment.texture}`);
-      }
-      if (metadata.format !== 'depth_stencil') {
-        this.gl.deleteFramebuffer(framebuffer);
-        throw new Error(`Invalid stencil attachment format: ${metadata.format} (must be depth_stencil)`);
-      }
-      if (metadata.width !== config.width || metadata.height !== config.height) {
-        this.gl.deleteFramebuffer(framebuffer);
-        throw new Error(`Stencil texture dimensions don't match framebuffer`);
-      }
+    let msaaStencilRenderbuffer: WebGLRenderbuffer | undefined;
+    if (config.stencilAttachment) {
+      if (isMultisampled) {
+        // Use renderbuffer for MSAA
+        const renderbuffer = this.gl.createRenderbuffer();
+        if (!renderbuffer) {
+          this.cleanupFramebufferResources(framebuffer, msaaColorRenderbuffers, msaaDepthRenderbuffer, undefined);
+          throw new Error(`Failed to create MSAA stencil renderbuffer`);
+        }
 
-      const texture = getTexture(config.stencilAttachment.texture);
-      if (texture) {
-        this.gl.framebufferTexture2D(
+        this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
+        this.gl.renderbufferStorageMultisample(
+          this.gl.RENDERBUFFER,
+          samples,
+          this.gl.DEPTH24_STENCIL8,
+          config.width,
+          config.height
+        );
+        this.gl.framebufferRenderbuffer(
           this.gl.FRAMEBUFFER,
           this.gl.STENCIL_ATTACHMENT,
-          this.gl.TEXTURE_2D,
-          texture,
-          0
+          this.gl.RENDERBUFFER,
+          renderbuffer
         );
-        stencilTexture = config.stencilAttachment.texture;
+
+        msaaStencilRenderbuffer = renderbuffer;
+      } else if (config.stencilAttachment.texture) {
+        // Use texture for non-MSAA
+        const metadata = getTextureMetadata(config.stencilAttachment.texture);
+        if (!metadata) {
+          this.gl.deleteFramebuffer(framebuffer);
+          throw new Error(`Stencil texture metadata not found: ${config.stencilAttachment.texture}`);
+        }
+        if (metadata.format !== 'depth_stencil') {
+          this.gl.deleteFramebuffer(framebuffer);
+          throw new Error(`Invalid stencil attachment format: ${metadata.format} (must be depth_stencil)`);
+        }
+        if (metadata.width !== config.width || metadata.height !== config.height) {
+          this.gl.deleteFramebuffer(framebuffer);
+          throw new Error(`Stencil texture dimensions don't match framebuffer`);
+        }
+
+        const texture = getTexture(config.stencilAttachment.texture);
+        if (texture) {
+          this.gl.framebufferTexture2D(
+            this.gl.FRAMEBUFFER,
+            this.gl.STENCIL_ATTACHMENT,
+            this.gl.TEXTURE_2D,
+            texture,
+            0
+          );
+          stencilTexture = config.stencilAttachment.texture;
+        }
       }
     }
 
     // Check framebuffer completeness
     const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
     if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
-      this.gl.deleteFramebuffer(framebuffer);
+      this.cleanupFramebufferResources(framebuffer, msaaColorRenderbuffers, msaaDepthRenderbuffer, msaaStencilRenderbuffer);
       throw new Error(`Framebuffer incomplete: ${this.getFramebufferStatusString(status)}`);
     }
 
-    // Unbind framebuffer
+    // Unbind framebuffer and renderbuffer
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, null);
 
     // Create descriptor
     const descriptor: FramebufferDescriptor = {
@@ -216,6 +317,9 @@ export class FramebufferManager {
       colorTextures,
       depthTexture,
       stencilTexture,
+      msaaColorRenderbuffers: msaaColorRenderbuffers.length > 0 ? msaaColorRenderbuffers : undefined,
+      msaaDepthRenderbuffer,
+      msaaStencilRenderbuffer,
     };
 
     this.framebuffers.set(id, descriptor);
@@ -273,6 +377,20 @@ export class FramebufferManager {
     const descriptor = this.framebuffers.get(id);
     if (descriptor) {
       this.gl.deleteFramebuffer(descriptor.framebuffer);
+
+      // Clean up MSAA renderbuffers if they exist
+      if (descriptor.msaaColorRenderbuffers) {
+        for (const rb of descriptor.msaaColorRenderbuffers) {
+          this.gl.deleteRenderbuffer(rb);
+        }
+      }
+      if (descriptor.msaaDepthRenderbuffer) {
+        this.gl.deleteRenderbuffer(descriptor.msaaDepthRenderbuffer);
+      }
+      if (descriptor.msaaStencilRenderbuffer) {
+        this.gl.deleteRenderbuffer(descriptor.msaaStencilRenderbuffer);
+      }
+
       this.framebuffers.delete(id);
 
       if (this.currentFramebuffer === id) {
@@ -305,6 +423,10 @@ export class FramebufferManager {
     mask: number,
     filter: 'nearest' | 'linear'
   ): void {
+    // Save current framebuffer bindings
+    const savedReadFb = this.gl.getParameter(this.gl.READ_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+    const savedDrawFb = this.gl.getParameter(this.gl.DRAW_FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+
     const srcFb = srcId ? this.framebuffers.get(srcId)?.framebuffer ?? null : null;
     const dstFb = dstId ? this.framebuffers.get(dstId)?.framebuffer ?? null : null;
 
@@ -315,9 +437,30 @@ export class FramebufferManager {
 
     this.gl.blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, glFilter);
 
-    // Restore current framebuffer
-    const current = this.currentFramebuffer ? this.framebuffers.get(this.currentFramebuffer)?.framebuffer ?? null : null;
-    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, current);
+    // Restore previous framebuffer bindings
+    this.gl.bindFramebuffer(this.gl.READ_FRAMEBUFFER, savedReadFb);
+    this.gl.bindFramebuffer(this.gl.DRAW_FRAMEBUFFER, savedDrawFb);
+  }
+
+  /**
+   * Clean up framebuffer resources (helper for error handling)
+   */
+  private cleanupFramebufferResources(
+    framebuffer: WebGLFramebuffer,
+    colorRenderbuffers: WebGLRenderbuffer[],
+    depthRenderbuffer: WebGLRenderbuffer | undefined,
+    stencilRenderbuffer: WebGLRenderbuffer | undefined
+  ): void {
+    this.gl.deleteFramebuffer(framebuffer);
+    for (const rb of colorRenderbuffers) {
+      this.gl.deleteRenderbuffer(rb);
+    }
+    if (depthRenderbuffer) {
+      this.gl.deleteRenderbuffer(depthRenderbuffer);
+    }
+    if (stencilRenderbuffer) {
+      this.gl.deleteRenderbuffer(stencilRenderbuffer);
+    }
   }
 
   /**
@@ -346,6 +489,19 @@ export class FramebufferManager {
   dispose(): void {
     for (const descriptor of this.framebuffers.values()) {
       this.gl.deleteFramebuffer(descriptor.framebuffer);
+
+      // Clean up MSAA renderbuffers
+      if (descriptor.msaaColorRenderbuffers) {
+        for (const rb of descriptor.msaaColorRenderbuffers) {
+          this.gl.deleteRenderbuffer(rb);
+        }
+      }
+      if (descriptor.msaaDepthRenderbuffer) {
+        this.gl.deleteRenderbuffer(descriptor.msaaDepthRenderbuffer);
+      }
+      if (descriptor.msaaStencilRenderbuffer) {
+        this.gl.deleteRenderbuffer(descriptor.msaaStencilRenderbuffer);
+      }
     }
     this.framebuffers.clear();
     this.currentFramebuffer = null;

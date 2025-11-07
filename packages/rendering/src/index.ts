@@ -46,6 +46,7 @@ export {
   type SetShaderCommand,
   type SetUniformCommand,
   type BindTextureCommand,
+  type BindFramebufferCommand,
   type RenderCommand,
   type RenderStats,
   type RendererConfig,

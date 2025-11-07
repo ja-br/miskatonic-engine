@@ -6,6 +6,7 @@ import type {
   SetStateCommand,
   SetUniformCommand,
   BindTextureCommand,
+  BindFramebufferCommand,
   RenderStats,
   PrimitiveMode,
   VertexLayout,
@@ -15,6 +16,7 @@ import { RenderContext } from './RenderContext';
 import { ShaderManager } from './ShaderManager';
 import { BufferManager } from './BufferManager';
 import { TextureManager } from './TextureManager';
+import { FramebufferManager } from './FramebufferManager';
 
 /**
  * Command buffer for recording and executing render commands
@@ -31,6 +33,7 @@ export class CommandBuffer {
   private shaderManager: ShaderManager;
   private bufferManager: BufferManager;
   private textureManager: TextureManager;
+  private framebufferManager: FramebufferManager;
 
   private commands: RenderCommand[] = [];
   private stats: RenderStats = this.createEmptyStats();
@@ -40,12 +43,14 @@ export class CommandBuffer {
     context: RenderContext,
     shaderManager: ShaderManager,
     bufferManager: BufferManager,
-    textureManager: TextureManager
+    textureManager: TextureManager,
+    framebufferManager: FramebufferManager
   ) {
     this.context = context;
     this.shaderManager = shaderManager;
     this.bufferManager = bufferManager;
     this.textureManager = textureManager;
+    this.framebufferManager = framebufferManager;
   }
 
   /**
@@ -84,6 +89,16 @@ export class CommandBuffer {
     this.commands.push({
       type: 'draw' as RenderCommandType.DRAW,
       ...command,
+    });
+  }
+
+  /**
+   * Add bind framebuffer command
+   */
+  bindFramebuffer(framebufferId: string | null): void {
+    this.commands.push({
+      type: 'bind_framebuffer' as RenderCommandType.BIND_FRAMEBUFFER,
+      framebufferId,
     });
   }
 
@@ -132,6 +147,10 @@ export class CommandBuffer {
 
         case 'bind_texture':
           this.executeBindTexture(command);
+          break;
+
+        case 'bind_framebuffer':
+          this.executeBindFramebuffer(command);
           break;
       }
     }
@@ -309,6 +328,13 @@ export class CommandBuffer {
   private executeBindTexture(command: BindTextureCommand): void {
     this.context.bindTexture(command.texture, command.unit);
     this.stats.textureBinds++;
+  }
+
+  /**
+   * Execute bind framebuffer command
+   */
+  private executeBindFramebuffer(command: BindFramebufferCommand): void {
+    this.framebufferManager.bindFramebuffer(command.framebufferId);
   }
 
   /**

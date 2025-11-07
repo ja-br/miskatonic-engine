@@ -377,6 +377,105 @@ Initiative (Domain)
 
 ---
 
+### Epic 2.5: Advanced ECS Features
+**Priority:** P1
+**Status:** ⏸️ Deferred
+**Acceptance Criteria:**
+- [ ] Component change detection implemented
+- [ ] Entity prefab system working
+- [ ] Change tracking has minimal performance impact (<5% overhead)
+- [ ] Prefabs support composition and inheritance
+
+#### User Stories:
+1. ⏭️ **As a developer**, I want component change detection for reactive systems
+2. ⏭️ **As a developer**, I want entity prefab system for efficient entity creation
+3. ⏭️ **As a developer**, I want change detection to be performant
+4. ⏭️ **As a developer**, I want prefabs to support composition
+
+#### Tasks Breakdown:
+- [ ] Add component change detection (deferred from Epic 2.1)
+  - [ ] Implement component versioning
+  - [ ] Track component modifications
+  - [ ] Query by changed components
+  - [ ] Minimize overhead with dirty flags
+- [ ] Create entity prefab system (deferred from Epic 2.1)
+  - [ ] Define prefab data structure
+  - [ ] Implement prefab instantiation
+  - [ ] Support prefab composition
+  - [ ] Add prefab inheritance
+  - [ ] Create prefab serialization
+- [ ] Write comprehensive unit tests
+- [ ] Create performance benchmarks
+- [ ] Document change detection API
+- [ ] Document prefab system API
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/ecs/`
+- **Change Detection**: Component version tracking, dirty flag optimization, query filtering by changes
+- **Prefab System**: Template-based entity creation, composition support, serialization format
+
+#### Dependencies:
+- Epic 2.1: Entity Component System (ECS) Core (foundation)
+
+---
+
+### Epic 2.6: Developer Tools & Profiling
+**Priority:** P2
+**Status:** ⏸️ Deferred
+**Acceptance Criteria:**
+- [ ] ECS debugging tools available
+- [ ] Performance benchmarks for ECS operations
+- [ ] Event replay system working
+- [ ] Event profiling tools functional
+- [ ] Tools integrated into dev environment
+
+#### User Stories:
+1. ⏭️ **As a developer**, I want ECS debugging tools to inspect entities and components
+2. ⏭️ **As a developer**, I want performance benchmarks to measure ECS operations
+3. ⏭️ **As a developer**, I want event replay for debugging complex interactions
+4. ⏭️ **As a developer**, I want event profiling to identify bottlenecks
+
+#### Tasks Breakdown:
+- [ ] Build ECS debugging tools (deferred from Epic 2.1)
+  - [ ] Entity inspector UI
+  - [ ] Component viewer
+  - [ ] System execution visualizer
+  - [ ] Query performance analyzer
+- [ ] Create ECS performance benchmarks (deferred from Epic 2.1)
+  - [ ] Entity creation/destruction benchmarks
+  - [ ] Component add/remove benchmarks
+  - [ ] Query performance benchmarks
+  - [ ] System execution benchmarks
+  - [ ] Memory usage profiling
+- [ ] Create event replay system for debugging (deferred from Epic 2.3)
+  - [ ] Event recording infrastructure
+  - [ ] Event playback system
+  - [ ] Timeline visualization
+  - [ ] Breakpoint support
+- [ ] Build event profiling tools (deferred from Epic 2.3)
+  - [ ] Handler execution time tracking
+  - [ ] Event dispatch frequency analysis
+  - [ ] Event queue depth monitoring
+  - [ ] Bottleneck identification
+- [ ] Integrate tools into development environment
+- [ ] Write tool documentation
+
+#### Implementation Details:
+**Packages:**
+- `/Users/bud/Code/miskatonic/packages/ecs/` - ECS tools and benchmarks
+- `/Users/bud/Code/miskatonic/packages/events/` - Event tools
+
+**Tools Architecture:**
+- **ECS Debugger**: Runtime inspection, visualization, performance analysis
+- **Event Profiler**: Timeline view, handler metrics, bottleneck detection
+- **Benchmarking**: Automated performance testing, regression detection
+
+#### Dependencies:
+- Epic 2.1: Entity Component System (ECS) Core (foundation)
+- Epic 2.3: Event System (foundation)
+
+---
+
 ## Initiative 3: Rendering & Graphics (INIT-003)
 **Dependencies:** INIT-002
 **Outcome:** Modern rendering pipeline with WebGL2/WebGPU

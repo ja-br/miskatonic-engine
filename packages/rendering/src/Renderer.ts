@@ -51,7 +51,8 @@ export class Renderer {
       this.context,
       this.shaderManager,
       this.bufferManager,
-      this.textureManager
+      this.textureManager,
+      this.framebufferManager
     );
 
     // Create render pass manager
