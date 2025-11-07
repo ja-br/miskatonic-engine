@@ -1,0 +1,39 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Main & Preload",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build:main"],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Build Renderer",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "build:renderer"],
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Clean",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "clean"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Dev",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "dev"],
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

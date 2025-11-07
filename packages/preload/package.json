@@ -1,0 +1,14 @@
+{
+  "name": "@miskatonic/preload",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "dependencies": {
+    "@miskatonic/shared": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.3",
+    "electron": "^27.1.3",
+    "typescript": "^5.3.3"
+  }
+}
