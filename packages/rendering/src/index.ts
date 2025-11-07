@@ -14,6 +14,7 @@ export { TextureManager, type TextureConfig, type TextureDescriptor } from './Te
 export { FramebufferManager, type FramebufferConfig, type FramebufferDescriptor, type FramebufferAttachment, type TextureMetadata } from './FramebufferManager';
 export { CommandBuffer } from './CommandBuffer';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
+export { MaterialManager, type Material, type MaterialConfig, type PBRMaterialProperties, type MaterialTextures } from './Material';
 
 // Types and enums
 export {

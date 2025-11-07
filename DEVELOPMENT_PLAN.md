@@ -556,14 +556,32 @@ Initiative (Domain)
 4. **As a game**, I need realistic lighting
 
 #### Tasks Breakdown:
-- [ ] Implement PBR shading model
-- [ ] Create material property system
+- [x] Implement PBR shading model
+  - [x] Cook-Torrance BRDF implementation
+  - [x] Fresnel-Schlick approximation
+  - [x] GGX/Trowbridge-Reitz NDF
+  - [x] Smith's Schlick-GGX geometry function
+- [x] Create material property system
+  - [x] PBR material properties (baseColor, metallic, roughness)
+  - [x] Material textures (baseColorMap, metallicRoughnessMap, normalMap, etc.)
+  - [x] MaterialManager with validation and lifecycle management
 - [ ] Build material instance batching
 - [ ] Add texture array support
 - [ ] Implement IBL (Image-Based Lighting)
 - [ ] Create material LOD system
 - [ ] Build material editor UI
 - [ ] Add material hot-reload
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/rendering/`
+- **Material.ts**: Material property system with PBR properties and MaterialManager
+- **shaders/pbr.vert.glsl**: PBR vertex shader with TBN matrix for normal mapping
+- **shaders/pbr.frag.glsl**: PBR fragment shader with Cook-Torrance BRDF
+  - Physically-based Cook-Torrance specular BRDF
+  - Lambertian diffuse with energy conservation
+  - Normal mapping support
+  - Metallic/roughness workflow
+  - Tone mapping and gamma correction
 
 ### Epic 3.4: Advanced Rendering Features
 **Priority:** P1
