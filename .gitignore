@@ -1,0 +1,111 @@
+# Dependencies
+node_modules/
+package-lock.json
+.pnpm-store/
+.yarn/
+.pnp.*
+
+# Build outputs
+dist/
+release/
+build/
+out/
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+electron-debug.log
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# IDE & Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-workspace
+*.sublime-project
+.claude
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+.vitest/
+
+# Environment & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+*.cert
+credentials.json
+secrets.json
+
+# Electron specific
+out/
+app-update.yml
+dev-app-update.yml
+.electron-builder.cache/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+.cache/
+.temp/
+tmp/
+
+# Crash reports & debugging
+crash-reports/
+*.dmp
+*.stackdump
+core
+
+# Game development specific
+*.blend1
+*.blend2
+*.blend3
+*.autosave
+*.backup
+*.fbx.meta
+
+# macOS specific
+.AppleDouble
+.LSOverride
+Icon
+
+# Windows specific
+[Tt]humbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux specific
+.directory
+.Trash-*
