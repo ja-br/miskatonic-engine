@@ -19,11 +19,22 @@ export type {
   CollisionEvent,
   RaycastHit,
   CollisionShape,
+  JointDescriptor,
+  JointHandle,
+  JointAnchor,
+  JointLimits,
+  JointMotor,
+  FixedJointDescriptor,
+  RevoluteJointDescriptor,
+  PrismaticJointDescriptor,
+  SphericalJointDescriptor,
+  GenericJointDescriptor,
 } from './types';
 
 export {
   RigidBodyType,
   CollisionShapeType,
+  JointType,
   DEFAULT_PHYSICS_CONFIG,
 } from './types';
 

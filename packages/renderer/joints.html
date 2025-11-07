@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'"
     />
-    <title>Miskatonic Engine</title>
+    <title>Miskatonic Engine - Joint Constraints Demo</title>
     <style>
       * {
         margin: 0;
@@ -52,9 +52,25 @@
         bottom: 10px;
         left: 10px;
         background: rgba(0, 0, 0, 0.7);
-        padding: 10px;
+        padding: 15px;
         border-radius: 4px;
-        font-size: 14px;
+        font-size: 12px;
+        line-height: 1.8;
+        max-width: 400px;
+      }
+
+      .demo-item {
+        margin-bottom: 8px;
+        padding-left: 10px;
+      }
+
+      .demo-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .demo-title {
+        font-weight: bold;
+        color: #4CAF50;
       }
 
       #controls {
@@ -69,14 +85,26 @@
       }
 
       .control-group {
-        margin-bottom: 10px;
+        margin-bottom: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .control-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .control-row {
         display: flex;
         align-items: center;
         gap: 10px;
       }
 
-      .control-group:last-child {
-        margin-bottom: 0;
+      .control-label {
+        color: #aaa;
+        font-size: 12px;
+        min-width: 80px;
       }
 
       button {
@@ -99,33 +127,16 @@
         background: #333;
       }
 
-      #dice-sets {
-        color: #0f0;
-        font-size: 18px;
+      input[type="range"] {
+        flex: 1;
+        min-width: 120px;
+      }
+
+      #motor-speed-value {
+        color: #4CAF50;
         font-weight: bold;
         min-width: 40px;
-        text-align: center;
-      }
-
-      #roll-btn {
-        background: #0a0;
-        padding: 10px 20px;
-        font-size: 16px;
-        font-weight: bold;
-      }
-
-      #roll-btn:hover {
-        background: #0c0;
-      }
-
-      #roll-btn:active {
-        background: #080;
-      }
-
-      #dice-count {
-        color: #888;
-        font-size: 12px;
-        margin-top: 5px;
+        text-align: right;
       }
 
       .nav-link {
@@ -149,26 +160,50 @@
         <div>FPS: <span id="fps">0</span></div>
         <div>Draw Calls: <span id="draw-calls">0</span></div>
         <div>Triangles: <span id="triangles">0</span></div>
+        <div>Bodies: <span id="bodies">0</span></div>
+        <div>Joints: <span id="joints">0</span></div>
       </div>
       <div id="info">
-        Miskatonic Engine - 3D Demo<br>
-        Mouse: Drag to rotate camera
-        <br><br>
-        <a href="/joints.html" class="nav-link">View Joint Constraints Demo →</a>
+        <strong>Joint Constraints Demo</strong><br><br>
+
+        <div class="demo-item">
+          <span class="demo-title">Chain (Left):</span> FIXED joints welding links together
+        </div>
+        <div class="demo-item">
+          <span class="demo-title">Door (Front-Left):</span> REVOLUTE joint with angle limits
+        </div>
+        <div class="demo-item">
+          <span class="demo-title">Pendulum (Front-Right):</span> REVOLUTE joint (free swing)
+        </div>
+        <div class="demo-item">
+          <span class="demo-title">Elevator (Right):</span> PRISMATIC joint (vertical slider)
+        </div>
+        <div class="demo-item">
+          <span class="demo-title">Ragdoll Arm (Center):</span> SPHERICAL + REVOLUTE joints
+        </div>
+        <div class="demo-item">
+          <span class="demo-title">Motor (Back-Left):</span> Powered REVOLUTE joint
+        </div>
+
+        <br>
+        <div style="color: #888; font-size: 11px;">
+          Mouse: Drag to rotate camera<br>
+          Scroll: Zoom in/out
+        </div>
+
+        <a href="/" class="nav-link">← Back to Dice Demo</a>
       </div>
       <div id="controls">
         <div class="control-group">
-          <button id="minus-btn">-</button>
-          <span id="dice-sets">1</span>
-          <button id="plus-btn">+</button>
+          <div class="control-label">Motor Control</div>
+          <div class="control-row">
+            <input type="range" id="motor-speed" min="-5" max="5" step="0.5" value="2" />
+            <span id="motor-speed-value">2.0</span>
+          </div>
         </div>
-        <div class="control-group">
-          <button id="roll-btn">ROLL DICE</button>
-        </div>
-        <div id="dice-count">6 dice total</div>
       </div>
     </div>
 
-    <script type="module" src="/src/index.ts"></script>
+    <script type="module" src="/src/joints.ts"></script>
   </body>
 </html>

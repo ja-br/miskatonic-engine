@@ -15,8 +15,11 @@ import type {
   CollisionEvent,
   RaycastHit,
   CollisionShape,
+  JointDescriptor,
+  JointHandle,
+  JointMotor,
 } from '../types';
-import { RigidBodyType, CollisionShapeType } from '../types';
+import { RigidBodyType, CollisionShapeType, JointType } from '../types';
 
 /**
  * Validate that a vector contains finite numbers
@@ -82,6 +85,10 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   private collisionEvents: CollisionEvent[] = [];
   private nextHandle: RigidBodyHandle = 1;
   private static readonly MAX_HANDLE = 2147483647; // 2^31 - 1 (max safe positive integer for handle)
+
+  // Joint constraint tracking
+  private joints = new Map<JointHandle, RAPIER.ImpulseJoint>();
+  private nextJointHandle: JointHandle = 1;
 
   async initialize(config: PhysicsWorldConfig): Promise<void> {
     // Initialize Rapier WASM module
@@ -374,7 +381,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     validateVector3(force, 'force');
 
     const body = this.bodies.get(handle);
-    if (!body) return;
+    if (!body) {
+      throw new Error(`Invalid body handle: ${handle}`);
+    }
 
     body.addForce(new RAPIER.Vector3(force.x, force.y, force.z), true);
   }
@@ -384,7 +393,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     validateVector3(impulse, 'impulse');
 
     const body = this.bodies.get(handle);
-    if (!body) return;
+    if (!body) {
+      throw new Error(`Invalid body handle: ${handle}`);
+    }
 
     body.applyImpulse(new RAPIER.Vector3(impulse.x, impulse.y, impulse.z), true);
   }
@@ -394,7 +405,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     validateVector3(torque, 'torque');
 
     const body = this.bodies.get(handle);
-    if (!body) return;
+    if (!body) {
+      throw new Error(`Invalid body handle: ${handle}`);
+    }
 
     body.addTorque(new RAPIER.Vector3(torque.x, torque.y, torque.z), true);
   }
@@ -471,6 +484,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     this.bodies.clear();
     this.colliders.clear();
     this.colliderHandleToBodyHandle.clear();
+    this.joints.clear();
     this.collisionEvents = [];
   }
 
@@ -596,5 +610,296 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       default:
         throw new Error(`Unknown collision shape type: ${shape.type}`);
     }
+  }
+
+  // ===== Joint Constraint Methods =====
+
+  /**
+   * Normalize and validate an axis vector
+   * @throws Error if axis is zero-length
+   */
+  private normalizeAxis(axis: Vector3): Vector3 {
+    const length = Math.sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+
+    if (length < 0.0001) {
+      throw new Error(
+        `Invalid axis vector: length is ${length}. ` +
+        `Axis must be non-zero. Provided: (${axis.x}, ${axis.y}, ${axis.z})`
+      );
+    }
+
+    // Normalize
+    return {
+      x: axis.x / length,
+      y: axis.y / length,
+      z: axis.z / length,
+    };
+  }
+
+  createJoint(descriptor: JointDescriptor): JointHandle {
+    if (!this.world) {
+      throw new Error('Physics engine not initialized');
+    }
+
+    // Get rigid bodies
+    const bodyA = this.bodies.get(descriptor.bodyA);
+    const bodyB = this.bodies.get(descriptor.bodyB);
+
+    if (!bodyA || !bodyB) {
+      throw new Error(`Invalid body handles: ${descriptor.bodyA}, ${descriptor.bodyB}`);
+    }
+
+    // Create joint params based on type
+    let jointParams: RAPIER.JointData;
+
+    switch (descriptor.type) {
+      case JointType.FIXED: {
+        // Fixed joint - weld two bodies together
+        const anchorA = new RAPIER.Vector3(
+          descriptor.anchorA.position.x,
+          descriptor.anchorA.position.y,
+          descriptor.anchorA.position.z
+        );
+        const anchorB = new RAPIER.Vector3(
+          descriptor.anchorB.position.x,
+          descriptor.anchorB.position.y,
+          descriptor.anchorB.position.z
+        );
+
+        const frameA = descriptor.anchorA.rotation
+          ? descriptor.anchorA.rotation
+          : { x: 0, y: 0, z: 0, w: 1 };
+        const frameB = descriptor.anchorB.rotation
+          ? descriptor.anchorB.rotation
+          : { x: 0, y: 0, z: 0, w: 1 };
+
+        jointParams = RAPIER.JointData.fixed(anchorA, frameA, anchorB, frameB);
+        break;
+      }
+
+      case JointType.REVOLUTE: {
+        // Revolute joint (hinge)
+        const anchorA = new RAPIER.Vector3(
+          descriptor.anchorA.position.x,
+          descriptor.anchorA.position.y,
+          descriptor.anchorA.position.z
+        );
+        const anchorB = new RAPIER.Vector3(
+          descriptor.anchorB.position.x,
+          descriptor.anchorB.position.y,
+          descriptor.anchorB.position.z
+        );
+
+        // Normalize axis vector to ensure valid joint behavior
+        const normalizedAxis = this.normalizeAxis(descriptor.axis);
+        const axis = new RAPIER.Vector3(
+          normalizedAxis.x,
+          normalizedAxis.y,
+          normalizedAxis.z
+        );
+
+        jointParams = RAPIER.JointData.revolute(anchorA, anchorB, axis);
+
+        // Apply limits if specified
+        if (descriptor.limits) {
+          jointParams.limitsEnabled = true;
+          jointParams.limits = [descriptor.limits.min, descriptor.limits.max];
+        }
+
+        break;
+      }
+
+      case JointType.PRISMATIC: {
+        // Prismatic joint (slider)
+        const anchorA = new RAPIER.Vector3(
+          descriptor.anchorA.position.x,
+          descriptor.anchorA.position.y,
+          descriptor.anchorA.position.z
+        );
+        const anchorB = new RAPIER.Vector3(
+          descriptor.anchorB.position.x,
+          descriptor.anchorB.position.y,
+          descriptor.anchorB.position.z
+        );
+
+        // Normalize axis vector to ensure valid joint behavior
+        const normalizedAxis = this.normalizeAxis(descriptor.axis);
+        const axis = new RAPIER.Vector3(
+          normalizedAxis.x,
+          normalizedAxis.y,
+          normalizedAxis.z
+        );
+
+        jointParams = RAPIER.JointData.prismatic(anchorA, anchorB, axis);
+
+        // Apply limits if specified
+        if (descriptor.limits) {
+          jointParams.limitsEnabled = true;
+          jointParams.limits = [descriptor.limits.min, descriptor.limits.max];
+        }
+
+        break;
+      }
+
+      case JointType.SPHERICAL: {
+        // Spherical joint (ball-and-socket)
+        const anchorA = new RAPIER.Vector3(
+          descriptor.anchorA.position.x,
+          descriptor.anchorA.position.y,
+          descriptor.anchorA.position.z
+        );
+        const anchorB = new RAPIER.Vector3(
+          descriptor.anchorB.position.x,
+          descriptor.anchorB.position.y,
+          descriptor.anchorB.position.z
+        );
+
+        jointParams = RAPIER.JointData.spherical(anchorA, anchorB);
+        break;
+      }
+
+      case JointType.GENERIC: {
+        // Generic 6-DOF joint
+        const anchorA = new RAPIER.Vector3(
+          descriptor.anchorA.position.x,
+          descriptor.anchorA.position.y,
+          descriptor.anchorA.position.z
+        );
+        const anchorB = new RAPIER.Vector3(
+          descriptor.anchorB.position.x,
+          descriptor.anchorB.position.y,
+          descriptor.anchorB.position.z
+        );
+
+        const frameA = descriptor.anchorA.rotation
+          ? descriptor.anchorA.rotation
+          : { x: 0, y: 0, z: 0, w: 1 };
+        const frameB = descriptor.anchorB.rotation
+          ? descriptor.anchorB.rotation
+          : { x: 0, y: 0, z: 0, w: 1 };
+
+        jointParams = RAPIER.JointData.generic(anchorA, frameA, anchorB, frameB);
+
+        // Configure linear limits (per-axis)
+        // Rapier's generic joint uses axis indices: 0=X, 1=Y, 2=Z for translation
+        if (descriptor.linearLimits) {
+          const { x, y, z } = descriptor.linearLimits;
+          if (x) {
+            jointParams.limitsEnabled = true;
+            jointParams.setLinearLimits?.(0, [x.min, x.max]);
+          }
+          if (y) {
+            jointParams.limitsEnabled = true;
+            jointParams.setLinearLimits?.(1, [y.min, y.max]);
+          }
+          if (z) {
+            jointParams.limitsEnabled = true;
+            jointParams.setLinearLimits?.(2, [z.min, z.max]);
+          }
+        }
+
+        // Configure angular limits (per-axis)
+        // Rapier's generic joint uses axis indices: 0=X, 1=Y, 2=Z for rotation
+        if (descriptor.angularLimits) {
+          const { x, y, z } = descriptor.angularLimits;
+          if (x) {
+            jointParams.limitsEnabled = true;
+            jointParams.setAngularLimits?.(0, [x.min, x.max]);
+          }
+          if (y) {
+            jointParams.limitsEnabled = true;
+            jointParams.setAngularLimits?.(1, [y.min, y.max]);
+          }
+          if (z) {
+            jointParams.limitsEnabled = true;
+            jointParams.setAngularLimits?.(2, [z.min, z.max]);
+          }
+        }
+
+        break;
+      }
+
+      default:
+        throw new Error(`Unknown joint type: ${(descriptor as any).type}`);
+    }
+
+    // Set collision between connected bodies
+    jointParams.contactsEnabled = descriptor.collideConnected ?? false;
+
+    // Create the joint
+    const joint = this.world.createImpulseJoint(jointParams, bodyA, bodyB, true);
+
+    // Store joint with unique handle
+    const handle = this.nextJointHandle++;
+    this.joints.set(handle, joint);
+
+    // Apply motor if specified (for revolute and prismatic joints)
+    if ('motor' in descriptor && descriptor.motor) {
+      this.setJointMotor(handle, descriptor.motor);
+    }
+
+    return handle;
+  }
+
+  removeJoint(handle: JointHandle): void {
+    if (!this.world) {
+      throw new Error('Physics engine not initialized');
+    }
+
+    const joint = this.joints.get(handle);
+    if (!joint) {
+      throw new Error(`Invalid joint handle: ${handle}`);
+    }
+
+    // Remove joint from Rapier world
+    this.world.removeImpulseJoint(joint, true);
+
+    // Remove from our tracking
+    this.joints.delete(handle);
+  }
+
+  setJointMotor(handle: JointHandle, motor: JointMotor | null): void {
+    const joint = this.joints.get(handle);
+    if (!joint) {
+      throw new Error(`Invalid joint handle: ${handle}`);
+    }
+
+    if (motor === null) {
+      // Disable motor
+      joint.configureMotorVelocity(0, 0);
+    } else {
+      // Enable motor with target velocity and max force
+      joint.configureMotorVelocity(motor.targetVelocity, motor.maxForce);
+    }
+  }
+
+  /**
+   * Get current joint value (angle for revolute, position for prismatic)
+   *
+   * LIMITATION: Rapier doesn't directly expose joint values in its API.
+   * To get accurate joint state, you must calculate it from the relative transforms
+   * of the connected bodies. This is intentional - Rapier focuses on constraint solving,
+   * not state queries.
+   *
+   * Workaround for accurate joint state:
+   * 1. Get positions/rotations of both connected bodies
+   * 2. Calculate relative transform based on joint type
+   * 3. Extract angle (revolute) or distance (prismatic)
+   *
+   * @returns 0 (placeholder - see limitation above)
+   */
+  getJointValue(handle: JointHandle): number {
+    const joint = this.joints.get(handle);
+    if (!joint) {
+      throw new Error(`Invalid joint handle: ${handle}`);
+    }
+
+    // TODO: Implement proper joint value calculation from body transforms
+    // This requires storing joint type and calculating based on:
+    // - Revolute: angle between bodies around joint axis
+    // - Prismatic: distance along joint axis
+    // - Spherical: N/A (free rotation)
+    // - Fixed: N/A (no degrees of freedom)
+    return 0;
   }
 }

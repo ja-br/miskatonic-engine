@@ -136,6 +136,124 @@ export interface PhysicsWorldConfig {
 }
 
 /**
+ * Joint constraint types
+ */
+export enum JointType {
+  FIXED = 'fixed',           // Fixed/weld joint - bodies welded together
+  REVOLUTE = 'revolute',     // Hinge joint - rotation around single axis
+  PRISMATIC = 'prismatic',   // Slider joint - translation along single axis
+  SPHERICAL = 'spherical',   // Ball-and-socket joint - free rotation
+  GENERIC = 'generic',       // Generic 6-DOF joint with configurable limits
+}
+
+/**
+ * Joint handle (opaque ID)
+ */
+export type JointHandle = number;
+
+/**
+ * Joint anchor point (attachment point on a body)
+ */
+export interface JointAnchor {
+  position: Vector3;  // Local position relative to body center
+  rotation?: Quaternion; // Local rotation (optional, for oriented joints)
+}
+
+/**
+ * Joint limits for revolute and prismatic joints
+ */
+export interface JointLimits {
+  min: number;  // Minimum value (angle in radians for revolute, distance for prismatic)
+  max: number;  // Maximum value
+}
+
+/**
+ * Motor parameters for powered joints
+ */
+export interface JointMotor {
+  targetVelocity: number;  // Desired velocity (rad/s for revolute, m/s for prismatic)
+  maxForce: number;        // Maximum force/torque the motor can apply
+}
+
+/**
+ * Base joint descriptor
+ */
+export interface BaseJointDescriptor {
+  type: JointType;
+  bodyA: RigidBodyHandle;
+  bodyB: RigidBodyHandle;
+  anchorA: JointAnchor;
+  anchorB: JointAnchor;
+  collideConnected?: boolean; // Allow connected bodies to collide (default: false)
+}
+
+/**
+ * Fixed joint descriptor
+ * Welds two bodies together at their anchor points
+ */
+export interface FixedJointDescriptor extends BaseJointDescriptor {
+  type: JointType.FIXED;
+}
+
+/**
+ * Revolute joint descriptor
+ * Constrains bodies to rotate around a single axis (hinge)
+ */
+export interface RevoluteJointDescriptor extends BaseJointDescriptor {
+  type: JointType.REVOLUTE;
+  axis: Vector3;           // Rotation axis in local space of bodyA
+  limits?: JointLimits;    // Optional angular limits
+  motor?: JointMotor;      // Optional motor
+}
+
+/**
+ * Prismatic joint descriptor
+ * Constrains bodies to slide along a single axis (slider)
+ */
+export interface PrismaticJointDescriptor extends BaseJointDescriptor {
+  type: JointType.PRISMATIC;
+  axis: Vector3;           // Slide axis in local space of bodyA
+  limits?: JointLimits;    // Optional distance limits
+  motor?: JointMotor;      // Optional motor
+}
+
+/**
+ * Spherical joint descriptor
+ * Allows free rotation around a point (ball-and-socket)
+ */
+export interface SphericalJointDescriptor extends BaseJointDescriptor {
+  type: JointType.SPHERICAL;
+}
+
+/**
+ * Generic joint descriptor
+ * 6-DOF joint with configurable linear and angular constraints
+ */
+export interface GenericJointDescriptor extends BaseJointDescriptor {
+  type: JointType.GENERIC;
+  linearLimits?: {
+    x?: JointLimits;
+    y?: JointLimits;
+    z?: JointLimits;
+  };
+  angularLimits?: {
+    x?: JointLimits;
+    y?: JointLimits;
+    z?: JointLimits;
+  };
+}
+
+/**
+ * Union type for all joint descriptors
+ */
+export type JointDescriptor =
+  | FixedJointDescriptor
+  | RevoluteJointDescriptor
+  | PrismaticJointDescriptor
+  | SphericalJointDescriptor
+  | GenericJointDescriptor;
+
+/**
  * Abstract physics engine interface
  *
  * All physics engines must implement this interface to be swappable
@@ -254,6 +372,31 @@ export interface IPhysicsEngine {
    * Dispose of the physics engine and free resources
    */
   dispose(): void;
+
+  /**
+   * Create a joint constraint between two rigid bodies
+   * @returns Handle to the created joint
+   */
+  createJoint(descriptor: JointDescriptor): JointHandle;
+
+  /**
+   * Remove a joint constraint
+   */
+  removeJoint(handle: JointHandle): void;
+
+  /**
+   * Set motor parameters for a joint (revolute or prismatic)
+   * @param handle Joint handle
+   * @param motor Motor parameters (velocity and max force)
+   */
+  setJointMotor(handle: JointHandle, motor: JointMotor | null): void;
+
+  /**
+   * Get current angle/position of a joint
+   * @param handle Joint handle
+   * @returns Current value (angle in radians for revolute, position for prismatic)
+   */
+  getJointValue(handle: JointHandle): number;
 }
 
 /**

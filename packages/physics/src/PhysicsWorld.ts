@@ -297,6 +297,34 @@ export class PhysicsWorld<TUserData = unknown> {
   }
 
   /**
+   * Create a joint constraint between two rigid bodies
+   */
+  createJoint(descriptor: import('./types').JointDescriptor): import('./types').JointHandle {
+    return this.engine.createJoint(descriptor);
+  }
+
+  /**
+   * Remove a joint constraint
+   */
+  removeJoint(handle: import('./types').JointHandle): void {
+    this.engine.removeJoint(handle);
+  }
+
+  /**
+   * Set motor parameters for a joint (revolute or prismatic)
+   */
+  setJointMotor(handle: import('./types').JointHandle, motor: import('./types').JointMotor | null): void {
+    this.engine.setJointMotor(handle, motor);
+  }
+
+  /**
+   * Get current angle/position of a joint
+   */
+  getJointValue(handle: import('./types').JointHandle): number {
+    return this.engine.getJointValue(handle);
+  }
+
+  /**
    * Dispose of the physics world
    */
   dispose(): void {

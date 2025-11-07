@@ -223,4 +223,27 @@ export class MockPhysicsEngine implements IPhysicsEngine {
     this.bodies.clear();
     this.collisionEvents = [];
   }
+
+  // Joint constraint methods (stub implementations)
+  createJoint(_descriptor: import('../types').JointDescriptor): import('../types').JointHandle {
+    // Mock implementation - just return a unique ID
+    console.warn('MockPhysicsEngine: createJoint() is a stub implementation');
+    return Math.random();
+  }
+
+  removeJoint(_handle: import('../types').JointHandle): void {
+    // Mock implementation - no-op
+    console.warn('MockPhysicsEngine: removeJoint() is a stub implementation');
+  }
+
+  setJointMotor(_handle: import('../types').JointHandle, _motor: import('../types').JointMotor | null): void {
+    // Mock implementation - no-op
+    console.warn('MockPhysicsEngine: setJointMotor() is a stub implementation');
+  }
+
+  getJointValue(_handle: import('../types').JointHandle): number {
+    // Mock implementation - return 0
+    console.warn('MockPhysicsEngine: getJointValue() is a stub implementation');
+    return 0;
+  }
 }
