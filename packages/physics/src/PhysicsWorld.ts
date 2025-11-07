@@ -22,11 +22,17 @@ import { DEFAULT_PHYSICS_CONFIG } from './types';
  * Design: Follows "swappable preferred" - physics engine can be changed at runtime
  * @template TUserData Type of user data to attach to rigid bodies
  */
+/**
+ * Collision callback function
+ */
+export type CollisionCallback = (event: CollisionEvent) => void;
+
 export class PhysicsWorld<TUserData = unknown> {
   private engine: IPhysicsEngine;
   private config: PhysicsWorldConfig;
   private accumulator: number = 0;
   private bodies = new Map<RigidBodyHandle, TUserData>(); // Store user data per body
+  private collisionCallbacks: CollisionCallback[] = [];
 
   private constructor(engine: IPhysicsEngine, config: PhysicsWorldConfig) {
     this.engine = engine;
@@ -72,6 +78,14 @@ export class PhysicsWorld<TUserData = unknown> {
       this.engine.step(timestep);
       this.accumulator -= timestep;
       substeps++;
+    }
+
+    // Process collision events and trigger callbacks
+    const collisionEvents = this.engine.getCollisionEvents();
+    for (const event of collisionEvents) {
+      for (const callback of this.collisionCallbacks) {
+        callback(event);
+      }
     }
 
     // Return interpolation factor for smooth rendering
@@ -232,6 +246,29 @@ export class PhysicsWorld<TUserData = unknown> {
    */
   wakeUp(handle: RigidBodyHandle): void {
     this.engine.wakeUp(handle);
+  }
+
+  /**
+   * Register a collision event callback
+   * @returns unsubscribe function
+   */
+  onCollision(callback: CollisionCallback): () => void {
+    this.collisionCallbacks.push(callback);
+
+    // Return unsubscribe function
+    return () => {
+      const index = this.collisionCallbacks.indexOf(callback);
+      if (index !== -1) {
+        this.collisionCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Remove all collision callbacks
+   */
+  clearCollisionCallbacks(): void {
+    this.collisionCallbacks.length = 0;
   }
 
   /**

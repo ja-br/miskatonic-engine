@@ -19,7 +19,7 @@ Initiative (Domain)
 
 ### Progress Summary
 
-**Completed Epics:** 5 of 50+ planned
+**Completed Epics:** 6 of 50+ planned
 
 | Epic | Status | Test Coverage | Key Achievement |
 |------|--------|---------------|-----------------|
@@ -27,9 +27,10 @@ Initiative (Domain)
 | 1.2 - Native OS Integration | ✅ Complete | Full | File dialogs, menus, tray, shortcuts, notifications |
 | 2.1 - ECS Core | ✅ Complete | 65/65 tests | Archetype-based ECS with generation validation |
 | 2.3 - Event System | ✅ Complete | 49/49 tests | Production-ready event bus with critical fixes |
-| 2.4 - Resource Management | ✅ Complete | 91/91 tests | Async loading, ref counting, hot-reload, memory profiling, production-ready |
+| 2.4 - Resource Management | ✅ Complete | 91/91 tests | Async loading, ref counting, hot-reload, memory profiling |
+| 4.2 - Collision System | ✅ Complete | Manual validation | All shape types, compound shapes, CCD, callbacks |
 
-**Current Focus:** Next epic selection (Core Engine Systems foundation complete)
+**Current Focus:** Epic 4.3: Rigid Body Dynamics or continue with rendering/multiplayer
 
 ---
 
@@ -761,29 +762,62 @@ Initiative (Domain)
 - All collision shape primitives (box, sphere, capsule, cylinder, cone)
 - Async initialization pattern for WASM-based engines
 
-### Epic 4.2: Collision System
+### Epic 4.2: Collision System ✅ **COMPLETE**
+**Status:** ✅ Completed November 2025
 **Priority:** P0
 **Acceptance Criteria:**
-- Collision detection working
-- Continuous collision implemented
-- Collision filtering complete
-- Trigger zones supported
+- ✅ Collision detection working
+- ✅ Continuous collision implemented
+- ✅ Collision filtering complete
+- ✅ Trigger zones supported
 
 #### User Stories:
-1. **As a developer**, I want accurate collision detection
-2. **As a developer**, I want collision filtering and layers
-3. **As a developer**, I want trigger zones for gameplay
-4. **As a game**, I need no collision tunneling
+1. ✅ **As a developer**, I want accurate collision detection
+2. ✅ **As a developer**, I want collision filtering and layers
+3. ✅ **As a developer**, I want trigger zones for gameplay
+4. ✅ **As a game**, I need no collision tunneling
 
 #### Tasks Breakdown:
-- [ ] Implement collision shape primitives
-- [ ] Add compound collision shapes
-- [ ] Create collision filtering system
-- [ ] Implement continuous collision detection
-- [ ] Add trigger zone support
-- [ ] Build collision callbacks system
-- [ ] Create collision debug rendering
-- [ ] Optimize collision broad phase
+- [x] Implement collision shape primitives (all 9 types)
+- [x] Add compound collision shapes
+- [x] Create collision filtering system (already existed, confirmed)
+- [x] Implement continuous collision detection (CCD)
+- [x] Add trigger zone support (isSensor, already existed)
+- [x] Build collision callbacks system
+- [ ] Create collision debug rendering (deferred - requires rendering integration)
+- [ ] Optimize collision broad phase (deferred - Rapier handles internally)
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/physics/`
+
+**Collision Shapes Implemented:**
+- ✅ BOX, SPHERE, CAPSULE, CYLINDER, CONE (primitives)
+- ✅ PLANE (infinite ground plane via large cuboid)
+- ✅ MESH (triangle mesh collider - trimesh)
+- ✅ CONVEX_HULL (convex hull from vertices)
+- ✅ HEIGHTFIELD (terrain with configurable scale)
+- ✅ COMPOUND (multiple shapes with relative transforms)
+
+**Key Features:**
+- Compound shapes: Multiple child shapes with positions/rotations
+- CCD: `enableCCD` flag prevents fast object tunneling
+- Collision callbacks: `PhysicsWorld.onCollision(callback)` with unsubscribe pattern
+- Collision filtering: Bitmask groups/masks (already existed)
+- Trigger zones: Sensor colliders (already existed)
+
+**Code Quality Fixes Applied (Code-Critic Review):**
+- ✅ Fixed memory leak in compound shape removal (atomic cleanup)
+- ✅ Added validation for compound child transforms
+- ✅ Made heightfield scale configurable (was hardcoded)
+- ✅ Improved convex hull error handling
+- ✅ Documented collision event data limitations
+- ✅ Prevented recursive compound shapes
+
+**Known Limitations:**
+- Collision event contact data (contactPoint, contactNormal, etc.) is NOT implemented
+  - All contact fields return default values (zeros)
+  - Rationale: Performance overhead of querying Rapier's contact manifold
+  - For detailed contact info, query Rapier directly via `getEngine().world.contactsWith()`
 
 ### Epic 4.3: Rigid Body Dynamics
 **Priority:** P0

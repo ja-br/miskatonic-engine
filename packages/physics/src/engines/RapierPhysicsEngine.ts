@@ -77,7 +77,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   private world: RAPIER.World | null = null;
   private eventQueue: RAPIER.EventQueue | null = null;
   private bodies = new Map<RigidBodyHandle, RAPIER.RigidBody>();
-  private colliders = new Map<RigidBodyHandle, RAPIER.Collider>();
+  private colliders = new Map<RigidBodyHandle, RAPIER.Collider[]>(); // Array for compound shapes
   private colliderHandleToBodyHandle = new Map<number, RigidBodyHandle>(); // Rapier collider handle -> our handle
   private collisionEvents: CollisionEvent[] = [];
   private nextHandle: RigidBodyHandle = 1;
@@ -117,17 +117,32 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       if (bodyA === undefined || bodyB === undefined) return;
 
       // Create collision event with minimal allocations
-      // Note: Full contact data (contact points, normals, impulses) would require
-      // querying Rapier's contact manifold API, which adds significant overhead.
-      // For performance, we provide basic collision events. Applications needing
-      // detailed contact data should query Rapier directly.
+      //
+      // LIMITATION: Contact data (contactPoint, contactNormal, penetrationDepth, impulse)
+      // is currently NOT implemented. All values are defaults (zeros).
+      //
+      // Rationale: Querying Rapier's contact manifold API requires iterating through
+      // the contact graph which adds O(n) overhead per collision. For high-frequency
+      // collision events (100s per frame), this becomes a performance bottleneck.
+      //
+      // If you need detailed contact information:
+      // 1. Query Rapier directly via engine.getEngine().world.contactsWith()
+      // 2. Or implement a filtered contact query for specific body pairs
+      // 3. Consider adding a "detailed collision mode" flag if needed
+      //
+      // For most gameplay code, knowing "which bodies collided" is sufficient.
+      // Detailed contact data is mainly needed for:
+      // - Particle effects at exact contact points
+      // - Custom physics constraints
+      // - Audio occlusion/reflection
+      //
       this.collisionEvents.push({
         bodyA,
         bodyB,
-        contactPoint: { x: 0, y: 0, z: 0 },
-        contactNormal: { x: 0, y: 1, z: 0 },
-        penetrationDepth: 0,
-        impulse: 0,
+        contactPoint: { x: 0, y: 0, z: 0 },       // NOT IMPLEMENTED - always zero
+        contactNormal: { x: 0, y: 1, z: 0 },      // NOT IMPLEMENTED - always up vector
+        penetrationDepth: 0,                       // NOT IMPLEMENTED - always zero
+        impulse: 0,                                // NOT IMPLEMENTED - always zero
       });
     });
   }
@@ -175,31 +190,79 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
     // Create rigid body
     const rigidBodyDesc = this.createRigidBodyDesc(descriptor);
+
+    // Enable continuous collision detection if requested
+    if (descriptor.enableCCD) {
+      rigidBodyDesc.setCcdEnabled(true);
+    }
+
     const rigidBody = this.world.createRigidBody(rigidBodyDesc);
 
-    // Create collider
-    const colliderDesc = this.createColliderDesc(descriptor.collisionShape);
-    colliderDesc.setDensity(descriptor.mass || 1.0);
-    colliderDesc.setFriction(descriptor.friction ?? 0.5);
-    colliderDesc.setRestitution(descriptor.restitution ?? 0.3);
+    // Create collider(s) - compound shapes have multiple colliders
+    const colliders: RAPIER.Collider[] = [];
 
-    if (descriptor.isSensor) {
-      colliderDesc.setSensor(true);
+    if (descriptor.collisionShape.type === CollisionShapeType.COMPOUND) {
+      // Compound shape - create multiple colliders
+      if (!descriptor.collisionShape.shapes || descriptor.collisionShape.shapes.length === 0) {
+        throw new Error('COMPOUND shape requires at least one child shape');
+      }
+
+      for (const childShape of descriptor.collisionShape.shapes) {
+        // Prevent recursive compound shapes - Rapier doesn't support this
+        if (childShape.shape.type === CollisionShapeType.COMPOUND) {
+          throw new Error('COMPOUND shapes cannot contain other COMPOUND shapes (recursive nesting not supported)');
+        }
+
+        // Validate child shape transforms
+        validateVector3(childShape.position, 'compound child shape position');
+        validateQuaternion(childShape.rotation, 'compound child shape rotation');
+
+        const colliderDesc = this.createColliderDesc(childShape.shape);
+        colliderDesc.setDensity(descriptor.mass || 1.0);
+        colliderDesc.setFriction(descriptor.friction ?? 0.5);
+        colliderDesc.setRestitution(descriptor.restitution ?? 0.3);
+        colliderDesc.setTranslation(childShape.position.x, childShape.position.y, childShape.position.z);
+        colliderDesc.setRotation(childShape.rotation);
+
+        if (descriptor.isSensor) {
+          colliderDesc.setSensor(true);
+        }
+
+        if (descriptor.collisionGroups !== undefined && descriptor.collisionMask !== undefined) {
+          colliderDesc.setCollisionGroups(
+            (descriptor.collisionGroups & 0xFFFF) | ((descriptor.collisionMask & 0xFFFF) << 16)
+          );
+        }
+
+        const collider = this.world.createCollider(colliderDesc, rigidBody);
+        colliders.push(collider);
+        this.colliderHandleToBodyHandle.set(collider.handle, handle);
+      }
+    } else {
+      // Single shape
+      const colliderDesc = this.createColliderDesc(descriptor.collisionShape);
+      colliderDesc.setDensity(descriptor.mass || 1.0);
+      colliderDesc.setFriction(descriptor.friction ?? 0.5);
+      colliderDesc.setRestitution(descriptor.restitution ?? 0.3);
+
+      if (descriptor.isSensor) {
+        colliderDesc.setSensor(true);
+      }
+
+      if (descriptor.collisionGroups !== undefined && descriptor.collisionMask !== undefined) {
+        colliderDesc.setCollisionGroups(
+          (descriptor.collisionGroups & 0xFFFF) | ((descriptor.collisionMask & 0xFFFF) << 16)
+        );
+      }
+
+      const collider = this.world.createCollider(colliderDesc, rigidBody);
+      colliders.push(collider);
+      this.colliderHandleToBodyHandle.set(collider.handle, handle);
     }
-
-    // Set collision filtering
-    if (descriptor.collisionGroups !== undefined && descriptor.collisionMask !== undefined) {
-      colliderDesc.setCollisionGroups(
-        (descriptor.collisionGroups & 0xFFFF) | ((descriptor.collisionMask & 0xFFFF) << 16)
-      );
-    }
-
-    const collider = this.world.createCollider(colliderDesc, rigidBody);
 
     // Store references
     this.bodies.set(handle, rigidBody);
-    this.colliders.set(handle, collider);
-    this.colliderHandleToBodyHandle.set(collider.handle, handle);
+    this.colliders.set(handle, colliders);
 
     return handle;
   }
@@ -207,17 +270,30 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   removeRigidBody(handle: RigidBodyHandle): void {
     if (!this.world) return;
 
-    const collider = this.colliders.get(handle);
-    if (collider) {
-      this.colliderHandleToBodyHandle.delete(collider.handle);
-      this.colliders.delete(handle);
-    }
+    try {
+      // Store collider handles first to ensure complete cleanup even on failure
+      const colliders = this.colliders.get(handle);
+      const colliderHandles = colliders ? colliders.map(c => c.handle) : [];
 
-    const body = this.bodies.get(handle);
-    if (body) {
-      // Rapier automatically removes colliders when removing a rigid body
-      this.world.removeRigidBody(body);
+      // Delete from maps first
+      this.colliders.delete(handle);
+
+      // Clean up collider mappings atomically
+      for (const colliderHandle of colliderHandles) {
+        this.colliderHandleToBodyHandle.delete(colliderHandle);
+      }
+
+      // Remove rigid body from physics world
+      const body = this.bodies.get(handle);
+      if (body) {
+        this.world.removeRigidBody(body); // Rapier automatically removes colliders
+        this.bodies.delete(handle);
+      }
+    } catch (error) {
+      // Ensure cleanup completes even on partial failure
       this.bodies.delete(handle);
+      this.colliders.delete(handle);
+      throw error;
     }
   }
 
@@ -481,16 +557,41 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
         return RAPIER.ColliderDesc.cone(shape.height / 2, shape.radius);
 
       case CollisionShapeType.PLANE:
-        throw new Error('PLANE collision shape is not yet implemented in RapierPhysicsEngine');
+        // Infinite plane - Rapier uses a cuboid with very large extents
+        // Normal is always (0, 1, 0) pointing up
+        return RAPIER.ColliderDesc.cuboid(1000, 0.01, 1000);
 
       case CollisionShapeType.MESH:
-        throw new Error('MESH collision shape is not yet implemented in RapierPhysicsEngine');
+        if (!shape.vertices || !shape.indices) {
+          throw new Error('MESH collision shape requires vertices and indices');
+        }
+        return RAPIER.ColliderDesc.trimesh(shape.vertices, shape.indices);
 
       case CollisionShapeType.CONVEX_HULL:
-        throw new Error('CONVEX_HULL collision shape is not yet implemented in RapierPhysicsEngine');
+        if (!shape.vertices) {
+          throw new Error('CONVEX_HULL collision shape requires vertices');
+        }
+        const convexHullDesc = RAPIER.ColliderDesc.convexHull(shape.vertices);
+        if (!convexHullDesc) {
+          throw new Error('Failed to create convex hull - vertices may be coplanar, degenerate, or insufficient (need at least 4 non-coplanar points)');
+        }
+        return convexHullDesc;
 
       case CollisionShapeType.HEIGHTFIELD:
-        throw new Error('HEIGHTFIELD collision shape is not yet implemented in RapierPhysicsEngine');
+        if (!shape.heights || !shape.rows || !shape.cols) {
+          throw new Error('HEIGHTFIELD collision shape requires heights, rows, and cols');
+        }
+        const scale = shape.scale || { x: 1, y: 1, z: 1 };
+        validateVector3(scale, 'heightfield scale');
+        return RAPIER.ColliderDesc.heightfield(
+          shape.rows,
+          shape.cols,
+          shape.heights,
+          scale
+        );
+
+      case CollisionShapeType.COMPOUND:
+        throw new Error('COMPOUND shapes must be handled at the rigid body level, not in createColliderDesc');
 
       default:
         throw new Error(`Unknown collision shape type: ${shape.type}`);

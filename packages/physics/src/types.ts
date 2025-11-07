@@ -45,6 +45,7 @@ export enum CollisionShapeType {
   MESH = 'mesh',
   CONVEX_HULL = 'convex_hull',
   HEIGHTFIELD = 'heightfield',
+  COMPOUND = 'compound',
 }
 
 /**
@@ -65,6 +66,13 @@ export interface CollisionShape {
   heights?: Float32Array;
   rows?: number;
   cols?: number;
+  scale?: Vector3; // Scale for heightfield terrain
+  // Compound - multiple shapes with relative transforms
+  shapes?: Array<{
+    shape: CollisionShape;
+    position: Vector3;
+    rotation: Quaternion;
+  }>;
 }
 
 /**
@@ -85,6 +93,7 @@ export interface RigidBodyDescriptor {
   isSensor?: boolean; // Trigger zone (no physical response)
   collisionGroups?: number; // Bitmask for collision filtering
   collisionMask?: number;   // Bitmask for what to collide with
+  enableCCD?: boolean; // Continuous Collision Detection (prevents tunneling for fast objects)
 }
 
 /**

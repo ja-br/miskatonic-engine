@@ -6,6 +6,7 @@
 
 // Core
 export { PhysicsWorld } from './PhysicsWorld';
+export type { CollisionCallback } from './PhysicsWorld';
 
 // Types
 export type {
