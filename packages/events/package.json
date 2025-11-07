@@ -1,0 +1,26 @@
+{
+  "name": "@miskatonic/events",
+  "version": "0.1.0",
+  "description": "Type-safe event system for Miskatonic Engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "event-bus",
+    "events",
+    "pubsub",
+    "typescript"
+  ],
+  "author": "Miskatonic Engine Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.0"
+  }
+}
