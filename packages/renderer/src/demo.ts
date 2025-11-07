@@ -79,8 +79,8 @@ export class Demo {
       // Create camera
       const aspect = this.canvas.width / this.canvas.height;
       this.camera = new Camera(45, aspect, 0.1, 100);
-      this.camera.setPosition(3, 3, 5);
-      this.camera.setTarget(0, 0, 0);
+      this.camera.setPosition(0, 8, 12);
+      this.camera.setTarget(0, 2, 0);
 
       // Setup orbit controls
       this.controls = new OrbitControls(this.camera, this.canvas);
@@ -234,32 +234,85 @@ export class Demo {
       timestep: 1 / 60,
     });
 
-    // Create ground plane (static)
+    // Create ground plane (static) - larger table surface
     this.groundBody = this.physicsWorld.createRigidBody({
       type: RigidBodyType.STATIC,
-      position: { x: 0, y: -2, z: 0 },
+      position: { x: 0, y: -1, z: 0 },
       collisionShape: {
         type: CollisionShapeType.BOX,
-        halfExtents: { x: 10, y: 0.5, z: 10 },
+        halfExtents: { x: 8, y: 0.2, z: 8 },
       },
-      friction: 0.5,
-      restitution: 0.3,
+      friction: 0.6,
+      restitution: 0.2,
     });
 
-    // Create gaming dice set
+    // Create invisible walls to contain the dice
+    const wallHeight = 5;
+    const wallThickness = 0.5;
+    const tableSize = 8;
+
+    // Back wall
+    this.physicsWorld.createRigidBody({
+      type: RigidBodyType.STATIC,
+      position: { x: 0, y: wallHeight / 2, z: -tableSize },
+      collisionShape: {
+        type: CollisionShapeType.BOX,
+        halfExtents: { x: tableSize, y: wallHeight / 2, z: wallThickness },
+      },
+      friction: 0.3,
+      restitution: 0.4,
+    });
+
+    // Front wall
+    this.physicsWorld.createRigidBody({
+      type: RigidBodyType.STATIC,
+      position: { x: 0, y: wallHeight / 2, z: tableSize },
+      collisionShape: {
+        type: CollisionShapeType.BOX,
+        halfExtents: { x: tableSize, y: wallHeight / 2, z: wallThickness },
+      },
+      friction: 0.3,
+      restitution: 0.4,
+    });
+
+    // Left wall
+    this.physicsWorld.createRigidBody({
+      type: RigidBodyType.STATIC,
+      position: { x: -tableSize, y: wallHeight / 2, z: 0 },
+      collisionShape: {
+        type: CollisionShapeType.BOX,
+        halfExtents: { x: wallThickness, y: wallHeight / 2, z: tableSize },
+      },
+      friction: 0.3,
+      restitution: 0.4,
+    });
+
+    // Right wall
+    this.physicsWorld.createRigidBody({
+      type: RigidBodyType.STATIC,
+      position: { x: tableSize, y: wallHeight / 2, z: 0 },
+      collisionShape: {
+        type: CollisionShapeType.BOX,
+        halfExtents: { x: wallThickness, y: wallHeight / 2, z: tableSize },
+      },
+      friction: 0.3,
+      restitution: 0.4,
+    });
+
+    // Create gaming dice set with varied starting positions
     const dice = [
       // D4 (tetrahedron - use small sphere as approximation)
-      { sides: 4, position: { x: -4, y: 10, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.4 },
+      { sides: 4, position: { x: -3, y: 15, z: -1 }, shape: CollisionShapeType.SPHERE, radius: 0.4, angularVel: { x: 2, y: 3, z: 1 } },
       // D6 (cube)
-      { sides: 6, position: { x: -2, y: 12, z: 0 }, shape: CollisionShapeType.BOX, halfExtents: { x: 0.5, y: 0.5, z: 0.5 } },
+      { sides: 6, position: { x: -1.5, y: 18, z: 1 }, shape: CollisionShapeType.BOX, halfExtents: { x: 0.5, y: 0.5, z: 0.5 }, angularVel: { x: -1, y: 2, z: -2 } },
       // D8 (octahedron - use sphere)
-      { sides: 8, position: { x: 0, y: 14, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.5 },
+      { sides: 8, position: { x: 1, y: 20, z: -0.5 }, shape: CollisionShapeType.SPHERE, radius: 0.5, angularVel: { x: 1, y: -2, z: 3 } },
       // D10 (pentagonal trapezohedron - use cylinder)
-      { sides: 10, position: { x: 2, y: 16, z: 0 }, shape: CollisionShapeType.CYLINDER, radius: 0.45, height: 1.0 },
+      { sides: 10, position: { x: 3, y: 22, z: 0.5 }, shape: CollisionShapeType.CYLINDER, radius: 0.45, height: 1.0, angularVel: { x: -3, y: 1, z: -1 } },
       // D12 (dodecahedron - use sphere)
-      { sides: 12, position: { x: 4, y: 18, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.55 },
+      { sides: 12, position: { x: -2, y: 24, z: 1.5 }, shape: CollisionShapeType.SPHERE, radius: 0.55, angularVel: { x: 2, y: -1, z: 2 } },
       // D20 (icosahedron - use sphere)
-      { sides: 20, position: { x: 0, y: 20, z: 0 }, shape: CollisionShapeType.SPHERE, radius: 0.6 },
+      { sides: 20, position: { x: 0.5, y: 26, z: -1.5 }, shape: CollisionShapeType.SPHERE, radius: 0.6, angularVel: { x: -2, y: 3, z: -2 } },
     ];
 
     for (const die of dice) {
@@ -290,6 +343,7 @@ export class Demo {
         mass: 0.02, // Lighter like real dice
         friction: 0.4,
         restitution: 0.5,
+        angularVelocity: die.angularVel,
       });
 
       this.diceBodies.push({ handle, sides: die.sides });
@@ -383,8 +437,8 @@ export class Demo {
     const shaderManager = this.renderer.getShaderManager();
     const bufferManager = this.renderer.getBufferManager();
 
-    // Clear
-    gl.clearColor(0.1, 0.1, 0.2, 1.0);
+    // Clear with dark background
+    gl.clearColor(0.05, 0.05, 0.08, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
@@ -476,14 +530,19 @@ export class Demo {
 
         gl.uniformMatrix4fv(mvpLoc, false, mvpMatrix);
         gl.uniformMatrix4fv(modelLoc, false, modelMatrix);
+        // Calculate normal matrix (inverse transpose of model matrix upper-left 3x3)
+        // For now using identity since we don't have non-uniform scaling
         gl.uniformMatrix3fv(normalMatLoc, false, new Float32Array([
           1, 0, 0,
           0, 1, 0,
           0, 0, 1,
         ]));
 
+        // Add depth-based darkening for visual interest
+        const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
         const [r, g, b] = getDieColor(die.sides);
-        gl.uniform3f(baseColorLoc, r, g, b);
+        const brightness = 0.7 + depth * 0.3; // Brighter when higher up
+        gl.uniform3f(baseColorLoc, r * brightness, g * brightness, b * brightness);
 
         const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
         gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
@@ -495,7 +554,9 @@ export class Demo {
     this.frameCount++;
     if (now - this.lastFpsUpdate >= 1000) {
       const fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
-      const triangles = (this.indexCount / 3) * drawCalls;
+      // Calculate total triangles (approximate average between cube and sphere)
+      const avgTrianglesPerDie = ((this.cubeIndexCount / 3) + (this.sphereIndexCount / 3)) / 2;
+      const triangles = Math.round(avgTrianglesPerDie * drawCalls);
       this.updateStats(fps, drawCalls, triangles);
       this.frameCount = 0;
       this.lastFpsUpdate = now;
