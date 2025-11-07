@@ -96,3 +96,68 @@ export const AppVersionSchema = z.object({
 });
 
 export type AppVersion = z.infer<typeof AppVersionSchema>;
+
+/**
+ * Dialog operation types
+ */
+export const FileFilterSchema = z.object({
+  name: z.string(),
+  extensions: z.array(z.string()),
+});
+
+export type FileFilter = z.infer<typeof FileFilterSchema>;
+
+export const OpenFileDialogRequestSchema = z.object({
+  title: z.string().optional(),
+  defaultPath: z.string().optional(),
+  buttonLabel: z.string().optional(),
+  filters: z.array(FileFilterSchema).optional(),
+  properties: z
+    .array(z.enum(['openFile', 'openDirectory', 'multiSelections', 'showHiddenFiles']))
+    .optional(),
+});
+
+export type OpenFileDialogRequest = z.infer<typeof OpenFileDialogRequestSchema>;
+
+export const OpenFileDialogResponseSchema = z.object({
+  canceled: z.boolean(),
+  filePaths: z.array(z.string()),
+});
+
+export type OpenFileDialogResponse = z.infer<typeof OpenFileDialogResponseSchema>;
+
+export const SaveFileDialogRequestSchema = z.object({
+  title: z.string().optional(),
+  defaultPath: z.string().optional(),
+  buttonLabel: z.string().optional(),
+  filters: z.array(FileFilterSchema).optional(),
+  properties: z.array(z.enum(['showHiddenFiles', 'createDirectory', 'showOverwriteConfirmation'])).optional(),
+});
+
+export type SaveFileDialogRequest = z.infer<typeof SaveFileDialogRequestSchema>;
+
+export const SaveFileDialogResponseSchema = z.object({
+  canceled: z.boolean(),
+  filePath: z.string().optional(),
+});
+
+export type SaveFileDialogResponse = z.infer<typeof SaveFileDialogResponseSchema>;
+
+export const MessageBoxRequestSchema = z.object({
+  type: z.enum(['none', 'info', 'error', 'question', 'warning']).optional(),
+  title: z.string().optional(),
+  message: z.string(),
+  detail: z.string().optional(),
+  buttons: z.array(z.string()).optional(),
+  defaultId: z.number().optional(),
+  cancelId: z.number().optional(),
+});
+
+export type MessageBoxRequest = z.infer<typeof MessageBoxRequestSchema>;
+
+export const MessageBoxResponseSchema = z.object({
+  response: z.number(), // Index of the button clicked
+  checkboxChecked: z.boolean().optional(),
+});
+
+export type MessageBoxResponse = z.infer<typeof MessageBoxResponseSchema>;

@@ -12,6 +12,11 @@ import {
   SystemGPUInfoHandler,
   SystemOpenDevToolsHandler,
 } from './channels/SystemChannel';
+import {
+  OpenFileDialogHandler,
+  SaveFileDialogHandler,
+  MessageBoxDialogHandler,
+} from './channels/DialogChannel';
 
 /**
  * Rate limiter for IPC calls
@@ -103,6 +108,11 @@ export class IPCHandler {
       new SystemInfoHandler(),
       new SystemGPUInfoHandler(),
       new SystemOpenDevToolsHandler(),
+
+      // Dialog handlers
+      new OpenFileDialogHandler(),
+      new SaveFileDialogHandler(),
+      new MessageBoxDialogHandler(),
     ];
 
     for (const handler of allHandlers) {

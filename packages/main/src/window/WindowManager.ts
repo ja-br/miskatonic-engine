@@ -3,6 +3,10 @@ import log from 'electron-log';
 import { DEFAULT_WINDOW_CONFIG, ElectronWindowConfig } from './WindowConfig';
 import { WindowState } from './WindowState';
 import { PathResolver } from '../utils/PathResolver';
+import { MenuBuilder } from '../menu/MenuBuilder';
+import { TrayManager } from '../tray/TrayManager';
+import { ShortcutManager } from '../shortcuts/ShortcutManager';
+import { NotificationManager } from '../notifications/NotificationManager';
 
 /**
  * Manages BrowserWindow instances
@@ -11,6 +15,9 @@ export class WindowManager {
   private windows: Map<number, BrowserWindow> = new Map();
   private windowStates: Map<number, WindowState> = new Map();
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private trayManager: TrayManager | null = null;
+  private shortcutManager: ShortcutManager | null = null;
+  private notificationManager: NotificationManager | null = null;
 
   constructor() {
     // Periodic cleanup of destroyed windows to prevent memory leaks
@@ -57,6 +64,32 @@ export class WindowManager {
 
     // Load renderer
     await this.loadRenderer(window);
+
+    // Build application menu
+    const menuBuilder = new MenuBuilder(window);
+    menuBuilder.buildMenu();
+
+    // Create system tray (optional - won't fail if icons missing)
+    if (!this.trayManager) {
+      this.trayManager = new TrayManager(window);
+      this.trayManager.create();
+    }
+
+    // Register global keyboard shortcuts
+    if (!this.shortcutManager) {
+      this.shortcutManager = new ShortcutManager(window);
+      this.shortcutManager.registerDefaults();
+    }
+
+    // Initialize notification manager
+    if (!this.notificationManager) {
+      this.notificationManager = new NotificationManager(window);
+      if (this.notificationManager.isSupported()) {
+        log.info('Native notifications are supported');
+      } else {
+        log.warn('Native notifications are not supported on this platform');
+      }
+    }
 
     // Show when ready
     window.once('ready-to-show', () => {
@@ -180,7 +213,40 @@ export class WindowManager {
       clearInterval(this.cleanupInterval);
       this.cleanupInterval = null;
     }
+    if (this.trayManager) {
+      this.trayManager.destroy();
+      this.trayManager = null;
+    }
+    if (this.shortcutManager) {
+      this.shortcutManager.unregisterAll();
+      this.shortcutManager = null;
+    }
+    if (this.notificationManager) {
+      this.notificationManager.closeAll();
+      this.notificationManager = null;
+    }
     this.windows.clear();
     this.windowStates.clear();
+  }
+
+  /**
+   * Get the tray manager instance
+   */
+  getTrayManager(): TrayManager | null {
+    return this.trayManager;
+  }
+
+  /**
+   * Get the shortcut manager instance
+   */
+  getShortcutManager(): ShortcutManager | null {
+    return this.shortcutManager;
+  }
+
+  /**
+   * Get the notification manager instance
+   */
+  getNotificationManager(): NotificationManager | null {
+    return this.notificationManager;
   }
 }

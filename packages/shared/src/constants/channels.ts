@@ -21,6 +21,12 @@ export const IPC_CHANNELS = {
   SYSTEM_GPU_INFO: 'system:gpu-info',
   SYSTEM_OPEN_DEV_TOOLS: 'system:open-devtools',
 
+  // Dialog operations
+  DIALOG_OPEN_FILE: 'dialog:open-file',
+  DIALOG_OPEN_DIRECTORY: 'dialog:open-directory',
+  DIALOG_SAVE_FILE: 'dialog:save-file',
+  DIALOG_MESSAGE_BOX: 'dialog:message-box',
+
   // App operations
   APP_QUIT: 'app:quit',
   APP_VERSION: 'app:version',

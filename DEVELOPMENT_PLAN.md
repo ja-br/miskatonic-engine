@@ -40,53 +40,74 @@ Initiative (Domain)
 **Dependencies:** None
 **Outcome:** Electron-based foundation with cross-platform support
 
-### Epic 1.1: Electron Architecture Setup
+### Epic 1.1: Electron Architecture Setup ✅ **COMPLETE**
 **Priority:** P0
+**Status:** ✅ Completed November 2025
 **Acceptance Criteria:**
-- Main process architecture implemented
-- Renderer process isolation configured
-- IPC communication layer established
-- Security boundaries enforced
+- ✅ Main process architecture implemented
+- ✅ Renderer process isolation configured
+- ✅ IPC communication layer established
+- ✅ Security boundaries enforced
 
 #### User Stories:
-1. **As a developer**, I want a secure Electron main process that manages application lifecycle
-2. **As a developer**, I want typed IPC communication between main and renderer processes
-3. **As a developer**, I want context isolation and preload scripts for security
-4. **As a system**, I need process crash recovery and error handling
+1. ✅ **As a developer**, I want a secure Electron main process that manages application lifecycle
+2. ✅ **As a developer**, I want typed IPC communication between main and renderer processes
+3. ✅ **As a developer**, I want context isolation and preload scripts for security
+4. ✅ **As a system**, I need process crash recovery and error handling
 
 #### Tasks Breakdown:
-- [ ] Setup Electron project structure with TypeScript
-- [ ] Implement main process window management
-- [ ] Create IPC message protocol with type definitions
-- [ ] Setup preload script with contextBridge
-- [ ] Implement process monitoring and crash recovery
-- [ ] Add development and production configurations
-- [ ] Create unit tests for IPC layer
-- [ ] Document IPC API and security model
+- [x] Setup Electron project structure with TypeScript
+- [x] Implement main process window management
+- [x] Create IPC message protocol with type definitions
+- [x] Setup preload script with contextBridge
+- [x] Implement process monitoring and crash recovery
+- [x] Add development and production configurations
+- [x] Create unit tests for IPC layer
+- [x] Document IPC API and security model
 
-### Epic 1.2: Native OS Integration
+#### Additional Security Fixes Completed:
+- [x] Removed debug logging from production
+- [x] Removed unsafe WebGPU flags
+- [x] Enhanced CSP validation with multi-check system
+- [x] Fixed path traversal vulnerabilities with robust validation
+- [x] Implemented IPC rate limiting (100 calls/sec per channel)
+- [x] Added error dialogs before app quit
+- [x] Fixed memory leaks in WindowManager with periodic cleanup
+- [x] Implemented chunked file operations for large files (>5MB)
+- [x] Fixed type safety issues (removed `any` types)
+- [x] Cleaned up dead code and TODOs
+
+### Epic 1.2: Native OS Integration ✅ **COMPLETE**
 **Priority:** P0
+**Status:** ✅ Completed November 2025
 **Acceptance Criteria:**
-- File system access implemented
-- Native menus and dialogs working
-- System tray integration complete
-- Global shortcuts registered
+- [x] File system access implemented
+- [x] Native menus and dialogs working
+- [x] System tray integration complete
+- [x] Global shortcuts registered
 
 #### User Stories:
-1. **As a player**, I want native file dialogs for saving/loading games
-2. **As a player**, I want the game to integrate with OS menus and shortcuts
-3. **As a developer**, I want access to native file system APIs
-4. **As a player**, I want the game to minimize to system tray
+1. ✅ **As a player**, I want native file dialogs for saving/loading games
+2. ✅ **As a player**, I want the game to integrate with OS menus and shortcuts
+3. ✅ **As a developer**, I want access to native file system APIs
+4. ✅ **As a player**, I want the game to minimize to system tray
 
 #### Tasks Breakdown:
-- [ ] Implement native file system operations wrapper
-- [ ] Create menu bar templates for each OS
-- [ ] Setup system tray with context menu
-- [ ] Register global keyboard shortcuts
-- [ ] Implement native notification system
-- [ ] Add OS-specific window controls
-- [ ] Test on Windows, macOS, Linux
-- [ ] Create platform-specific installers
+- [x] Implement native file system operations wrapper
+- [x] Create menu bar templates for each OS
+- [x] Setup system tray with context menu
+- [x] Register global keyboard shortcuts
+- [x] Implement native notification system
+- [ ] Add OS-specific window controls (Optional - defer to Epic 1.4)
+- [ ] Test on Windows, macOS, Linux (Requires platform access)
+- [ ] Create platform-specific installers (Part of Epic 1.4)
+
+#### Implementation Details:
+- **File Dialogs**: OpenFileDialogHandler, SaveFileDialogHandler, MessageBoxDialogHandler with full Zod validation
+- **Application Menus**: MenuBuilder with platform-specific templates (macOS app menu, File, Edit, View, Window, Help)
+- **System Tray**: TrayManager with context menu, minimize-to-tray, platform-specific icons
+- **Global Shortcuts**: ShortcutManager with default bindings (toggle window, reload, devtools, quit)
+- **Notifications**: NotificationManager with support for actions, urgency levels, and convenience methods
 
 ### Epic 1.3: Auto-Update System
 **Priority:** P1
