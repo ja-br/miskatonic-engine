@@ -350,6 +350,11 @@ Initiative (Domain)
 - [x] Added type validation to prevent cross-type ID pollution
 - [x] Fixed infinite loop in cache eviction with attempt counters
 - [x] Made handleRelease generic to maintain type safety
+- [x] Fixed chokidar persistent watcher resource leak (configurable, default: false)
+- [x] Added bounds to debounceTimers Map (max: 1000, prevents memory leak)
+- [x] Removed type safety violation in MemoryProfiler (proper API instead of any cast)
+- [x] Implemented lazy initialization for hot-reload watcher (no startup overhead)
+- [x] Made leak detection thresholds configurable (prevents false positives)
 - [x] All 91 tests passing with full type safety
 
 #### Hot-Reload System Implemented:
