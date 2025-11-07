@@ -1498,6 +1498,17 @@ Engineering Team (20 people)
 
 ### Definition of Done
 
+**⚠️ ALPHA BREAKING CHANGE PROTOCOL:**
+- [ ] **NO compatibility code added** (reject if present)
+- [ ] **ALL call sites updated** including:
+  - [ ] Core packages (`packages/*`)
+  - [ ] Examples and demos
+  - [ ] Tests (unit and integration)
+  - [ ] Documentation code samples
+- [ ] **Old APIs completely removed** (no commented-out code, no `@deprecated`)
+- [ ] **Changelog entry** explaining what broke and why
+
+**Standard Definition of Done:**
 - [ ] Code complete and reviewed
 - [ ] Unit tests written (>80% coverage)
 - [ ] Integration tests passing
@@ -1506,6 +1517,8 @@ Engineering Team (20 people)
 - [ ] Security reviewed
 - [ ] Accessibility checked
 - [ ] Deployed to staging
+
+**Note:** For alpha (v0.x.x), breaking changes are expected and encouraged. Update all dependent code in the same commit. Never add backward compatibility layers.
 
 ### Dependency Matrix
 

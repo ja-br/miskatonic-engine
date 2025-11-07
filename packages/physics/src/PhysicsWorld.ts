@@ -51,8 +51,10 @@ export class PhysicsWorld<TUserData = unknown> {
    * Step the physics simulation with fixed timestep
    *
    * Uses accumulator pattern for deterministic physics
+   *
+   * @returns interpolation factor (alpha) for smooth rendering between physics steps
    */
-  step(deltaTime: number): void {
+  step(deltaTime: number): number {
     const timestep = this.config.timestep!;
     const maxSubsteps = this.config.maxSubsteps!;
 
@@ -71,6 +73,12 @@ export class PhysicsWorld<TUserData = unknown> {
       this.accumulator -= timestep;
       substeps++;
     }
+
+    // Return interpolation factor for smooth rendering
+    // alpha = 0 means exactly on a physics step
+    // alpha = 1 means almost at the next physics step
+    // Use this to interpolate visual positions: renderPos = prevPos + alpha * (currentPos - prevPos)
+    return this.accumulator / timestep;
   }
 
   /**

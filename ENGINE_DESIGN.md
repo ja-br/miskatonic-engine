@@ -469,9 +469,24 @@ createBody(entity: Entity, desc: RigidBodyDescriptor): RigidBody;
 ---
 
 ### 14. Semantic Versioning with Stability Guarantees
-**Principle**: Follow semantic versioning strictly. Breaking changes only in major versions.
 
-**Rationale**: Game development takes months/years. Developers need stability and predictable upgrade paths.
+> **⚠️ ALPHA DISCLAIMER (v0.x.x - CURRENT STATE)**:
+>
+> **This versioning strategy applies ONLY after v1.0.0 release.**
+>
+> During alpha development (v0.0.1 through v0.999.999), we explicitly DO NOT provide:
+> - Stability guarantees
+> - Deprecation warnings
+> - Migration guides
+> - Backward compatibility of any kind
+>
+> **See CLAUDE.md "Breaking Changes Policy" for current alpha behavior.**
+>
+> Breaking changes happen freely in alpha to discover the right API design. All call sites must be updated when APIs change. No compatibility layers or deprecated code allowed.
+
+**Principle (Post-1.0)**: Follow semantic versioning strictly. Breaking changes only in major versions.
+
+**Rationale (Post-1.0)**: Game development takes months/years. Developers need stability and predictable upgrade paths.
 
 **Implementation Guidelines**:
 - Major.Minor.Patch versioning (semver)

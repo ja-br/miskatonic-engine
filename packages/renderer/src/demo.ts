@@ -20,6 +20,7 @@ export class Demo {
   private startTime: number = 0;
   private frameCount: number = 0;
   private lastFpsUpdate: number = 0;
+  private resizeHandler: (() => void) | null = null;
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
@@ -36,9 +37,13 @@ export class Demo {
     try {
       console.log('Initializing 3D renderer...');
 
+      // Setup WebGL context loss handling
+      this.setupContextLossHandling();
+
       // Resize canvas to fill window
       this.resizeCanvas();
-      window.addEventListener('resize', () => this.resizeCanvas());
+      this.resizeHandler = () => this.resizeCanvas();
+      window.addEventListener('resize', this.resizeHandler);
 
       // Create renderer config
       const config: RendererConfig = {
@@ -129,10 +134,23 @@ export class Demo {
     `;
 
     const shaderManager = this.renderer.getShaderManager();
-    shaderManager.createProgram(this.shaderProgramId, {
-      vertex: vertexShaderSource,
-      fragment: fragmentShaderSource,
-    });
+    try {
+      shaderManager.createProgram(this.shaderProgramId, {
+        vertex: vertexShaderSource,
+        fragment: fragmentShaderSource,
+      });
+
+      // Verify shader program was created successfully
+      const program = shaderManager.getProgram(this.shaderProgramId);
+      if (!program) {
+        throw new Error('Shader program creation failed - program not found after creation');
+      }
+
+      console.log('Shaders compiled and linked successfully');
+    } catch (error) {
+      console.error('Shader compilation failed:', error);
+      throw new Error(`Failed to create shader program: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private createGeometry(): void {
@@ -185,6 +203,42 @@ export class Demo {
       cancelAnimationFrame(this.animationId);
       this.animationId = null;
     }
+  }
+
+  private setupContextLossHandling(): void {
+    // Handle WebGL context loss
+    this.canvas.addEventListener('webglcontextlost', (event) => {
+      console.warn('WebGL context lost. Preventing default to allow restoration.');
+      event.preventDefault();
+      this.stop(); // Stop render loop
+    }, false);
+
+    // Handle WebGL context restoration
+    this.canvas.addEventListener('webglcontextrestored', async () => {
+      console.log('WebGL context restored. Re-initializing renderer...');
+      try {
+        // Re-initialize the renderer
+        const config: RendererConfig = {
+          backend: RenderBackend.WEBGL2,
+          canvas: this.canvas,
+          width: this.canvas.width,
+          height: this.canvas.height,
+          antialias: true,
+          alpha: false,
+        };
+        this.renderer = new Renderer(config);
+
+        // Recreate shaders and geometry
+        this.createShaders();
+        this.createGeometry();
+
+        // Restart render loop
+        this.start();
+        console.log('Renderer successfully restored after context loss');
+      } catch (error) {
+        console.error('Failed to restore renderer after context loss:', error);
+      }
+    }, false);
   }
 
   private resizeCanvas(): void {
@@ -335,9 +389,25 @@ export class Demo {
 
   dispose(): void {
     this.stop();
+
+    // Remove resize event listener to prevent memory leak
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
+    }
+
+    // Dispose orbit controls
+    if (this.controls) {
+      this.controls.dispose();
+      this.controls = null;
+    }
+
+    // Dispose renderer
     if (this.renderer) {
       this.renderer.dispose();
       this.renderer = null;
     }
+
+    this.camera = null;
   }
 }

@@ -111,10 +111,16 @@ export class Camera {
     let z0 = eyex - centerx;
     let z1 = eyey - centery;
     let z2 = eyez - centerz;
-    let len = 1 / Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
-    z0 *= len;
-    z1 *= len;
-    z2 *= len;
+    let len = Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
+    if (len < 1e-6) {
+      // Camera position equals target - use default forward vector
+      z0 = 0; z1 = 0; z2 = 1;
+    } else {
+      len = 1 / len;
+      z0 *= len;
+      z1 *= len;
+      z2 *= len;
+    }
 
     // Right vector (cross(up, forward))
     let x0 = upy * z2 - upz * z1;

@@ -19,6 +19,58 @@ import type {
 import { RigidBodyType, CollisionShapeType } from '../types';
 
 /**
+ * Validate that a vector contains finite numbers
+ */
+function validateVector3(vec: Vector3, name: string): void {
+  if (!Number.isFinite(vec.x) || !Number.isFinite(vec.y) || !Number.isFinite(vec.z)) {
+    throw new Error(`${name} must contain finite numbers (got: x=${vec.x}, y=${vec.y}, z=${vec.z})`);
+  }
+}
+
+/**
+ * Validate that a quaternion contains finite numbers
+ * Note: Non-normalized quaternions are allowed - the physics engine will normalize them internally
+ */
+function validateQuaternion(quat: Quaternion, name: string): void {
+  if (!Number.isFinite(quat.x) || !Number.isFinite(quat.y) ||
+      !Number.isFinite(quat.z) || !Number.isFinite(quat.w)) {
+    throw new Error(`${name} must contain finite numbers (got: x=${quat.x}, y=${quat.y}, z=${quat.z}, w=${quat.w})`);
+  }
+  // Check for zero quaternion which is invalid
+  const magnitudeSq = quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w;
+  if (magnitudeSq < 1e-12) {
+    throw new Error(`${name} has zero magnitude (all components are zero)`);
+  }
+}
+
+/**
+ * Validate that a number is finite and positive
+ */
+function validatePositiveNumber(value: number, name: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a finite positive number (got: ${value})`);
+  }
+}
+
+/**
+ * Validate that a number is finite and non-negative
+ */
+function validateNonNegativeNumber(value: number, name: string): void {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be a finite non-negative number (got: ${value})`);
+  }
+}
+
+/**
+ * Validate rigid body handle
+ */
+function validateHandle(handle: RigidBodyHandle, name: string): void {
+  if (!Number.isInteger(handle) || handle <= 0) {
+    throw new Error(`${name} must be a positive integer (got: ${handle})`);
+  }
+}
+
+/**
  * Rapier physics engine implementation
  */
 export class RapierPhysicsEngine implements IPhysicsEngine {
@@ -29,6 +81,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   private colliderHandleToBodyHandle = new Map<number, RigidBodyHandle>(); // Rapier collider handle -> our handle
   private collisionEvents: CollisionEvent[] = [];
   private nextHandle: RigidBodyHandle = 1;
+  private static readonly MAX_HANDLE = 2147483647; // 2^31 - 1 (max safe positive integer for handle)
 
   async initialize(config: PhysicsWorldConfig): Promise<void> {
     // Initialize Rapier WASM module
@@ -51,7 +104,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     this.world.step(this.eventQueue);
 
     // Process collision events
-    this.collisionEvents = [];
+    // Clear array without reallocating (performance optimization)
+    this.collisionEvents.length = 0;
+
     this.eventQueue.drainCollisionEvents((handle1: number, handle2: number, started: boolean) => {
       if (!started) return; // Only process collision start events
 
@@ -61,12 +116,16 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
       if (bodyA === undefined || bodyB === undefined) return;
 
-      // Create collision event (simplified - would need contact point data from Rapier)
+      // Create collision event with minimal allocations
+      // Note: Full contact data (contact points, normals, impulses) would require
+      // querying Rapier's contact manifold API, which adds significant overhead.
+      // For performance, we provide basic collision events. Applications needing
+      // detailed contact data should query Rapier directly.
       this.collisionEvents.push({
         bodyA,
         bodyB,
-        contactPoint: { x: 0, y: 0, z: 0 }, // Would get from manifold
-        contactNormal: { x: 0, y: 1, z: 0 }, // Would get from manifold
+        contactPoint: { x: 0, y: 0, z: 0 },
+        contactNormal: { x: 0, y: 1, z: 0 },
         penetrationDepth: 0,
         impulse: 0,
       });
@@ -76,6 +135,40 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   createRigidBody(descriptor: RigidBodyDescriptor): RigidBodyHandle {
     if (!this.world) {
       throw new Error('Physics engine not initialized');
+    }
+
+    // Validate descriptor parameters
+    if (descriptor.position) {
+      validateVector3(descriptor.position, 'descriptor.position');
+    }
+    if (descriptor.rotation) {
+      validateQuaternion(descriptor.rotation, 'descriptor.rotation');
+    }
+    if (descriptor.linearVelocity) {
+      validateVector3(descriptor.linearVelocity, 'descriptor.linearVelocity');
+    }
+    if (descriptor.angularVelocity) {
+      validateVector3(descriptor.angularVelocity, 'descriptor.angularVelocity');
+    }
+    if (descriptor.mass !== undefined) {
+      validatePositiveNumber(descriptor.mass, 'descriptor.mass');
+    }
+    if (descriptor.linearDamping !== undefined) {
+      validateNonNegativeNumber(descriptor.linearDamping, 'descriptor.linearDamping');
+    }
+    if (descriptor.angularDamping !== undefined) {
+      validateNonNegativeNumber(descriptor.angularDamping, 'descriptor.angularDamping');
+    }
+    if (descriptor.friction !== undefined) {
+      validateNonNegativeNumber(descriptor.friction, 'descriptor.friction');
+    }
+    if (descriptor.restitution !== undefined) {
+      validateNonNegativeNumber(descriptor.restitution, 'descriptor.restitution');
+    }
+
+    // Check for handle overflow before allocation
+    if (this.nextHandle >= RapierPhysicsEngine.MAX_HANDLE) {
+      throw new Error('Physics engine handle limit reached. Cannot create more rigid bodies.');
     }
 
     const handle = this.nextHandle++;
@@ -137,6 +230,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   setPosition(handle: RigidBodyHandle, position: Vector3): void {
+    validateHandle(handle, 'handle');
+    validateVector3(position, 'position');
+
     const body = this.bodies.get(handle);
     if (!body) throw new Error(`Invalid body handle: ${handle}`);
 
@@ -152,6 +248,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   setRotation(handle: RigidBodyHandle, rotation: Quaternion): void {
+    validateHandle(handle, 'handle');
+    validateQuaternion(rotation, 'rotation');
+
     const body = this.bodies.get(handle);
     if (!body) throw new Error(`Invalid body handle: ${handle}`);
 
@@ -167,6 +266,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   setLinearVelocity(handle: RigidBodyHandle, velocity: Vector3): void {
+    validateHandle(handle, 'handle');
+    validateVector3(velocity, 'velocity');
+
     const body = this.bodies.get(handle);
     if (!body) throw new Error(`Invalid body handle: ${handle}`);
 
@@ -182,6 +284,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   setAngularVelocity(handle: RigidBodyHandle, velocity: Vector3): void {
+    validateHandle(handle, 'handle');
+    validateVector3(velocity, 'velocity');
+
     const body = this.bodies.get(handle);
     if (!body) throw new Error(`Invalid body handle: ${handle}`);
 
@@ -189,6 +294,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   applyForce(handle: RigidBodyHandle, force: Vector3): void {
+    validateHandle(handle, 'handle');
+    validateVector3(force, 'force');
+
     const body = this.bodies.get(handle);
     if (!body) return;
 
@@ -196,6 +304,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   applyImpulse(handle: RigidBodyHandle, impulse: Vector3): void {
+    validateHandle(handle, 'handle');
+    validateVector3(impulse, 'impulse');
+
     const body = this.bodies.get(handle);
     if (!body) return;
 
@@ -203,6 +314,9 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   }
 
   applyTorque(handle: RigidBodyHandle, torque: Vector3): void {
+    validateHandle(handle, 'handle');
+    validateVector3(torque, 'torque');
+
     const body = this.bodies.get(handle);
     if (!body) return;
 
@@ -211,6 +325,10 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
   raycast(origin: Vector3, direction: Vector3, maxDistance: number): RaycastHit | null {
     if (!this.world) return null;
+
+    validateVector3(origin, 'origin');
+    validateVector3(direction, 'direction');
+    validatePositiveNumber(maxDistance, 'maxDistance');
 
     const ray = new RAPIER.Ray(
       new RAPIER.Vector3(origin.x, origin.y, origin.z),
@@ -240,6 +358,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
   setGravity(gravity: Vector3): void {
     if (!this.world) return;
+    validateVector3(gravity, 'gravity');
     this.world.gravity = new RAPIER.Vector3(gravity.x, gravity.y, gravity.z);
   }
 

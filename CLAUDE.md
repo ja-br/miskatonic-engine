@@ -2,6 +2,64 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Breaking Changes Policy
+
+**THIS IS ALPHA SOFTWARE (v0.x.x). BREAKING CHANGES ARE EXPECTED AND NECESSARY.**
+
+### Alpha Development Philosophy
+- Version 0.x.x (v0.0.1 through v0.999.999) means NO stability guarantees
+- Break APIs freely to discover the right design
+- Remove technical debt immediately, don't accumulate it
+- If something doesn't break during alpha, it has no visibility and won't improve
+
+### What This Means
+- **NO backward compatibility layers or shims**
+- **NO deprecated API warnings** - just remove bad APIs
+- **NO hesitation to refactor** - break early and often
+- **Update all call sites** when APIs change
+- **Remove old code** that no longer compiles
+
+### Code Examples
+
+```typescript
+// ❌ REJECTED IN ALPHA - backward compatibility code
+class Renderer {
+  render() { /* new implementation */ }
+
+  /** @deprecated Use render() instead */
+  draw() {
+    console.warn('draw() is deprecated, use render()');
+    return this.render();
+  }
+}
+
+// ✅ CORRECT FOR ALPHA - just break it
+class Renderer {
+  render() { /* new implementation */ }
+  // draw() deleted entirely
+  // Update all call sites to use render()
+}
+```
+
+### Code Review Guidelines
+- Breaking changes that improve design are GOOD
+- Maintaining backward compatibility in alpha is a BUG
+- "This maintains backward compatibility" should trigger rejection
+- Focus on getting the API right, not keeping it stable
+
+### Enforcement
+Code reviews MUST reject any PR that:
+- Mentions "backward compatibility" positively
+- Adds transition helpers or migration code
+- Keeps old API alongside new API
+- Uses `@deprecated` JSDoc tags
+- Has patterns like `legacyFoo()`, `oldBar()`, `compatibilityMode`
+
+### When We Hit v1.0
+At that point (and only then), we'll adopt semantic versioning and stability guarantees. Until then, assume everything can and will change.
+
+---
+
 ## Project Overview
 
 Miskatonic Engine is a comprehensive game engine built on Electron, designed for creating high-quality desktop 3D games with sophisticated multiplayer capabilities, social features, and metagame systems. This is a full-stack solution that integrates client and server architecture, combining the flexibility of web technologies with the power of native desktop applications.
