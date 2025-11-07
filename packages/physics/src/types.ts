@@ -144,6 +144,7 @@ export enum JointType {
   PRISMATIC = 'prismatic',   // Slider joint - translation along single axis
   SPHERICAL = 'spherical',   // Ball-and-socket joint - free rotation
   GENERIC = 'generic',       // Generic 6-DOF joint with configurable limits
+  SPRING = 'spring',         // Spring joint - soft distance constraint with stiffness and damping
 }
 
 /**
@@ -185,6 +186,8 @@ export interface BaseJointDescriptor {
   anchorA: JointAnchor;
   anchorB: JointAnchor;
   collideConnected?: boolean; // Allow connected bodies to collide (default: false)
+  /** Maximum force (N) before joint breaks (0 or undefined = unbreakable) */
+  breakForce?: number;
 }
 
 /**
@@ -244,6 +247,20 @@ export interface GenericJointDescriptor extends BaseJointDescriptor {
 }
 
 /**
+ * Spring joint descriptor
+ * Soft distance constraint that behaves like a spring
+ */
+export interface SpringJointDescriptor extends BaseJointDescriptor {
+  type: JointType.SPRING;
+  /** Rest length of the spring (0 = distance between anchors at creation time) */
+  restLength?: number;
+  /** Spring stiffness coefficient (higher = stiffer spring) */
+  stiffness: number;
+  /** Damping coefficient (higher = more damping, reduces oscillation) */
+  damping: number;
+}
+
+/**
  * Union type for all joint descriptors
  */
 export type JointDescriptor =
@@ -251,7 +268,25 @@ export type JointDescriptor =
   | RevoluteJointDescriptor
   | PrismaticJointDescriptor
   | SphericalJointDescriptor
-  | GenericJointDescriptor;
+  | GenericJointDescriptor
+  | SpringJointDescriptor;
+
+/**
+ * Joint debug information for visualization
+ * Used to render constraint lines and axes in debug views
+ */
+export interface JointDebugInfo {
+  /** Joint type */
+  type: JointType;
+  /** World-space position of anchor point on body A */
+  anchorA: Vector3;
+  /** World-space position of anchor point on body B */
+  anchorB: Vector3;
+  /** Joint axis in world space (for revolute/prismatic joints) */
+  axis?: Vector3;
+  /** Current joint value (angle or distance) */
+  value: number;
+}
 
 /**
  * Abstract physics engine interface
@@ -397,6 +432,25 @@ export interface IPhysicsEngine {
    * @returns Current value (angle in radians for revolute, position for prismatic)
    */
   getJointValue(handle: JointHandle): number;
+
+  /**
+   * Get debug information for visualizing a joint
+   * @param handle Joint handle
+   * @returns Debug info including anchor points and axis, or null if joint doesn't exist
+   */
+  getJointDebugInfo(handle: JointHandle): JointDebugInfo | null;
+
+  /**
+   * Check joints for breaking and return broken joint events
+   * Joints break when forces exceed their breakForce threshold
+   * @returns Array of joint break events
+   */
+  checkJointBreaking(): Array<{
+    jointHandle: JointHandle;
+    bodyA: RigidBodyHandle;
+    bodyB: RigidBodyHandle;
+    force: number;
+  }>;
 }
 
 /**

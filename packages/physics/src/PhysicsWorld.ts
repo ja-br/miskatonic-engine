@@ -27,12 +27,32 @@ import { DEFAULT_PHYSICS_CONFIG } from './types';
  */
 export type CollisionCallback = (event: CollisionEvent) => void;
 
+/**
+ * Joint break event
+ */
+export interface JointBreakEvent {
+  /** Handle of the joint that broke */
+  jointHandle: import('./types').JointHandle;
+  /** Body A handle */
+  bodyA: RigidBodyHandle;
+  /** Body B handle */
+  bodyB: RigidBodyHandle;
+  /** Force magnitude that caused the break */
+  force: number;
+}
+
+/**
+ * Joint break callback function
+ */
+export type JointBreakCallback = (event: JointBreakEvent) => void;
+
 export class PhysicsWorld<TUserData = unknown> {
   private engine: IPhysicsEngine;
   private config: PhysicsWorldConfig;
   private accumulator: number = 0;
   private bodies = new Map<RigidBodyHandle, TUserData>(); // Store user data per body
   private collisionCallbacks: CollisionCallback[] = [];
+  private jointBreakCallbacks: JointBreakCallback[] = [];
 
   private constructor(engine: IPhysicsEngine, config: PhysicsWorldConfig) {
     this.engine = engine;
@@ -87,6 +107,9 @@ export class PhysicsWorld<TUserData = unknown> {
         callback(event);
       }
     }
+
+    // Check for broken joints and trigger callbacks
+    this.checkJointBreaking();
 
     // Return interpolation factor for smooth rendering
     // alpha = 0 means exactly on a physics step
@@ -272,6 +295,43 @@ export class PhysicsWorld<TUserData = unknown> {
   }
 
   /**
+   * Register a joint break event callback
+   * @returns unsubscribe function
+   */
+  onJointBreak(callback: JointBreakCallback): () => void {
+    this.jointBreakCallbacks.push(callback);
+
+    // Return unsubscribe function
+    return () => {
+      const index = this.jointBreakCallbacks.indexOf(callback);
+      if (index !== -1) {
+        this.jointBreakCallbacks.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Remove all joint break callbacks
+   */
+  clearJointBreakCallbacks(): void {
+    this.jointBreakCallbacks.length = 0;
+  }
+
+  /**
+   * Check joints for breaking and trigger callbacks
+   * Called internally each physics step
+   */
+  private checkJointBreaking(): void {
+    const brokenJoints = this.engine.checkJointBreaking();
+    for (const event of brokenJoints) {
+      // Trigger callbacks
+      for (const callback of this.jointBreakCallbacks) {
+        callback(event);
+      }
+    }
+  }
+
+  /**
    * Get the current physics engine
    */
   getEngine(): IPhysicsEngine {
@@ -298,30 +358,118 @@ export class PhysicsWorld<TUserData = unknown> {
 
   /**
    * Create a joint constraint between two rigid bodies
+   *
+   * Supported joint types:
+   * - FIXED: Weld joints that rigidly connect bodies
+   * - REVOLUTE: Hinge joints with optional angle limits and motors
+   * - PRISMATIC: Slider joints with optional distance limits and motors
+   * - SPHERICAL: Ball-and-socket joints with free rotation
+   * - GENERIC: 6-DOF joints with per-axis configuration
+   * - SPRING: Soft distance constraints with stiffness and damping
+   *
+   * @param descriptor Joint configuration including type, bodies, anchors, and constraints
+   * @returns Handle to the created joint
+   *
+   * @example
+   * // Create a door hinge
+   * const doorJoint = physicsWorld.createJoint({
+   *   type: JointType.REVOLUTE,
+   *   bodyA: doorFrameHandle,
+   *   bodyB: doorHandle,
+   *   anchorA: { position: { x: 0, y: 0, z: 0 } },
+   *   anchorB: { position: { x: -0.5, y: 0, z: 0 } },
+   *   axis: { x: 0, y: 1, z: 0 },
+   *   limits: { min: 0, max: Math.PI / 2 }
+   * });
    */
   createJoint(descriptor: import('./types').JointDescriptor): import('./types').JointHandle {
     return this.engine.createJoint(descriptor);
   }
 
   /**
-   * Remove a joint constraint
+   * Remove a joint constraint and free its resources
+   *
+   * @param handle Handle to the joint to remove
    */
   removeJoint(handle: import('./types').JointHandle): void {
     this.engine.removeJoint(handle);
   }
 
   /**
-   * Set motor parameters for a joint (revolute or prismatic)
+   * Set or update motor parameters for a revolute or prismatic joint
+   *
+   * Motors apply continuous forces to maintain a target velocity.
+   * Pass null to disable the motor.
+   *
+   * @param handle Handle to the joint
+   * @param motor Motor configuration with target velocity and max force, or null to disable
+   *
+   * @example
+   * // Enable motor with 2.0 rad/s target velocity
+   * physicsWorld.setJointMotor(jointHandle, {
+   *   targetVelocity: 2.0,
+   *   maxForce: 10.0
+   * });
+   *
+   * // Disable motor
+   * physicsWorld.setJointMotor(jointHandle, null);
    */
   setJointMotor(handle: import('./types').JointHandle, motor: import('./types').JointMotor | null): void {
     this.engine.setJointMotor(handle, motor);
   }
 
   /**
-   * Get current angle/position of a joint
+   * Get current angle (revolute) or position (prismatic) of a joint
+   *
+   * Returns the current state of the joint calculated from body transforms:
+   * - REVOLUTE joints: angle in radians
+   * - PRISMATIC joints: distance in world units
+   * - Other joint types: 0
+   *
+   * @param handle Handle to the joint
+   * @returns Current joint value (angle in radians or position in units)
+   *
+   * @example
+   * // Get door angle
+   * const doorAngle = physicsWorld.getJointValue(doorJointHandle);
+   * const degrees = (doorAngle * 180) / Math.PI;
+   *
+   * // Get elevator position
+   * const elevatorY = physicsWorld.getJointValue(elevatorJointHandle);
    */
   getJointValue(handle: import('./types').JointHandle): number {
     return this.engine.getJointValue(handle);
+  }
+
+  /**
+   * Get debug information for visualizing a joint
+   *
+   * Returns world-space anchor positions and axis direction for rendering
+   * debug visualization lines. Useful for debugging joint setup and behavior.
+   *
+   * @param handle Handle to the joint
+   * @returns Debug info with world-space positions and axis, or null if joint doesn't exist
+   *
+   * @example
+   * // Get debug info for rendering constraint lines
+   * const debugInfo = physicsWorld.getJointDebugInfo(jointHandle);
+   * if (debugInfo) {
+   *   // Draw line from anchorA to anchorB
+   *   drawLine(debugInfo.anchorA, debugInfo.anchorB, 'yellow');
+   *
+   *   // Draw axis direction if available (revolute/prismatic)
+   *   if (debugInfo.axis) {
+   *     const axisEnd = {
+   *       x: debugInfo.anchorA.x + debugInfo.axis.x,
+   *       y: debugInfo.anchorA.y + debugInfo.axis.y,
+   *       z: debugInfo.anchorA.z + debugInfo.axis.z
+   *     };
+   *     drawLine(debugInfo.anchorA, axisEnd, 'cyan');
+   *   }
+   * }
+   */
+  getJointDebugInfo(handle: import('./types').JointHandle): import('./types').JointDebugInfo | null {
+    return this.engine.getJointDebugInfo(handle);
   }
 
   /**

@@ -88,6 +88,15 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
   // Joint constraint tracking
   private joints = new Map<JointHandle, RAPIER.ImpulseJoint>();
+  private jointMetadata = new Map<JointHandle, {
+    type: JointType;
+    bodyA: RigidBodyHandle;
+    bodyB: RigidBodyHandle;
+    anchorA: JointAnchor;
+    anchorB: JointAnchor;
+    axis?: Vector3; // For revolute/prismatic joints
+    breakForce?: number; // Maximum force before breaking
+  }>();
   private nextJointHandle: JointHandle = 1;
 
   async initialize(config: PhysicsWorldConfig): Promise<void> {
@@ -485,6 +494,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     this.colliders.clear();
     this.colliderHandleToBodyHandle.clear();
     this.joints.clear();
+    this.jointMetadata.clear();
     this.collisionEvents = [];
   }
 
@@ -819,6 +829,74 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
         break;
       }
 
+      case JointType.SPRING: {
+        // Spring joint (soft distance constraint)
+
+        // Validate spring parameters
+        if (descriptor.stiffness < 0) {
+          throw new Error(`Spring stiffness must be non-negative, got ${descriptor.stiffness}`);
+        }
+        if (descriptor.damping < 0) {
+          throw new Error(`Spring damping must be non-negative, got ${descriptor.damping}`);
+        }
+        if (descriptor.stiffness === 0 && descriptor.damping === 0) {
+          throw new Error('Spring must have non-zero stiffness or damping');
+        }
+
+        const anchorA = new RAPIER.Vector3(
+          descriptor.anchorA.position.x,
+          descriptor.anchorA.position.y,
+          descriptor.anchorA.position.z
+        );
+        const anchorB = new RAPIER.Vector3(
+          descriptor.anchorB.position.x,
+          descriptor.anchorB.position.y,
+          descriptor.anchorB.position.z
+        );
+
+        // Calculate rest length if not specified
+        let restLength = descriptor.restLength ?? 0;
+        if (restLength === 0) {
+          // Use current distance between anchors as rest length
+          const posA = bodyA.translation();
+          const posB = bodyB.translation();
+          const rotA = bodyA.rotation();
+          const rotB = bodyB.rotation();
+
+          // Transform anchors to world space
+          const anchorAWorld = this.transformPointToWorld(
+            { x: posA.x, y: posA.y, z: posA.z },
+            rotA,
+            descriptor.anchorA.position
+          );
+          const anchorBWorld = this.transformPointToWorld(
+            { x: posB.x, y: posB.y, z: posB.z },
+            rotB,
+            descriptor.anchorB.position
+          );
+
+          // Calculate distance
+          const dx = anchorBWorld.x - anchorAWorld.x;
+          const dy = anchorBWorld.y - anchorAWorld.y;
+          const dz = anchorBWorld.z - anchorAWorld.z;
+          const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+          // Ensure minimum safe rest length to avoid numerical instability
+          restLength = Math.max(distance, 0.01);
+        } else if (restLength < 0) {
+          throw new Error(`Spring rest length must be non-negative, got ${restLength}`);
+        }
+
+        jointParams = RAPIER.JointData.spring(
+          restLength,
+          descriptor.stiffness,
+          descriptor.damping,
+          anchorA,
+          anchorB
+        );
+        break;
+      }
+
       default:
         throw new Error(`Unknown joint type: ${(descriptor as any).type}`);
     }
@@ -832,6 +910,17 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     // Store joint with unique handle
     const handle = this.nextJointHandle++;
     this.joints.set(handle, joint);
+
+    // Store joint metadata for value calculations and debug visualization
+    this.jointMetadata.set(handle, {
+      type: descriptor.type,
+      bodyA: descriptor.bodyA,
+      bodyB: descriptor.bodyB,
+      anchorA: descriptor.anchorA,
+      anchorB: descriptor.anchorB,
+      axis: ('axis' in descriptor) ? descriptor.axis : undefined,
+      breakForce: descriptor.breakForce
+    });
 
     // Apply motor if specified (for revolute and prismatic joints)
     if ('motor' in descriptor && descriptor.motor) {
@@ -856,6 +945,7 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
 
     // Remove from our tracking
     this.joints.delete(handle);
+    this.jointMetadata.delete(handle);
   }
 
   setJointMotor(handle: JointHandle, motor: JointMotor | null): void {
@@ -876,17 +966,16 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
   /**
    * Get current joint value (angle for revolute, position for prismatic)
    *
-   * LIMITATION: Rapier doesn't directly expose joint values in its API.
-   * To get accurate joint state, you must calculate it from the relative transforms
-   * of the connected bodies. This is intentional - Rapier focuses on constraint solving,
-   * not state queries.
+   * Calculates joint state from relative body transforms:
+   * - REVOLUTE: Returns angle in radians around joint axis
+   * - PRISMATIC: Returns distance along joint axis
+   * - Other joint types: Returns 0
    *
-   * Workaround for accurate joint state:
-   * 1. Get positions/rotations of both connected bodies
-   * 2. Calculate relative transform based on joint type
-   * 3. Extract angle (revolute) or distance (prismatic)
+   * The calculation uses the relative transforms of connected bodies since Rapier
+   * doesn't directly expose joint values in its API.
    *
-   * @returns 0 (placeholder - see limitation above)
+   * @param handle Handle to the joint
+   * @returns Current joint value (angle in radians or distance in units)
    */
   getJointValue(handle: JointHandle): number {
     const joint = this.joints.get(handle);
@@ -894,12 +983,341 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       throw new Error(`Invalid joint handle: ${handle}`);
     }
 
-    // TODO: Implement proper joint value calculation from body transforms
-    // This requires storing joint type and calculating based on:
-    // - Revolute: angle between bodies around joint axis
-    // - Prismatic: distance along joint axis
-    // - Spherical: N/A (free rotation)
-    // - Fixed: N/A (no degrees of freedom)
+    const metadata = this.jointMetadata.get(handle);
+    if (!metadata) {
+      return 0;
+    }
+
+    // Only calculate for revolute and prismatic joints
+    if (metadata.type !== JointType.REVOLUTE && metadata.type !== JointType.PRISMATIC) {
+      return 0;
+    }
+
+    if (!metadata.axis) {
+      return 0; // No axis defined
+    }
+
+    // Get body transforms
+    const bodyA = this.bodies.get(metadata.bodyA);
+    const bodyB = this.bodies.get(metadata.bodyB);
+
+    if (!bodyA || !bodyB) {
+      return 0;
+    }
+
+    const posA = bodyA.translation();
+    const rotA = bodyA.rotation();
+    const posB = bodyB.translation();
+    const rotB = bodyB.rotation();
+
+    if (metadata.type === JointType.PRISMATIC) {
+      // Calculate distance along axis using actual anchor points (not body centers)
+      // Transform anchors to world space
+      const anchorAWorld = this.transformPointToWorld(
+        { x: posA.x, y: posA.y, z: posA.z },
+        rotA,
+        metadata.anchorA.position
+      );
+      const anchorBWorld = this.transformPointToWorld(
+        { x: posB.x, y: posB.y, z: posB.z },
+        rotB,
+        metadata.anchorB.position
+      );
+
+      // Calculate relative position between anchors
+      const relativePos = {
+        x: anchorBWorld.x - anchorAWorld.x,
+        y: anchorBWorld.y - anchorAWorld.y,
+        z: anchorBWorld.z - anchorAWorld.z
+      };
+
+      // Project relative position onto joint axis
+      const distance =
+        relativePos.x * metadata.axis.x +
+        relativePos.y * metadata.axis.y +
+        relativePos.z * metadata.axis.z;
+
+      return distance;
+    } else if (metadata.type === JointType.REVOLUTE) {
+      // Calculate relative rotation around axis
+      // Compute inverse of rotation A
+      const invRotA = {
+        x: -rotA.x,
+        y: -rotA.y,
+        z: -rotA.z,
+        w: rotA.w
+      };
+
+      // Relative rotation = invRotA * rotB
+      const relRot = this.multiplyQuaternions(invRotA, rotB);
+
+      // Convert quaternion to axis-angle representation
+      // Clamp to avoid numerical issues with acos
+      const w = Math.min(1, Math.max(-1, relRot.w));
+      const angle = 2 * Math.acos(w);
+
+      // Handle near-zero rotation
+      const sinHalfAngle = Math.sqrt(1 - w * w);
+      if (sinHalfAngle < 0.001) {
+        return 0; // Near-identity rotation
+      }
+
+      // Extract rotation axis from quaternion
+      const qAxis = {
+        x: relRot.x / sinHalfAngle,
+        y: relRot.y / sinHalfAngle,
+        z: relRot.z / sinHalfAngle
+      };
+
+      // Project rotation axis onto joint constraint axis to get signed angle
+      const axisDot =
+        qAxis.x * metadata.axis.x +
+        qAxis.y * metadata.axis.y +
+        qAxis.z * metadata.axis.z;
+
+      // Return signed angle (positive/negative based on rotation direction)
+      return angle * Math.sign(axisDot);
+    }
+
     return 0;
+  }
+
+  /**
+   * Get debug information for visualizing a joint
+   *
+   * Returns world-space positions of anchor points and joint axis for rendering
+   * debug visualization lines showing constraint connections and axes.
+   *
+   * @param handle Handle to the joint
+   * @returns Debug info with world-space anchors and axis, or null if joint doesn't exist
+   */
+  getJointDebugInfo(handle: JointHandle): JointDebugInfo | null {
+    const joint = this.joints.get(handle);
+    if (!joint) {
+      return null;
+    }
+
+    const metadata = this.jointMetadata.get(handle);
+    if (!metadata) {
+      return null;
+    }
+
+    // Get body transforms
+    const bodyA = this.bodies.get(metadata.bodyA);
+    const bodyB = this.bodies.get(metadata.bodyB);
+
+    if (!bodyA || !bodyB) {
+      return null;
+    }
+
+    const posA = bodyA.translation();
+    const rotA = bodyA.rotation();
+    const posB = bodyB.translation();
+    const rotB = bodyB.rotation();
+
+    // Transform local anchor positions to world space
+    const anchorAWorld = this.transformPointToWorld(
+      { x: posA.x, y: posA.y, z: posA.z },
+      rotA,
+      metadata.anchorA.position
+    );
+
+    const anchorBWorld = this.transformPointToWorld(
+      { x: posB.x, y: posB.y, z: posB.z },
+      rotB,
+      metadata.anchorB.position
+    );
+
+    // Transform axis to world space if it exists
+    let axisWorld: Vector3 | undefined;
+    if (metadata.axis) {
+      axisWorld = this.transformVectorToWorld(rotA, metadata.axis);
+    }
+
+    // Get current joint value
+    const value = this.getJointValue(handle);
+
+    return {
+      type: metadata.type,
+      anchorA: anchorAWorld,
+      anchorB: anchorBWorld,
+      axis: axisWorld,
+      value
+    };
+  }
+
+  /**
+   * Transform a point from local space to world space
+   */
+  private transformPointToWorld(position: Vector3, rotation: Quaternion, localPoint: Vector3): Vector3 {
+    // Rotate local point by quaternion
+    const rotated = this.rotateVectorByQuaternion(localPoint, rotation);
+
+    // Add to position
+    return {
+      x: position.x + rotated.x,
+      y: position.y + rotated.y,
+      z: position.z + rotated.z
+    };
+  }
+
+  /**
+   * Transform a direction vector from local space to world space (no translation)
+   */
+  private transformVectorToWorld(rotation: Quaternion, localVector: Vector3): Vector3 {
+    return this.rotateVectorByQuaternion(localVector, rotation);
+  }
+
+  /**
+   * Rotate a vector by a quaternion
+   */
+  private rotateVectorByQuaternion(v: Vector3, q: Quaternion): Vector3 {
+    // v' = q * v * q^-1
+    // For unit quaternions, q^-1 = q*
+    // Using: v' = v + 2 * cross(q.xyz, cross(q.xyz, v) + q.w * v)
+
+    const qx = q.x;
+    const qy = q.y;
+    const qz = q.z;
+    const qw = q.w;
+
+    // First cross: q.xyz × v
+    const cx1 = qy * v.z - qz * v.y;
+    const cy1 = qz * v.x - qx * v.z;
+    const cz1 = qx * v.y - qy * v.x;
+
+    // Add q.w * v
+    const tx = cx1 + qw * v.x;
+    const ty = cy1 + qw * v.y;
+    const tz = cz1 + qw * v.z;
+
+    // Second cross: q.xyz × t
+    const cx2 = qy * tz - qz * ty;
+    const cy2 = qz * tx - qx * tz;
+    const cz2 = qx * ty - qy * tx;
+
+    // Add to original vector with scale 2
+    return {
+      x: v.x + 2 * cx2,
+      y: v.y + 2 * cy2,
+      z: v.z + 2 * cz2
+    };
+  }
+
+  /**
+   * Multiply two quaternions: result = q1 * q2
+   */
+  private multiplyQuaternions(q1: Quaternion, q2: Quaternion): Quaternion {
+    return {
+      w: q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z,
+      x: q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+      y: q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+      z: q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+    };
+  }
+
+  /**
+   * Check joints for breaking based on force thresholds
+   *
+   * Returns events for joints that exceeded their breakForce limit.
+   * Broken joints are automatically removed from the simulation.
+   */
+  checkJointBreaking(): Array<{
+    jointHandle: JointHandle;
+    bodyA: RigidBodyHandle;
+    bodyB: RigidBodyHandle;
+    force: number;
+  }> {
+    const brokenJoints: Array<{
+      jointHandle: JointHandle;
+      bodyA: RigidBodyHandle;
+      bodyB: RigidBodyHandle;
+      force: number;
+    }> = [];
+
+    // Check each joint with a breakForce threshold
+    for (const [handle, metadata] of this.jointMetadata.entries()) {
+      if (!metadata.breakForce || metadata.breakForce <= 0) {
+        continue; // Unbreakable joint
+      }
+
+      const joint = this.joints.get(handle);
+      if (!joint) {
+        continue;
+      }
+
+      // Get bodies
+      const bodyA = this.bodies.get(metadata.bodyA);
+      const bodyB = this.bodies.get(metadata.bodyB);
+      if (!bodyA || !bodyB) {
+        continue;
+      }
+
+      // Calculate force magnitude between bodies
+      // This is an approximation based on relative velocity and distance
+      const posA = bodyA.translation();
+      const posB = bodyB.translation();
+      const velA = bodyA.linvel();
+      const velB = bodyB.linvel();
+
+      // Relative velocity
+      const relVel = {
+        x: velB.x - velA.x,
+        y: velB.y - velA.y,
+        z: velB.z - velA.z
+      };
+
+      // Relative position (for direction)
+      const relPos = {
+        x: posB.x - posA.x,
+        y: posB.y - posA.y,
+        z: posB.z - posA.z
+      };
+
+      const relPosLen = Math.sqrt(relPos.x * relPos.x + relPos.y * relPos.y + relPos.z * relPos.z);
+      if (relPosLen < 0.0001) {
+        continue; // Bodies are too close
+      }
+
+      // Normalize direction
+      const dir = {
+        x: relPos.x / relPosLen,
+        y: relPos.y / relPosLen,
+        z: relPos.z / relPosLen
+      };
+
+      // Project relative velocity onto direction
+      const relSpeed = Math.abs(
+        relVel.x * dir.x + relVel.y * dir.y + relVel.z * dir.z
+      );
+
+      // Estimate force as mass * acceleration
+      // Acceleration = velocity change / timestep
+      // Use config timestep for accuracy
+      const timestep = 1 / 60; // TODO: Use actual physics timestep from config
+      const relAcceleration = relSpeed / timestep;
+
+      const massA = bodyA.mass();
+      const massB = bodyB.mass();
+      const avgMass = (massA + massB) / 2;
+
+      // Force = mass * acceleration (F = ma)
+      const approximateForce = avgMass * relAcceleration;
+
+      // Check if force exceeds threshold
+      if (approximateForce > metadata.breakForce) {
+        brokenJoints.push({
+          jointHandle: handle,
+          bodyA: metadata.bodyA,
+          bodyB: metadata.bodyB,
+          force: approximateForce
+        });
+
+        // Remove the broken joint
+        this.removeJoint(handle);
+      }
+    }
+
+    return brokenJoints;
   }
 }

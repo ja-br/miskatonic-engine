@@ -888,7 +888,7 @@ export class JointsDemo {
       // Apply oscillating force to elevator platform
       if (this.elevatorPlatform) {
         this.elevatorTime += deltaTime;
-        const force = Math.sin(this.elevatorTime * 0.5) * 50; // Slow oscillation
+        const force = Math.sin(this.elevatorTime * 0.8) * 80; // Medium speed, stronger force
         this.physicsWorld.applyForce(this.elevatorPlatform, { x: 0, y: force, z: 0 });
       }
     }
@@ -985,6 +985,9 @@ export class JointsDemo {
       drawCalls++;
     }
 
+    // Render joint debug visualization
+    this.renderJointDebugLines(gl, viewProjMatrix);
+
     // Update FPS
     this.frameCount++;
     if (now - this.lastFpsUpdate >= 1000) {
@@ -1052,6 +1055,206 @@ export class JointsDemo {
     out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
 
     return out;
+  }
+
+  /**
+   * Render debug visualization lines for joints
+   * Shows constraint connections (yellow) and axes (cyan)
+   */
+  private renderJointDebugLines(gl: WebGL2RenderingContext, viewProjMatrix: Float32Array): void {
+    if (!this.physicsWorld) return;
+
+    // Save current WebGL state
+    const prevDepthTest = gl.getParameter(gl.DEPTH_TEST);
+    const prevBlend = gl.getParameter(gl.BLEND);
+
+    // Enable additive blending for bright debug lines
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    gl.disable(gl.DEPTH_TEST); // Always show debug lines on top
+
+    // Collect all line vertices and colors
+    const lineVertices: number[] = [];
+    const lineColors: number[] = [];
+
+    for (const jointHandle of this.joints) {
+      const debugInfo = this.physicsWorld.getJointDebugInfo(jointHandle);
+      if (!debugInfo) continue;
+
+      // Draw constraint line (yellow) from anchorA to anchorB
+      lineVertices.push(
+        debugInfo.anchorA.x, debugInfo.anchorA.y, debugInfo.anchorA.z,
+        debugInfo.anchorB.x, debugInfo.anchorB.y, debugInfo.anchorB.z
+      );
+      lineColors.push(
+        1.0, 1.0, 0.0, 1.0, // Yellow
+        1.0, 1.0, 0.0, 1.0
+      );
+
+      // Draw axis line (cyan) if available (revolute/prismatic)
+      if (debugInfo.axis) {
+        const axisLength = 0.5; // Half meter axis visualization
+        const axisEnd = {
+          x: debugInfo.anchorA.x + debugInfo.axis.x * axisLength,
+          y: debugInfo.anchorA.y + debugInfo.axis.y * axisLength,
+          z: debugInfo.anchorA.z + debugInfo.axis.z * axisLength
+        };
+
+        lineVertices.push(
+          debugInfo.anchorA.x, debugInfo.anchorA.y, debugInfo.anchorA.z,
+          axisEnd.x, axisEnd.y, axisEnd.z
+        );
+        lineColors.push(
+          0.0, 1.0, 1.0, 1.0, // Cyan
+          0.0, 1.0, 1.0, 1.0
+        );
+      }
+    }
+
+    if (lineVertices.length === 0) {
+      // Restore WebGL state
+      if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
+      if (!prevBlend) gl.disable(gl.BLEND);
+      return;
+    }
+
+    // Create simple line shader inline (no need for shader manager)
+    const lineProgram = this.getOrCreateLineShader(gl);
+    if (!lineProgram) {
+      if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
+      if (!prevBlend) gl.disable(gl.BLEND);
+      return;
+    }
+
+    gl.useProgram(lineProgram);
+
+    // Set MVP matrix
+    const mvpLoc = gl.getUniformLocation(lineProgram, 'uMVP');
+    gl.uniformMatrix4fv(mvpLoc, false, viewProjMatrix);
+
+    // Reuse or create buffers
+    const vertexCount = lineVertices.length / 3;
+
+    // Initialize buffers if not created
+    if (!this.debugLineBuffers.vertex) {
+      this.debugLineBuffers.vertex = gl.createBuffer();
+      this.debugLineBuffers.color = gl.createBuffer();
+      this.debugLineBuffers.maxVertices = 0;
+    }
+
+    // Reallocate if we need more space (with 50% growth for amortization)
+    const vertexData = new Float32Array(lineVertices);
+    const colorData = new Float32Array(lineColors);
+
+    if (vertexCount > this.debugLineBuffers.maxVertices) {
+      this.debugLineBuffers.maxVertices = Math.ceil(vertexCount * 1.5);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.vertex);
+      gl.bufferData(gl.ARRAY_BUFFER, this.debugLineBuffers.maxVertices * 3 * 4, gl.DYNAMIC_DRAW);
+
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.color);
+      gl.bufferData(gl.ARRAY_BUFFER, this.debugLineBuffers.maxVertices * 4 * 4, gl.DYNAMIC_DRAW);
+    }
+
+    // Upload vertex data using bufferSubData (faster than bufferData)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.vertex);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertexData);
+    const posLoc = gl.getAttribLocation(lineProgram, 'aPosition');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+    // Upload color data using bufferSubData
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.color);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, colorData);
+    const colorLoc = gl.getAttribLocation(lineProgram, 'aColor');
+    gl.enableVertexAttribArray(colorLoc);
+    gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
+
+    // Draw lines
+    gl.lineWidth(2.0); // May not work on all platforms, but worth trying
+    gl.drawArrays(gl.LINES, 0, vertexCount);
+
+    // Cleanup attribute arrays (but keep buffers)
+    gl.disableVertexAttribArray(posLoc);
+    gl.disableVertexAttribArray(colorLoc);
+
+    // Restore WebGL state
+    if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
+    if (!prevBlend) gl.disable(gl.BLEND);
+  }
+
+  private lineShader: WebGLProgram | null = null;
+  private debugLineBuffers: {
+    vertex: WebGLBuffer | null;
+    color: WebGLBuffer | null;
+    maxVertices: number;
+  } = {
+    vertex: null,
+    color: null,
+    maxVertices: 0
+  };
+
+  /**
+   * Get or create a simple line shader for debug visualization
+   */
+  private getOrCreateLineShader(gl: WebGL2RenderingContext): WebGLProgram | null {
+    if (this.lineShader) return this.lineShader;
+
+    const vertexShaderSource = `#version 300 es
+      in vec3 aPosition;
+      in vec4 aColor;
+      uniform mat4 uMVP;
+      out vec4 vColor;
+
+      void main() {
+        gl_Position = uMVP * vec4(aPosition, 1.0);
+        vColor = aColor;
+      }
+    `;
+
+    const fragmentShaderSource = `#version 300 es
+      precision mediump float;
+      in vec4 vColor;
+      out vec4 fragColor;
+
+      void main() {
+        fragColor = vColor;
+      }
+    `;
+
+    // Compile vertex shader
+    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    if (!vertexShader) return null;
+    gl.shaderSource(vertexShader, vertexShaderSource);
+    gl.compileShader(vertexShader);
+    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+      console.error('Line vertex shader compile error:', gl.getShaderInfoLog(vertexShader));
+      return null;
+    }
+
+    // Compile fragment shader
+    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    if (!fragmentShader) return null;
+    gl.shaderSource(fragmentShader, fragmentShaderSource);
+    gl.compileShader(fragmentShader);
+    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+      console.error('Line fragment shader compile error:', gl.getShaderInfoLog(fragmentShader));
+      return null;
+    }
+
+    // Link program
+    const program = gl.createProgram();
+    if (!program) return null;
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error('Line shader link error:', gl.getProgramInfoLog(program));
+      return null;
+    }
+
+    this.lineShader = program;
+    return program;
   }
 
   private updateStats(fps: number, drawCalls: number, triangles: number, bodies: number, joints: number): void {
