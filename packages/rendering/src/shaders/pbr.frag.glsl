@@ -3,7 +3,7 @@ precision highp float;
 
 // Constants
 const float PI = 3.14159265359;
-const float EPSILON = 0.000001;
+const float EPSILON = 0.0001; // Balance between precision and preventing div-by-zero
 
 // Inputs from vertex shader
 in vec3 v_worldPosition;
@@ -28,12 +28,12 @@ uniform sampler2D u_normalMap;
 uniform sampler2D u_emissiveMap;
 uniform sampler2D u_aoMap;
 
-// Texture flags
-uniform bool u_hasBaseColorMap;
-uniform bool u_hasMetallicRoughnessMap;
-uniform bool u_hasNormalMap;
-uniform bool u_hasEmissiveMap;
-uniform bool u_hasAOMap;
+// Texture flags (using int instead of bool for compatibility)
+uniform int u_hasBaseColorMap;
+uniform int u_hasMetallicRoughnessMap;
+uniform int u_hasNormalMap;
+uniform int u_hasEmissiveMap;
+uniform int u_hasAOMap;
 
 // Lighting
 uniform vec3 u_cameraPosition;
@@ -101,42 +101,45 @@ float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
  * Sample normal from normal map
  */
 vec3 getNormalFromMap() {
-    if (!u_hasNormalMap) {
+    if (u_hasNormalMap == 0) {
         return normalize(v_normal);
     }
 
+    // Sample and decode from [0,1] to [-1,1]
     vec3 tangentNormal = texture(u_normalMap, v_texcoord).xyz * 2.0 - 1.0;
-    tangentNormal.xy *= u_normalScale;
-    return normalize(v_TBN * tangentNormal);
+    // Scale XY components (intensity) while preserving Z
+    tangentNormal = normalize(vec3(tangentNormal.xy * u_normalScale, tangentNormal.z));
+    // Transform to world space
+    return v_TBN * tangentNormal; // Return un-normalized, will be normalized once in main
 }
 
 void main() {
     // Sample textures
     vec4 baseColor = u_baseColor;
-    if (u_hasBaseColorMap) {
+    if (u_hasBaseColorMap != 0) {
         baseColor *= texture(u_baseColorMap, v_texcoord);
     }
 
     float metallic = u_metallic;
     float roughness = u_roughness;
-    if (u_hasMetallicRoughnessMap) {
+    if (u_hasMetallicRoughnessMap != 0) {
         vec3 mr = texture(u_metallicRoughnessMap, v_texcoord).rgb;
         metallic *= mr.b; // Metallic in blue channel
         roughness *= mr.g; // Roughness in green channel
     }
 
     vec3 emissive = u_emissive * u_emissiveIntensity;
-    if (u_hasEmissiveMap) {
+    if (u_hasEmissiveMap != 0) {
         emissive *= texture(u_emissiveMap, v_texcoord).rgb;
     }
 
     float ao = u_ao;
-    if (u_hasAOMap) {
+    if (u_hasAOMap != 0) {
         ao *= texture(u_aoMap, v_texcoord).r;
     }
 
-    // Get normal
-    vec3 N = getNormalFromMap();
+    // Get normal (normalize once here)
+    vec3 N = normalize(getNormalFromMap());
 
     // Calculate view direction
     vec3 V = normalize(u_cameraPosition - v_worldPosition);

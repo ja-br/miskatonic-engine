@@ -34,6 +34,6 @@ void main() {
     // Compute TBN matrix for normal mapping
     vec3 T = normalize(u_normalMatrix * a_tangent.xyz);
     vec3 N = v_normal;
-    vec3 B = cross(N, T) * a_tangent.w; // Handedness
+    vec3 B = cross(T, N) * a_tangent.w; // Right-handed: T cross N, then apply handedness
     v_TBN = mat3(T, B, N);
 }
