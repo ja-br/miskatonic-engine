@@ -1,0 +1,20 @@
+{
+  "name": "@miskatonic/storage-benchmarks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ECS component storage benchmarks for Epic 2.10",
+  "type": "module",
+  "scripts": {
+    "benchmark": "node --expose-gc benchmark-runner.js",
+    "benchmark:quick": "node --expose-gc benchmark-runner.js --quick",
+    "benchmark:verbose": "node --expose-gc benchmark-runner.js --verbose"
+  },
+  "keywords": [
+    "benchmark",
+    "ecs",
+    "performance",
+    "cache"
+  ],
+  "author": "Miskatonic Engine Team",
+  "license": "MIT"
+}
