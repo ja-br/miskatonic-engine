@@ -1,0 +1,25 @@
+{
+  "name": "@miskatonic/core",
+  "version": "0.1.0",
+  "description": "Miskatonic Engine Core - Main engine class and integration layer",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage"
+  },
+  "dependencies": {
+    "@miskatonic/ecs": "*",
+    "@miskatonic/events": "*",
+    "@miskatonic/resources": "*",
+    "@miskatonic/physics": "*",
+    "@miskatonic/network": "*",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  }
+}

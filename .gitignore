@@ -86,7 +86,7 @@ tmp/
 crash-reports/
 *.dmp
 *.stackdump
-core
+*.core
 
 # Game development specific
 *.blend1
