@@ -21,6 +21,27 @@ export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget
 export { MaterialManager, type Material, type MaterialConfig, type PBRMaterialProperties, type MaterialTextures } from './Material';
 export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueStats } from './RenderQueue';
 
+// Backend abstraction (Epic 3.2)
+export {
+  // Backend interface and implementations
+  type IRendererBackend,
+  type BackendConfig,
+  type BackendCapabilities,
+  type BackendShaderHandle,
+  type BackendBufferHandle,
+  type BackendTextureHandle,
+  type BackendFramebufferHandle,
+  isBackendShaderHandle,
+  isBackendBufferHandle,
+  isBackendTextureHandle,
+  isBackendFramebufferHandle,
+  WebGL2Backend,
+  WebGPUBackend,
+  BackendFactory,
+  type BackendFactoryOptions,
+  type BackendSupport,
+} from './backends';
+
 // Types and enums
 export {
   // Enums
