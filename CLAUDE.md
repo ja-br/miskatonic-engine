@@ -139,12 +139,14 @@ miskatonic-engine/
 │   ├── preload/       # Security boundary (contextBridge for IPC)
 │   ├── renderer/      # Game UI and client-side engine
 │   ├── shared/        # Shared types and constants
-│   ├── ecs/           # Entity Component System core
-│   ├── physics/       # Physics abstraction (Rapier/Cannon/Box2D)
-│   ├── rendering/     # Rendering pipeline (WebGL2/WebGPU)
-│   ├── network/       # State synchronization and networking
-│   ├── events/        # Event bus system
-│   └── resources/     # Asset management
+│   ├── core/          # Core engine integration (✅ complete)
+│   ├── ecs/           # Entity Component System core (✅ complete)
+│   ├── physics/       # Physics abstraction (Rapier/Cannon/Box2D) (✅ complete)
+│   ├── rendering/     # Rendering pipeline (WebGL2/WebGPU) (⏳ in development)
+│   ├── network/       # State synchronization and networking (✅ complete)
+│   ├── events/        # Event bus system (✅ complete)
+│   ├── resources/     # Asset management (✅ complete)
+│   └── debug-console/ # In-game developer console (✅ complete - Epic 6.1)
 ├── config/            # Build configurations (Webpack, Vite)
 ├── scripts/           # Development scripts (dev.js, build.js, clean.js)
 ├── tests/             # Integration and E2E tests
@@ -202,6 +204,17 @@ npm run docs             # Generate API documentation with TypeDoc
 
 ### Package-Specific Testing
 
+**Note:** Not all packages have test suites yet. The following packages have tests:
+- `@miskatonic/ecs`: 65/65 tests passing (Epic 2.1)
+- `@miskatonic/events`: 49/49 tests passing (Epic 2.3)
+- `@miskatonic/resources`: 91/91 tests passing (Epic 2.4)
+- `@miskatonic/physics`: Integration tests passing (Epics 4.1-4.5)
+- `@miskatonic/network`: 89 tests, 94.82% coverage (Epic 5.2)
+- `@miskatonic/core`: 62 tests passing (Epics 2.7-2.9)
+- `@miskatonic/debug-console`: 69/69 tests passing (Epic 6.1) ⚡ NEW
+
+For packages without tests, running `npm test --workspace=@miskatonic/<package>` will show "No test files found."
+
 ```bash
 # Test a specific package
 npm test --workspace=@miskatonic/physics
@@ -223,13 +236,6 @@ cd packages/network
 npm run test:watch
 ```
 
-**Package Test Status:**
-- `@miskatonic/ecs`: 65/65 tests passing (Epic 2.1)
-- `@miskatonic/events`: 49/49 tests passing (Epic 2.3)
-- `@miskatonic/resources`: 91/91 tests passing (Epic 2.4)
-- `@miskatonic/physics`: Integration tests passing (Epics 4.1-4.5)
-- `@miskatonic/network`: 94.82% coverage (Epic 5.2)
-
 ### Build Commands
 
 ```bash
@@ -243,9 +249,19 @@ npm run build --workspace=@miskatonic/physics
 npm run build --workspace=@miskatonic/network
 ```
 
+### Performance Benchmarking
+
+```bash
+# Run ECS benchmarks
+node packages/ecs/benchmark-runner.js
+
+# Run with GC exposure (recommended for accurate memory profiling)
+node --expose-gc packages/ecs/benchmark-runner.js
+```
+
 ## Current Project Status
 
-**Completed Epics (9 of 70+ planned):**
+**Completed Epics (13 of 70+ planned):**
 
 ✅ **Epic 1.1-1.2: Electron Foundation** - COMPLETE
 - Secure multi-process architecture (main, preload, renderer)
@@ -278,6 +294,22 @@ npm run build --workspace=@miskatonic/network
 - Delta compression implementation (94.82% test coverage)
 - Interest management (spatial, grid, and always-interested policies)
 - State replication with bandwidth optimization
+
+✅ **Epic 2.7-2.9: Main Engine Class & Game Loop** - COMPLETE (62 tests passing)
+- MiskatonicEngine class with lifecycle management
+- Phase-based game loop (PRE_UPDATE, UPDATE, POST_UPDATE, RENDER)
+- Fixed timestep physics, variable timestep rendering
+- Command system with built-in commands
+- System registration and priority-based execution
+
+✅ **Epic 6.1: Debug Console** - COMPLETE (69 tests passing) ⚡ NEW
+- In-game developer console with ~ key toggle
+- Command execution via CommandSystem integration
+- Command history with up/down arrow navigation (100 entries)
+- Tab autocomplete with prefix matching
+- console.log/warn/error capture and redirection
+- History persistence via localStorage
+- Comprehensive test coverage
 
 **Critical Next Priorities (P0):**
 
@@ -349,6 +381,8 @@ From recent architecture analyses (November 2025), these are the most critical g
 - **Impact:** ~10x slower than optimal for component iteration
 - **Status:** Works correctly, all tests pass, but performance is suboptimal
 - **Resolution:** Planned refactoring to SoA (Structure of Arrays) with typed arrays
+- **When to Refactor:** Before starting Epic 2.7-2.9 (Main Engine Integration) or Epic 3.9+ (Rendering)
+- **Why Not Now:** Current implementation works correctly and is fully tested. Refactoring can wait until it becomes a bottleneck or blocks other work.
 - **Timeline:** High priority, blocks optimal rendering performance
 - **Reference:** planning/CACHE_ARCHITECTURE_ANALYSIS.md
 

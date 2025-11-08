@@ -839,24 +839,41 @@ class Position {
 
 ### Epic 2.11: Cache-Efficient ECS Refactoring
 **Priority:** P0 - CRITICAL
-**Status:** ⏭️ Not Started
-**Dependencies:** Epic 2.10 (Storage Research)
+**Status:** 🔨 IN PROGRESS - Core refactoring complete, tests in progress
+**Dependencies:** Epic 2.10 (Storage Research) ✅ COMPLETE
 **Complexity:** High
 **Estimated Effort:** 3-4 weeks
+**Actual Effort:** ~1 week core implementation + code-critic review fixes
 
 **Problem Statement:**
 Current ECS implementation uses cache-unfriendly object arrays. Epic 2.10 benchmarks validate that SoA typed arrays provide **4.16x performance improvement** at 100k entity scale on Apple Silicon, with zero GC pressure. Need to refactor Archetype storage to realize these validated gains. Note: x86 platforms with smaller L1 caches may show even higher speedups (est. 5-10x) as object arrays suffer more on constrained cache hierarchies.
 
+**Implementation Summary (November 2025):**
+- ✅ Created ComponentStorage class (SoA pattern with typed arrays)
+- ✅ Created ComponentRegistry for schema management
+- ✅ Refactored Archetype & ArchetypeManager to use ComponentStorage
+- ✅ Updated World and Query systems for new storage
+- ✅ Fixed 6 CRITICAL/HIGH issues identified by code-critic:
+  1. Removed count management from ComponentStorage (Archetype is single source of truth)
+  2. Fixed count synchronization bugs
+  3. Hidden typed arrays behind accessor methods
+  4. Documented breaking changes (MIGRATION.md)
+  5. Added integer overflow protection (max 2^30 entities)
+  6. Added type validation for component values
+- 🔨 Tests partially updated (Entity: 18/18 passing, Archetype: partial, World: partial)
+- ⏭️ Performance validation pending
+- ⏭️ x86 cross-platform validation pending
+
 **Acceptance Criteria:**
 - ✅ Archetype storage refactored to use SoA typed arrays (validated in Epic 2.10: 4.16x speedup)
-- ✅ Component iteration >100k components/ms (Epic 2.10 achieved: 680k components/ms on Apple Silicon)
-- ✅ Sequential access 1.5-2x faster than random on Apple Silicon (Epic 2.10: 1.55x at 100k scale)
-- ⚠️ Higher penalties expected on x86 platforms (validation required - smaller L1 caches)
+- ⏭️ Component iteration >100k components/ms (Epic 2.10 achieved: 680k components/ms on Apple Silicon) - validation pending
+- ✅ Sequential access implemented (Epic 2.10: 1.55x at 100k scale)
+- ⏭️ Higher penalties expected on x86 platforms (validation required - smaller L1 caches)
 - ✅ GC pressure <100 objects/frame (Epic 2.10 validated: 0 allocations per iteration)
-- ✅ All 65 tests still passing
-- ✅ Backward compatibility maintained (or migration guide provided)
-- ✅ Cache performance benchmarks green
-- 🆕 Cross-platform validation on x86 hardware completed
+- ⏭️ All 65 tests still passing (IN PROGRESS: 18/65 passing, others need API updates)
+- ✅ Migration guide provided (packages/ecs/MIGRATION.md)
+- ⏭️ Cache performance benchmarks validation pending
+- ⏭️ Cross-platform validation on x86 hardware pending
 
 #### User Stories:
 1. **As a game**, I need 4x+ faster component iteration (Epic 2.10 validated: 4.16x on Apple Silicon)
@@ -866,15 +883,21 @@ Current ECS implementation uses cache-unfriendly object arrays. Epic 2.10 benchm
 5. **As an engineer**, I want validated cache performance across platforms (Apple Silicon + x86)
 
 #### Tasks Breakdown:
-- [ ] Design new Archetype storage (SoA typed arrays per Epic 2.10 decision)
-- [ ] Implement component storage abstraction
-- [ ] Refactor ArchetypeManager to use new storage
-- [ ] Update component add/remove operations
-- [ ] Implement entity migration between archetypes
-- [ ] Refactor query system for new storage
-- [ ] Update all 65 tests for new storage
+- [x] Design new Archetype storage (SoA typed arrays per Epic 2.10 decision)
+- [x] Implement component storage abstraction (ComponentStorage class)
+- [x] Refactor ArchetypeManager to use new storage
+- [x] Update component add/remove operations (setComponentData, swap methods)
+- [x] Implement entity migration between archetypes (still works via World.addComponent/removeComponent)
+- [x] Refactor query system for new storage (uses archetype.count)
+- [x] Fix CRITICAL issues from code-critic review:
+  - [x] Remove count management from ComponentStorage (single source of truth: Archetype)
+  - [x] Add integer overflow protection (max 2^30 entities)
+  - [x] Add type validation (finite numbers only)
+  - [x] Hide typed arrays behind accessor methods (getEntities, getEntityAt)
+  - [x] Document breaking changes (MIGRATION.md)
+- [ ] Update all 65 tests for new storage (PARTIALLY DONE: Archetype.test.ts and World.test.ts updated)
 - [ ] Add cache performance benchmarks
-- [ ] Create migration guide (if API changes)
+- [x] Create migration guide (MIGRATION.md created)
 - [ ] Validate 4x+ improvement over old implementation (Epic 2.10: 4.16x on Apple Silicon)
 - [ ] Run benchmarks on x86 hardware (Intel/AMD) to validate higher expected speedup
 - [ ] Compare Apple Silicon vs x86 cache penalty differences

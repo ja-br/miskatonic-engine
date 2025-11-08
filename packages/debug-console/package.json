@@ -1,0 +1,22 @@
+{
+  "name": "@miskatonic/debug-console",
+  "version": "0.1.0",
+  "description": "Miskatonic Engine Debug Console - In-game developer console",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage"
+  },
+  "dependencies": {
+    "@miskatonic/core": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4",
+    "@vitest/ui": "^1.0.4",
+    "jsdom": "^23.0.0"
+  }
+}
