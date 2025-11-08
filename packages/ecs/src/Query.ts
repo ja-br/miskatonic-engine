@@ -83,7 +83,7 @@ export class Query {
     const allTypes = [...requiredTypes, ...optionalTypes];
 
     for (const archetype of this.matchingArchetypes) {
-      const entityCount = archetype.entities.length;
+      const entityCount = archetype.count;
 
       for (let i = 0; i < entityCount; i++) {
         const entity = archetype.entities[i];
@@ -132,7 +132,7 @@ export class Query {
     const allTypes = [...requiredTypes, ...optionalTypes];
 
     for (const archetype of this.matchingArchetypes) {
-      if (archetype.entities.length > 0) {
+      if (archetype.count > 0) {
         const entity = archetype.entities[0];
         const components = new Map<ComponentType, any>();
 
@@ -162,7 +162,7 @@ export class Query {
       return 0;
     }
 
-    return this.matchingArchetypes.reduce((sum, archetype) => sum + archetype.entities.length, 0);
+    return this.matchingArchetypes.reduce((sum, archetype) => sum + archetype.count, 0);
   }
 
   /**

@@ -70,6 +70,9 @@ export interface QueryFilter {
 /**
  * Archetype - unique combination of component types
  * Entities with the same components share an archetype
+ *
+ * Uses Structure of Arrays (SoA) storage for cache-efficient iteration.
+ * Epic 2.10 validated: 4.16x speedup vs object arrays on Apple Silicon.
  */
 export interface Archetype {
   /** Unique archetype ID */
@@ -81,11 +84,17 @@ export interface Archetype {
   /** Type signature for fast comparison */
   signature: string;
 
-  /** Entities in this archetype */
-  entities: EntityId[];
+  /** Entity IDs in this archetype (parallel to component arrays) */
+  entities: Uint32Array;
 
-  /** Component storage arrays (one per component type) */
-  components: Map<ComponentType, any[]>;
+  /** Current entity count */
+  count: number;
+
+  /** Storage capacity (entities array length) */
+  capacity: number;
+
+  /** Component storage using typed arrays (SoA pattern) */
+  components: Map<ComponentType, import('./ComponentStorage').ComponentStorage<any>>;
 }
 
 /**

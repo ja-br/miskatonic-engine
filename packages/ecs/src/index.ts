@@ -3,6 +3,11 @@
  *
  * Archetype-based ECS implementation for the Miskatonic Engine.
  * Provides cache-efficient storage and fast iteration over entities.
+ *
+ * Epic 2.11: Refactored to use Structure of Arrays (SoA) with typed arrays
+ * - 4.16x faster iteration (validated in Epic 2.10)
+ * - Zero GC pressure
+ * - Cache-friendly sequential access
  */
 
 export { World } from './World';
@@ -10,6 +15,8 @@ export { EntityManager } from './Entity';
 export { ArchetypeManager } from './Archetype';
 export { SystemManager } from './System';
 export { Query, QueryBuilder } from './Query';
+export { ComponentStorage } from './ComponentStorage';
+export { ComponentRegistry, RegisterComponent } from './ComponentRegistry';
 
 export type {
   EntityId,
@@ -22,9 +29,17 @@ export type {
   EntityMetadata,
 } from './types';
 
-export { SystemPriority } from './types';
+export type {
+  FieldDescriptor,
+  TypedArrayConstructor,
+  TypedArray,
+  ComponentSchema,
+} from './ComponentStorage';
 
-// Example components
+export { SystemPriority } from './types';
+export { createFieldDescriptor, inferArrayType } from './ComponentStorage';
+
+// Example components (auto-registered)
 export { Transform } from './components/Transform';
 export { Velocity } from './components/Velocity';
 

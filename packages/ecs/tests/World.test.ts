@@ -2,14 +2,40 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { World } from '../src/World';
 import { Transform } from '../src/components/Transform';
 import { Velocity } from '../src/components/Velocity';
+import { ComponentRegistry } from '../src/ComponentRegistry';
+import { createFieldDescriptor } from '../src/ComponentStorage';
 import type { System } from '../src/types';
 import { SystemPriority } from '../src/types';
+
+// Register Transform and Velocity
+ComponentRegistry.register(Transform, [
+  createFieldDescriptor('x', 0),
+  createFieldDescriptor('y', 0),
+  createFieldDescriptor('z', 0),
+  createFieldDescriptor('rotationX', 0),
+  createFieldDescriptor('rotationY', 0),
+  createFieldDescriptor('rotationZ', 0),
+  createFieldDescriptor('scaleX', 1),
+  createFieldDescriptor('scaleY', 1),
+  createFieldDescriptor('scaleZ', 1),
+]);
+
+ComponentRegistry.register(Velocity, [
+  createFieldDescriptor('vx', 0),
+  createFieldDescriptor('vy', 0),
+  createFieldDescriptor('vz', 0),
+]);
 
 // Test component
 class Health {
   readonly __componentType = 'Health';
   constructor(public value: number = 100) {}
 }
+
+// Register Health
+ComponentRegistry.register(Health, [
+  createFieldDescriptor('value', 100),
+]);
 
 // Test system
 class TestSystem implements System {

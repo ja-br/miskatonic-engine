@@ -99,8 +99,8 @@ export class World {
     // Collect existing components - clone them to avoid shared state
     const components = new Map<ComponentType, any>();
     if (metadata.archetype) {
-      for (const [componentType, componentArray] of metadata.archetype.components) {
-        const existingComponent = componentArray[metadata.archetypeIndex];
+      for (const [componentType, storage] of metadata.archetype.components) {
+        const existingComponent = storage.getComponent(metadata.archetypeIndex);
         // Clone component if it has a clone method, otherwise use the reference
         const clonedComponent = existingComponent?.clone ? existingComponent.clone() : existingComponent;
         components.set(componentType, clonedComponent);
@@ -159,9 +159,9 @@ export class World {
 
     // Collect remaining components - clone them to avoid shared state
     const components = new Map<ComponentType, any>();
-    for (const [componentType, componentArray] of metadata.archetype.components) {
+    for (const [componentType, storage] of metadata.archetype.components) {
       if (componentType !== type) {
-        const component = componentArray[metadata.archetypeIndex];
+        const component = storage.getComponent(metadata.archetypeIndex);
         // Clone component if it has a clone method, otherwise use the reference
         const clonedComponent = component?.clone ? component.clone() : component;
         components.set(componentType, clonedComponent);

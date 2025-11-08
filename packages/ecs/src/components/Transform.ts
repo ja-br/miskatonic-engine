@@ -4,6 +4,8 @@ import type { Component } from '../types';
  * Transform component - position, rotation, scale
  *
  * This is a core component used by most game entities.
+ *
+ * Storage: 9 Float32 fields (36 bytes with SoA typed arrays)
  */
 export class Transform implements Component {
   readonly __componentType = 'Transform';

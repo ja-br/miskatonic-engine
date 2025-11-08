@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ArchetypeManager } from '../src/Archetype';
+import { ComponentRegistry } from '../src/ComponentRegistry';
+import { createFieldDescriptor } from '../src/ComponentStorage';
 import type { ComponentType } from '../src/types';
 
 // Test components
@@ -18,11 +20,40 @@ class Health {
   constructor(public value: number = 100) {}
 }
 
+// Register test components
+ComponentRegistry.register(Transform, [
+  createFieldDescriptor('x', 0),
+  createFieldDescriptor('y', 0),
+]);
+
+ComponentRegistry.register(Velocity, [
+  createFieldDescriptor('vx', 0),
+  createFieldDescriptor('vy', 0),
+]);
+
+ComponentRegistry.register(Health, [
+  createFieldDescriptor('value', 100),
+]);
+
 describe('ArchetypeManager', () => {
   let archetypeManager: ArchetypeManager;
 
   beforeEach(() => {
     archetypeManager = new ArchetypeManager();
+    // Clear component registry to avoid conflicts between tests
+    ComponentRegistry.clear();
+    // Re-register components for this test
+    ComponentRegistry.register(Transform, [
+      createFieldDescriptor('x', 0),
+      createFieldDescriptor('y', 0),
+    ]);
+    ComponentRegistry.register(Velocity, [
+      createFieldDescriptor('vx', 0),
+      createFieldDescriptor('vy', 0),
+    ]);
+    ComponentRegistry.register(Health, [
+      createFieldDescriptor('value', 100),
+    ]);
   });
 
   describe('getOrCreateArchetype', () => {

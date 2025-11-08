@@ -2,6 +2,8 @@ import type { Component } from '../types';
 
 /**
  * Velocity component - linear velocity for movement
+ *
+ * Storage: 3 Float32 fields (12 bytes with SoA typed arrays)
  */
 export class Velocity implements Component {
   readonly __componentType = 'Velocity';
