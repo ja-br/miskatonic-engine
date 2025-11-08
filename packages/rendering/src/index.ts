@@ -10,9 +10,11 @@ export { Renderer } from './Renderer';
 export { RenderContext } from './RenderContext';
 export { Camera, OrbitControls } from './Camera';  // Standalone (legacy)
 export { CameraSystem } from './CameraSystem';      // ECS system (Epic 3.10)
+export { OrbitCameraController, FirstPersonCameraController } from './CameraControllers';
 export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
 export { ShaderManager, type ShaderManagerConfig } from './ShaderManager';
-export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
+// ShaderLoader is Node.js-only (uses fs/promises), not for browser use
+// export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
 export { BufferManager, type BufferDescriptor } from './BufferManager';
 export { TextureManager, type TextureConfig, type TextureDescriptor } from './TextureManager';
 export { FramebufferManager, type FramebufferConfig, type FramebufferDescriptor, type FramebufferAttachment, type TextureMetadata } from './FramebufferManager';

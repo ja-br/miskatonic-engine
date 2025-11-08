@@ -12,8 +12,10 @@
 import {
   Renderer,
   RenderBackend,
-  Camera,
-  OrbitControls,
+  Camera as LegacyCamera,
+  OrbitControls as LegacyOrbitControls,
+  CameraSystem,
+  OrbitCameraController,
   createCube,
   createSphere,
   type RendererConfig,
@@ -27,24 +29,27 @@ import {
   type RigidBodyHandle,
   type JointHandle,
 } from '../../physics/src';
-
-interface RenderableBody {
-  handle: RigidBodyHandle;
-  type: 'cube' | 'sphere';
-  scale: { x: number; y: number; z: number };
-  color: [number, number, number];
-}
+import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
+import { JointBodyEntity } from './components/JointBodyEntity';
+import './components/registerDemoComponents';
 
 export class JointsDemo {
   private canvas: HTMLCanvasElement;
   private renderer: Renderer | null = null;
-  private camera: Camera | null = null;
-  private controls: OrbitControls | null = null;
   private animationId: number | null = null;
   private startTime: number = 0;
   private frameCount: number = 0;
   private lastFpsUpdate: number = 0;
   private resizeHandler: (() => void) | null = null;
+
+  // ECS World and Systems
+  private world: World;
+  private transformSystem: TransformSystem;
+  private cameraSystem: CameraSystem;
+
+  // ECS Camera
+  private cameraEntity: EntityId | null = null;
+  private orbitController: OrbitCameraController | null = null;
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
@@ -59,7 +64,6 @@ export class JointsDemo {
 
   // Physics
   private physicsWorld: PhysicsWorld | null = null;
-  private bodies: RenderableBody[] = [];
   private joints: JointHandle[] = [];
   private lastTime: number = 0;
 
@@ -73,6 +77,16 @@ export class JointsDemo {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+
+    // Initialize ECS World
+    this.world = new World();
+
+    // Initialize and register ECS Systems
+    this.transformSystem = new TransformSystem(this.world);
+    this.world.registerSystem(this.transformSystem);
+
+    // CameraSystem is a utility class, not a System
+    this.cameraSystem = new CameraSystem(this.world);
   }
 
   async initialize(): Promise<boolean> {
@@ -100,17 +114,28 @@ export class JointsDemo {
       // Initialize renderer
       this.renderer = new Renderer(config);
 
-      // Create camera
-      const aspect = this.canvas.width / this.canvas.height;
-      this.camera = new Camera(45, aspect, 0.1, 200);
-      this.camera.setPosition(0, 15, 30);
-      this.camera.setTarget(0, 5, 0);
+      // Create ECS camera entity
+      this.cameraEntity = this.world.createEntity();
 
-      // Setup orbit controls
-      this.controls = new OrbitControls(this.camera, this.canvas);
+      // Add Transform component - positioned to view joint demos
+      this.world.addComponent(this.cameraEntity, Transform, new Transform(0, 15, 30));
+
+      // Add Camera component - perspective projection
+      this.world.addComponent(this.cameraEntity, Camera, Camera.perspective(
+        (45 * Math.PI) / 180, // 45 degrees FOV in radians
+        0.1,                   // near
+        200                    // far
+      ));
+
+      // Create orbit camera controller
+      this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 30); // distance = 30
+      this.orbitController.setTarget(0, 5, 0); // Look at joint area
+
+      // Setup mouse controls for camera
+      this.setupCameraControls();
 
       // Create shader program
-      this.createShaders();
+      await this.createShaders();
 
       // Create geometry
       this.createGeometry();
@@ -126,52 +151,12 @@ export class JointsDemo {
     }
   }
 
-  private createShaders(): void {
+  private async createShaders(): Promise<void> {
     if (!this.renderer) return;
 
-    const vertexShaderSource = `
-      attribute vec3 aPosition;
-      attribute vec3 aNormal;
-
-      uniform mat4 uModelViewProjection;
-      uniform mat4 uModel;
-      uniform mat3 uNormalMatrix;
-
-      varying vec3 vNormal;
-      varying vec3 vPosition;
-
-      void main() {
-        vNormal = normalize(uNormalMatrix * aNormal);
-        vec4 worldPosition = uModel * vec4(aPosition, 1.0);
-        vPosition = worldPosition.xyz;
-        gl_Position = uModelViewProjection * vec4(aPosition, 1.0);
-      }
-    `;
-
-    const fragmentShaderSource = `
-      precision mediump float;
-
-      varying vec3 vNormal;
-      varying vec3 vPosition;
-
-      uniform vec3 uLightDir;
-      uniform vec3 uCameraPos;
-      uniform vec3 uBaseColor;
-
-      void main() {
-        vec3 N = normalize(vNormal);
-        vec3 L = normalize(uLightDir);
-        vec3 V = normalize(uCameraPos - vPosition);
-        vec3 H = normalize(L + V);
-
-        float diffuse = max(dot(N, L), 0.0);
-        float specular = pow(max(dot(N, H), 0.0), 32.0);
-        float ambient = 0.2;
-
-        vec3 color = uBaseColor * (ambient + diffuse) + vec3(1.0) * specular * 0.3;
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `;
+    // Import shaders as raw strings using Vite's ?raw suffix
+    const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
+    const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
 
     const shaderManager = this.renderer.getShaderManager();
     shaderManager.createProgram(this.shaderProgramId, {
@@ -232,6 +217,38 @@ export class JointsDemo {
     this.sphereIndexCount = sphereData.indices.length;
   }
 
+  /**
+   * Helper to create a physics body and corresponding ECS entity
+   */
+  private createBodyEntity(
+    handle: RigidBodyHandle,
+    type: 'cube' | 'sphere',
+    scale: { x: number; y: number; z: number },
+    color: [number, number, number]
+  ): EntityId {
+    if (!this.physicsWorld) {
+      throw new Error('Physics world not initialized');
+    }
+
+    const position = this.physicsWorld.getPosition(handle);
+    const rotation = this.physicsWorld.getRotation(handle);
+
+    // Create ECS entity
+    const entity = this.world.createEntity();
+
+    // Add Transform component
+    this.world.addComponent(entity, Transform, new Transform(
+      position.x, position.y, position.z
+    ));
+
+    // Add JointBodyEntity component
+    this.world.addComponent(entity, JointBodyEntity, new JointBodyEntity(
+      handle, type, scale, color
+    ));
+
+    return entity;
+  }
+
   private async initializePhysics(): Promise<void> {
     console.log('Initializing physics with joint constraints...');
 
@@ -253,12 +270,7 @@ export class JointsDemo {
       friction: 0.6,
       restitution: 0.2,
     });
-    this.bodies.push({
-      handle: groundHandle,
-      type: 'cube',
-      scale: { x: 100, y: 1, z: 100 },
-      color: [0.3, 0.3, 0.3],
-    });
+    this.createBodyEntity(groundHandle, 'cube', { x: 100, y: 1, z: 100 }, [0.3, 0.3, 0.3]);
 
     // Create demonstrations
     this.createChainDemo(-15, 10, 0);
@@ -268,7 +280,10 @@ export class JointsDemo {
     this.createRagdollArmDemo(0, 8, 10);
     this.createMotorDemo(-10, 5, 10);
 
-    console.log(`Physics initialized with ${this.bodies.length} bodies and ${this.joints.length} joints`);
+    // Count bodies using ECS query
+    const bodyQuery = this.world.query().with(JointBodyEntity).build();
+    const bodyCount = Array.from(this.world.executeQuery(bodyQuery)).length;
+    console.log(`Physics initialized with ${bodyCount} bodies and ${this.joints.length} joints`);
   }
 
   /**
@@ -286,12 +301,7 @@ export class JointsDemo {
         radius: 0.3,
       },
     });
-    this.bodies.push({
-      handle: anchorHandle,
-      type: 'sphere',
-      scale: { x: 0.6, y: 0.6, z: 0.6 },
-      color: [0.5, 0.5, 0.5],
-    });
+    this.createBodyEntity(anchorHandle, 'sphere', { x: 0.6, y: 0.6, z: 0.6 }, [0.5, 0.5, 0.5]);
 
     // Create chain links
     const linkCount = 8;
@@ -312,12 +322,7 @@ export class JointsDemo {
         friction: 0.5,
         restitution: 0.1,
       });
-      this.bodies.push({
-        handle: linkHandle,
-        type: 'cube',
-        scale: { x: linkWidth, y: linkLength, z: linkWidth },
-        color: [0.8, 0.4, 0.2],
-      });
+      this.createBodyEntity(linkHandle, 'cube', { x: linkWidth, y: linkLength, z: linkWidth }, [0.8, 0.4, 0.2]);
 
       // Create fixed joint between links
       const joint = this.physicsWorld.createJoint({
@@ -345,12 +350,7 @@ export class JointsDemo {
       friction: 0.5,
       restitution: 0.3,
     });
-    this.bodies.push({
-      handle: weightHandle,
-      type: 'sphere',
-      scale: { x: 1.0, y: 1.0, z: 1.0 },
-      color: [0.9, 0.7, 0.1],
-    });
+    this.createBodyEntity(weightHandle, 'sphere', { x: 1.0, y: 1.0, z: 1.0 }, [0.9, 0.7, 0.1]);
 
     const weightJoint = this.physicsWorld.createJoint({
       type: JointType.FIXED,
@@ -378,12 +378,7 @@ export class JointsDemo {
         halfExtents: { x: 0.2, y: 2, z: 0.2 },
       },
     });
-    this.bodies.push({
-      handle: frameHandle,
-      type: 'cube',
-      scale: { x: 0.4, y: 4, z: 0.4 },
-      color: [0.4, 0.3, 0.2],
-    });
+    this.createBodyEntity(frameHandle, 'cube', { x: 0.4, y: 4, z: 0.4 }, [0.4, 0.3, 0.2]);
 
     // Create door (dynamic)
     const doorHandle = this.physicsWorld.createRigidBody({
@@ -397,12 +392,7 @@ export class JointsDemo {
       friction: 0.5,
       restitution: 0.1,
     });
-    this.bodies.push({
-      handle: doorHandle,
-      type: 'cube',
-      scale: { x: 3, y: 3.6, z: 0.2 },
-      color: [0.6, 0.3, 0.1],
-    });
+    this.createBodyEntity(doorHandle, 'cube', { x: 3, y: 3.6, z: 0.2 }, [0.6, 0.3, 0.1]);
 
     // Create revolute joint (hinge) with limits
     const joint = this.physicsWorld.createJoint({
@@ -436,12 +426,7 @@ export class JointsDemo {
         radius: 0.2,
       },
     });
-    this.bodies.push({
-      handle: anchorHandle,
-      type: 'sphere',
-      scale: { x: 0.4, y: 0.4, z: 0.4 },
-      color: [0.5, 0.5, 0.5],
-    });
+    this.createBodyEntity(anchorHandle, 'sphere', { x: 0.4, y: 0.4, z: 0.4 }, [0.5, 0.5, 0.5]);
 
     // Create pendulum rod
     const rodLength = 4.0;
@@ -456,12 +441,7 @@ export class JointsDemo {
       friction: 0.3,
       restitution: 0.1,
     });
-    this.bodies.push({
-      handle: rodHandle,
-      type: 'cube',
-      scale: { x: 0.2, y: rodLength, z: 0.2 },
-      color: [0.7, 0.7, 0.7],
-    });
+    this.createBodyEntity(rodHandle, 'cube', { x: 0.2, y: rodLength, z: 0.2 }, [0.7, 0.7, 0.7]);
 
     // Create revolute joint at top
     const joint = this.physicsWorld.createJoint({
@@ -487,12 +467,7 @@ export class JointsDemo {
       friction: 0.3,
       restitution: 0.2,
     });
-    this.bodies.push({
-      handle: weightHandle,
-      type: 'sphere',
-      scale: { x: 1.2, y: 1.2, z: 1.2 },
-      color: [0.9, 0.1, 0.1],
-    });
+    this.createBodyEntity(weightHandle, 'sphere', { x: 1.2, y: 1.2, z: 1.2 }, [0.9, 0.1, 0.1]);
 
     // Connect weight to rod with fixed joint
     const weightJoint = this.physicsWorld.createJoint({
@@ -524,12 +499,7 @@ export class JointsDemo {
         halfExtents: { x: 0.1, y: 5, z: 0.1 },
       },
     });
-    this.bodies.push({
-      handle: rail1Handle,
-      type: 'cube',
-      scale: { x: 0.2, y: 10, z: 0.2 },
-      color: [1.0, 0.2, 0.2], // Bright red for visibility
-    });
+    this.createBodyEntity(rail1Handle, 'cube', { x: 0.2, y: 10, z: 0.2 }, [1.0, 0.2, 0.2]);
 
     const rail2Handle = this.physicsWorld.createRigidBody({
       type: RigidBodyType.STATIC,
@@ -539,12 +509,7 @@ export class JointsDemo {
         halfExtents: { x: 0.1, y: 5, z: 0.1 },
       },
     });
-    this.bodies.push({
-      handle: rail2Handle,
-      type: 'cube',
-      scale: { x: 0.2, y: 10, z: 0.2 },
-      color: [1.0, 0.2, 0.2], // Bright red for visibility
-    });
+    this.createBodyEntity(rail2Handle, 'cube', { x: 0.2, y: 10, z: 0.2 }, [1.0, 0.2, 0.2]);
 
     // Create platform
     const platformHandle = this.physicsWorld.createRigidBody({
@@ -559,12 +524,7 @@ export class JointsDemo {
       restitution: 0.8, // Higher restitution for bouncing
       linearDamping: 0.1, // Low damping to keep moving
     });
-    this.bodies.push({
-      handle: platformHandle,
-      type: 'cube',
-      scale: { x: 1.6, y: 0.4, z: 1.6 },
-      color: [1.0, 1.0, 0.0], // Bright yellow for high visibility
-    });
+    this.createBodyEntity(platformHandle, 'cube', { x: 1.6, y: 0.4, z: 1.6 }, [1.0, 1.0, 0.0]);
 
     // Create prismatic joint (vertical slider)
     const joint = this.physicsWorld.createJoint({
@@ -598,12 +558,7 @@ export class JointsDemo {
         radius: 0.3,
       },
     });
-    this.bodies.push({
-      handle: shoulderHandle,
-      type: 'sphere',
-      scale: { x: 0.6, y: 0.6, z: 0.6 },
-      color: [0.5, 0.5, 0.5],
-    });
+    this.createBodyEntity(shoulderHandle, 'sphere', { x: 0.6, y: 0.6, z: 0.6 }, [0.5, 0.5, 0.5]);
 
     // Create upper arm
     const upperArmLength = 2.0;
@@ -618,12 +573,7 @@ export class JointsDemo {
       friction: 0.5,
       restitution: 0.1,
     });
-    this.bodies.push({
-      handle: upperArmHandle,
-      type: 'cube',
-      scale: { x: 0.5, y: upperArmLength, z: 0.5 },
-      color: [0.9, 0.7, 0.6],
-    });
+    this.createBodyEntity(upperArmHandle, 'cube', { x: 0.5, y: upperArmLength, z: 0.5 }, [0.9, 0.7, 0.6]);
 
     // Shoulder joint (spherical - full rotation)
     const shoulderJoint = this.physicsWorld.createJoint({
@@ -649,12 +599,7 @@ export class JointsDemo {
       friction: 0.5,
       restitution: 0.1,
     });
-    this.bodies.push({
-      handle: forearmHandle,
-      type: 'cube',
-      scale: { x: 0.4, y: forearmLength, z: 0.4 },
-      color: [0.9, 0.7, 0.6],
-    });
+    this.createBodyEntity(forearmHandle, 'cube', { x: 0.4, y: forearmLength, z: 0.4 }, [0.9, 0.7, 0.6]);
 
     // Elbow joint (revolute - hinge)
     const elbowJoint = this.physicsWorld.createJoint({
@@ -681,12 +626,7 @@ export class JointsDemo {
       friction: 0.6,
       restitution: 0.2,
     });
-    this.bodies.push({
-      handle: handHandle,
-      type: 'sphere',
-      scale: { x: 0.6, y: 0.6, z: 0.6 },
-      color: [0.9, 0.6, 0.5],
-    });
+    this.createBodyEntity(handHandle, 'sphere', { x: 0.6, y: 0.6, z: 0.6 }, [0.9, 0.6, 0.5]);
 
     // Wrist joint (spherical)
     const wristJoint = this.physicsWorld.createJoint({
@@ -718,12 +658,7 @@ export class JointsDemo {
         halfExtents: { x: 0.5, y: 0.5, z: 0.5 },
       },
     });
-    this.bodies.push({
-      handle: housingHandle,
-      type: 'cube',
-      scale: { x: 1, y: 1, z: 1 },
-      color: [0.3, 0.3, 0.3],
-    });
+    this.createBodyEntity(housingHandle, 'cube', { x: 1, y: 1, z: 1 }, [0.3, 0.3, 0.3]);
 
     // Create rotating shaft
     const shaftHandle = this.physicsWorld.createRigidBody({
@@ -737,12 +672,7 @@ export class JointsDemo {
       friction: 0.3,
       restitution: 0.1,
     });
-    this.bodies.push({
-      handle: shaftHandle,
-      type: 'cube',
-      scale: { x: 4, y: 0.4, z: 0.4 },
-      color: [0.9, 0.1, 0.1],
-    });
+    this.createBodyEntity(shaftHandle, 'cube', { x: 4, y: 0.4, z: 0.4 }, [0.9, 0.1, 0.1]);
 
     // Create powered revolute joint (motor)
     this.motorJoint = this.physicsWorld.createJoint({
@@ -772,12 +702,7 @@ export class JointsDemo {
       friction: 0.5,
       restitution: 0.2,
     });
-    this.bodies.push({
-      handle: weight1Handle,
-      type: 'sphere',
-      scale: { x: 1, y: 1, z: 1 },
-      color: [0.1, 0.9, 0.1],
-    });
+    this.createBodyEntity(weight1Handle, 'sphere', { x: 1, y: 1, z: 1 }, [0.1, 0.9, 0.1]);
 
     const weightJoint1 = this.physicsWorld.createJoint({
       type: JointType.FIXED,
@@ -801,12 +726,7 @@ export class JointsDemo {
       friction: 0.5,
       restitution: 0.2,
     });
-    this.bodies.push({
-      handle: weight2Handle,
-      type: 'sphere',
-      scale: { x: 1, y: 1, z: 1 },
-      color: [0.1, 0.1, 0.9],
-    });
+    this.createBodyEntity(weight2Handle, 'sphere', { x: 1, y: 1, z: 1 }, [0.1, 0.1, 0.9]);
 
     const weightJoint2 = this.physicsWorld.createJoint({
       type: JointType.FIXED,
@@ -857,7 +777,7 @@ export class JointsDemo {
           alpha: false,
         };
         this.renderer = new Renderer(config);
-        this.createShaders();
+        await this.createShaders();
         this.createGeometry();
         this.start();
       } catch (error) {
@@ -874,8 +794,58 @@ export class JointsDemo {
     this.canvas.style.height = `${window.innerHeight}px`;
   }
 
+  /**
+   * Setup mouse controls for ECS orbit camera
+   */
+  private setupCameraControls(): void {
+    if (!this.orbitController) return;
+
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // Mouse down - start dragging
+    this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
+      isDragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    // Mouse up - stop dragging
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    // Mouse move - rotate camera
+    this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!isDragging || !this.orbitController) return;
+
+      const deltaX = e.clientX - lastX;
+      const deltaY = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      // Convert pixel movement to radians
+      const rotationSpeed = 0.005;
+      this.orbitController.rotate(
+        -deltaX * rotationSpeed,  // azimuth (horizontal)
+        deltaY * rotationSpeed    // elevation (vertical)
+      );
+    });
+
+    // Mouse wheel - zoom
+    this.canvas.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      if (!this.orbitController) return;
+
+      // Zoom in/out based on wheel delta
+      const zoomSpeed = 0.1;
+      this.orbitController.zoom(e.deltaY * zoomSpeed);
+    });
+  }
+
   private renderLoop = (): void => {
-    if (!this.renderer || !this.camera || !this.physicsWorld) return;
+    if (!this.renderer || !this.cameraEntity || !this.physicsWorld) return;
 
     const now = performance.now();
     const deltaTime = this.lastTime ? (now - this.lastTime) / 1000 : 0;
@@ -893,6 +863,31 @@ export class JointsDemo {
       }
     }
 
+    // Sync physics body transforms to ECS Transform components
+    if (this.physicsWorld) {
+      const query = this.world.query().with(Transform).with(JointBodyEntity).build();
+      for (const { components } of this.world.executeQuery(query)) {
+        const transform = components.get(Transform);
+        const bodyEntity = components.get(JointBodyEntity);
+        if (transform && bodyEntity) {
+          const physicsPos = this.physicsWorld.getPosition(bodyEntity.bodyHandle);
+          const physicsRot = this.physicsWorld.getRotation(bodyEntity.bodyHandle);
+
+          // Update Transform component with physics data
+          transform.x = physicsPos.x;
+          transform.y = physicsPos.y;
+          transform.z = physicsPos.z;
+          transform.rotationX = physicsRot.x;
+          transform.rotationY = physicsRot.y;
+          transform.rotationZ = physicsRot.z;
+          transform.rotationW = physicsRot.w;
+        }
+      }
+    }
+
+    // Update ECS systems (includes TransformSystem)
+    this.world.update(deltaTime);
+
     const gl = this.renderer.getContext().gl;
     const shaderManager = this.renderer.getShaderManager();
     const bufferManager = this.renderer.getBufferManager();
@@ -909,8 +904,13 @@ export class JointsDemo {
 
     gl.useProgram(program.program);
 
-    // Get view-projection matrix
-    const viewProjMatrix = this.camera.getViewProjectionMatrix();
+    // Get view-projection matrix from ECS camera
+    const aspectRatio = this.canvas.width / this.canvas.height;
+    const viewProjMatrix = this.cameraSystem.getViewProjectionMatrix(this.cameraEntity, aspectRatio);
+
+    // Get camera position from Transform component
+    const cameraTransform = this.world.getComponent(this.cameraEntity, Transform);
+    if (!cameraTransform) return;
 
     // Get uniform locations
     const mvpLoc = gl.getUniformLocation(program.program, 'uModelViewProjection');
@@ -922,8 +922,7 @@ export class JointsDemo {
 
     // Set common uniforms
     gl.uniform3f(lightDirLoc, 0.5, 1.0, 0.5);
-    const camPos = this.camera.getPosition();
-    gl.uniform3f(cameraPosLoc, camPos[0], camPos[1], camPos[2]);
+    gl.uniform3f(cameraPosLoc, cameraTransform.x, cameraTransform.y, cameraTransform.z);
 
     // Get attribute locations
     const posLoc = gl.getAttribLocation(program.program, 'aPosition');
@@ -939,50 +938,64 @@ export class JointsDemo {
 
     let drawCalls = 0;
 
-    // Render all bodies
-    for (const body of this.bodies) {
-      const position = this.physicsWorld.getPosition(body.handle);
-      const rotation = this.physicsWorld.getRotation(body.handle);
+    // Render all bodies using ECS query
+    const bodyQuery = this.world.query().with(Transform).with(JointBodyEntity).build();
+    const bodyEntities = this.world.executeQuery(bodyQuery);
 
-      // Create model matrix with scale
-      const modelMatrix = this.createModelMatrix(position, rotation, body.scale);
-      const mvpMatrix = this.multiplyMatrices(viewProjMatrix, modelMatrix);
+    if (this.physicsWorld && bodyEntities.length > 0) {
+      for (const { components } of bodyEntities) {
+        const transform = components.get(Transform);
+        const bodyEntity = components.get(JointBodyEntity);
+        if (!transform || !bodyEntity) continue;
 
-      // Bind appropriate buffers
-      if (body.type === 'cube' && cubeVertexBuffer && cubeNormalBuffer && cubeIndexBuffer) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexBuffer.buffer);
-        gl.enableVertexAttribArray(posLoc);
-        gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+        const position = this.physicsWorld.getPosition(bodyEntity.bodyHandle);
+        const rotation = this.physicsWorld.getRotation(bodyEntity.bodyHandle);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeNormalBuffer.buffer);
-        gl.enableVertexAttribArray(normLoc);
-        gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+        // Get scale and color from component
+        const scale = { x: bodyEntity.scaleX, y: bodyEntity.scaleY, z: bodyEntity.scaleZ };
+        const color = [bodyEntity.colorR, bodyEntity.colorG, bodyEntity.colorB];
+        const renderType = bodyEntity.renderType === 0 ? 'cube' : 'sphere';
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeIndexBuffer.buffer);
-      } else if (body.type === 'sphere' && sphereVertexBuffer && sphereNormalBuffer && sphereIndexBuffer) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, sphereVertexBuffer.buffer);
-        gl.enableVertexAttribArray(posLoc);
-        gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+        // Create model matrix with scale
+        const modelMatrix = this.createModelMatrix(position, rotation, scale);
+        const mvpMatrix = this.multiplyMatrices(viewProjMatrix, modelMatrix);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer.buffer);
-        gl.enableVertexAttribArray(normLoc);
-        gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+        // Bind appropriate buffers
+        if (renderType === 'cube' && cubeVertexBuffer && cubeNormalBuffer && cubeIndexBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexBuffer.buffer);
+          gl.enableVertexAttribArray(posLoc);
+          gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer.buffer);
-      } else {
-        continue;
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeNormalBuffer.buffer);
+          gl.enableVertexAttribArray(normLoc);
+          gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeIndexBuffer.buffer);
+        } else if (renderType === 'sphere' && sphereVertexBuffer && sphereNormalBuffer && sphereIndexBuffer) {
+          gl.bindBuffer(gl.ARRAY_BUFFER, sphereVertexBuffer.buffer);
+          gl.enableVertexAttribArray(posLoc);
+          gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer.buffer);
+          gl.enableVertexAttribArray(normLoc);
+          gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer.buffer);
+        } else {
+          continue;
+        }
+
+        // Set uniforms
+        gl.uniformMatrix4fv(mvpLoc, false, mvpMatrix);
+        gl.uniformMatrix4fv(modelLoc, false, modelMatrix);
+        gl.uniformMatrix3fv(normalMatLoc, false, new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]));
+        gl.uniform3f(baseColorLoc, color[0], color[1], color[2]);
+
+        // Draw
+        const indexCount = renderType === 'cube' ? this.cubeIndexCount : this.sphereIndexCount;
+        gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+        drawCalls++;
       }
-
-      // Set uniforms
-      gl.uniformMatrix4fv(mvpLoc, false, mvpMatrix);
-      gl.uniformMatrix4fv(modelLoc, false, modelMatrix);
-      gl.uniformMatrix3fv(normalMatLoc, false, new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]));
-      gl.uniform3f(baseColorLoc, body.color[0], body.color[1], body.color[2]);
-
-      // Draw
-      const indexCount = body.type === 'cube' ? this.cubeIndexCount : this.sphereIndexCount;
-      gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
-      drawCalls++;
     }
 
     // Render joint debug visualization
@@ -994,7 +1007,12 @@ export class JointsDemo {
       const fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
       const avgTrianglesPerBody = ((this.cubeIndexCount / 3) + (this.sphereIndexCount / 3)) / 2;
       const triangles = Math.round(avgTrianglesPerBody * drawCalls);
-      this.updateStats(fps, drawCalls, triangles, this.bodies.length, this.joints.length);
+
+      // Count bodies using ECS query
+      const bodyQuery = this.world.query().with(JointBodyEntity).build();
+      const bodyCount = Array.from(this.world.executeQuery(bodyQuery)).length;
+
+      this.updateStats(fps, drawCalls, triangles, bodyCount, this.joints.length);
       this.frameCount = 0;
       this.lastFpsUpdate = now;
     }
@@ -1294,10 +1312,9 @@ export class JointsDemo {
       this.resizeHandler = null;
     }
 
-    if (this.controls) {
-      this.controls.dispose();
-      this.controls = null;
-    }
+    // ECS camera cleanup (entities managed by World)
+    this.cameraEntity = null;
+    this.orbitController = null;
 
     if (this.physicsWorld) {
       this.physicsWorld.dispose();
@@ -1309,8 +1326,7 @@ export class JointsDemo {
       this.renderer = null;
     }
 
-    this.camera = null;
-    this.bodies = [];
+    // Bodies are managed by ECS World, no manual cleanup needed
     this.joints = [];
   }
 }

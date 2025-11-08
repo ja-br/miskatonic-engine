@@ -11,6 +11,10 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
+      external: [
+        // Exclude ShaderLoader (Node.js-only) from browser bundle
+        /ShaderLoader/,
+      ],
     },
   },
   resolve: {

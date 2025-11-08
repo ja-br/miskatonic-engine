@@ -5,8 +5,10 @@
 import {
   Renderer,
   RenderBackend,
-  Camera,
-  OrbitControls,
+  Camera as LegacyCamera,
+  OrbitControls as LegacyOrbitControls,
+  CameraSystem,
+  OrbitCameraController,
   createCube,
   createSphere,
   type RendererConfig,
@@ -18,17 +20,27 @@ import {
   CollisionShapeType,
   type RigidBodyHandle,
 } from '../../physics/src';
+import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
+import { DiceEntity } from './components/DiceEntity';
+import './components/registerDemoComponents'; // Register custom components
 
 export class Demo {
   private canvas: HTMLCanvasElement;
   private renderer: Renderer | null = null;
-  private camera: Camera | null = null;
-  private controls: OrbitControls | null = null;
   private animationId: number | null = null;
   private startTime: number = 0;
   private frameCount: number = 0;
   private lastFpsUpdate: number = 0;
   private resizeHandler: (() => void) | null = null;
+
+  // ECS World and Systems
+  private world: World;
+  private transformSystem: TransformSystem;
+  private cameraSystem: CameraSystem;
+
+  // ECS Camera
+  private cameraEntity: EntityId | null = null;
+  private orbitController: OrbitCameraController | null = null;
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
@@ -43,13 +55,22 @@ export class Demo {
 
   // Physics
   private physicsWorld: PhysicsWorld | null = null;
-  private diceBodies: Array<{ handle: RigidBodyHandle; sides: number; spawnPos: { x: number; y: number; z: number }; angularVel: { x: number; y: number; z: number } }> = [];
   private groundBody: RigidBodyHandle | null = null;
   private lastTime: number = 0;
   private diceSets: number = 1; // Number of dice sets to roll (1 set = 6 dice)
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+
+    // Initialize ECS World
+    this.world = new World();
+
+    // Initialize and register ECS Systems
+    this.transformSystem = new TransformSystem(this.world);
+    this.world.registerSystem(this.transformSystem);
+
+    // CameraSystem is a utility class, not a System
+    this.cameraSystem = new CameraSystem(this.world);
   }
 
   async initialize(): Promise<boolean> {
@@ -77,17 +98,28 @@ export class Demo {
       // Initialize renderer (constructor does all initialization)
       this.renderer = new Renderer(config);
 
-      // Create camera - positioned higher and farther to see larger play area
-      const aspect = this.canvas.width / this.canvas.height;
-      this.camera = new Camera(45, aspect, 0.1, 300); // Far plane at 300 for large viewing distance
-      this.camera.setPosition(0, 25, 35);
-      this.camera.setTarget(0, 0, 0);
+      // Create ECS camera entity
+      this.cameraEntity = this.world.createEntity();
 
-      // Setup orbit controls
-      this.controls = new OrbitControls(this.camera, this.canvas);
+      // Add Transform component - positioned higher and farther to see larger play area
+      this.world.addComponent(this.cameraEntity, Transform, new Transform(0, 25, 35));
+
+      // Add Camera component - perspective projection
+      this.world.addComponent(this.cameraEntity, Camera, Camera.perspective(
+        (45 * Math.PI) / 180, // 45 degrees FOV in radians
+        0.1,                   // near
+        300                    // far (large viewing distance)
+      ));
+
+      // Create orbit camera controller
+      this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 35); // distance = 35
+      this.orbitController.setTarget(0, 0, 0);
+
+      // Setup mouse controls for camera
+      this.setupCameraControls();
 
       // Create shader program
-      this.createShaders();
+      await this.createShaders();
 
       // Create cube geometry
       this.createGeometry();
@@ -106,54 +138,12 @@ export class Demo {
     }
   }
 
-  private createShaders(): void {
+  private async createShaders(): Promise<void> {
     if (!this.renderer) return;
 
-    const vertexShaderSource = `
-      attribute vec3 aPosition;
-      attribute vec3 aNormal;
-
-      uniform mat4 uModelViewProjection;
-      uniform mat4 uModel;
-      uniform mat3 uNormalMatrix;
-
-      varying vec3 vNormal;
-      varying vec3 vPosition;
-
-      void main() {
-        vNormal = normalize(uNormalMatrix * aNormal);
-        vec4 worldPosition = uModel * vec4(aPosition, 1.0);
-        vPosition = worldPosition.xyz;
-        gl_Position = uModelViewProjection * vec4(aPosition, 1.0);
-      }
-    `;
-
-    const fragmentShaderSource = `
-      precision mediump float;
-
-      varying vec3 vNormal;
-      varying vec3 vPosition;
-
-      uniform vec3 uLightDir;
-      uniform vec3 uCameraPos;
-      uniform vec3 uBaseColor;
-
-      void main() {
-        // Normalize interpolated normal
-        vec3 N = normalize(vNormal);
-        vec3 L = normalize(uLightDir);
-        vec3 V = normalize(uCameraPos - vPosition);
-        vec3 H = normalize(L + V);
-
-        // Simple Blinn-Phong lighting
-        float diffuse = max(dot(N, L), 0.0);
-        float specular = pow(max(dot(N, H), 0.0), 32.0);
-        float ambient = 0.2;
-
-        vec3 color = uBaseColor * (ambient + diffuse) + vec3(1.0) * specular * 0.3;
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `;
+    // Import shaders as raw strings using Vite's ?raw suffix
+    const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
+    const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
 
     const shaderManager = this.renderer.getShaderManager();
     try {
@@ -347,12 +337,23 @@ export class Demo {
         angularVelocity: die.angularVel,
       });
 
-      this.diceBodies.push({
+      // Create ECS entity for this dice
+      const entity = this.world.createEntity();
+
+      // Add Transform component (will be synced from physics)
+      this.world.addComponent(entity, Transform, new Transform(
+        die.position.x,
+        die.position.y,
+        die.position.z
+      ));
+
+      // Add DiceEntity component (links to physics body)
+      this.world.addComponent(entity, DiceEntity, new DiceEntity(
         handle,
-        sides: die.sides,
-        spawnPos: die.position,
-        angularVel: die.angularVel,
-      });
+        die.sides,
+        die.position,
+        die.angularVel
+      ));
     }
 
     // Add collision callback to log collisions
@@ -406,7 +407,7 @@ export class Demo {
         this.renderer = new Renderer(config);
 
         // Recreate shaders and geometry
-        this.createShaders();
+        await this.createShaders();
         this.createGeometry();
 
         // Restart render loop
@@ -426,8 +427,58 @@ export class Demo {
     this.canvas.style.height = `${window.innerHeight}px`;
   }
 
+  /**
+   * Setup mouse controls for ECS orbit camera
+   */
+  private setupCameraControls(): void {
+    if (!this.orbitController) return;
+
+    let isDragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    // Mouse down - start dragging
+    this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
+      isDragging = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    // Mouse up - stop dragging
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+    });
+
+    // Mouse move - rotate camera
+    this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
+      if (!isDragging || !this.orbitController) return;
+
+      const deltaX = e.clientX - lastX;
+      const deltaY = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+
+      // Convert pixel movement to radians
+      const rotationSpeed = 0.005;
+      this.orbitController.rotate(
+        -deltaX * rotationSpeed,  // azimuth (horizontal)
+        deltaY * rotationSpeed    // elevation (vertical)
+      );
+    });
+
+    // Mouse wheel - zoom
+    this.canvas.addEventListener('wheel', (e: WheelEvent) => {
+      e.preventDefault();
+      if (!this.orbitController) return;
+
+      // Zoom in/out based on wheel delta
+      const zoomSpeed = 0.1;
+      this.orbitController.zoom(e.deltaY * zoomSpeed);
+    });
+  }
+
   private renderLoop = (): void => {
-    if (!this.renderer || !this.camera) return;
+    if (!this.renderer || !this.cameraEntity) return;
 
     const now = performance.now();
     const deltaTime = this.lastTime ? (now - this.lastTime) / 1000 : 0;
@@ -438,6 +489,35 @@ export class Demo {
     if (this.physicsWorld && deltaTime > 0) {
       alpha = this.physicsWorld.step(deltaTime);
     }
+
+    // Sync physics transforms to ECS entities
+    if (this.physicsWorld) {
+      const query = this.world.query().with(Transform).with(DiceEntity).build();
+      for (const { components } of this.world.executeQuery(query)) {
+        const transform = components.get(Transform);
+        const diceEntity = components.get(DiceEntity);
+
+        if (transform && diceEntity) {
+          const physicsPos = this.physicsWorld.getPosition(diceEntity.bodyHandle);
+          const physicsRot = this.physicsWorld.getRotation(diceEntity.bodyHandle);
+
+          // Update transform position
+          transform.x = physicsPos.x;
+          transform.y = physicsPos.y;
+          transform.z = physicsPos.z;
+
+          // Update transform rotation (quaternion to euler angles)
+          // For now, we'll store the quaternion in the rotation fields
+          // TODO: Convert quaternion to euler angles properly
+          transform.rotationX = physicsRot.x;
+          transform.rotationY = physicsRot.y;
+          transform.rotationZ = physicsRot.z;
+        }
+      }
+    }
+
+    // Update ECS systems (includes TransformSystem)
+    this.world.update(deltaTime);
 
     const gl = this.renderer.getContext().gl;
     const shaderManager = this.renderer.getShaderManager();
@@ -456,8 +536,13 @@ export class Demo {
     // Use shader
     gl.useProgram(program.program);
 
-    // Get view-projection matrix
-    const viewProjMatrix = this.camera.getViewProjectionMatrix();
+    // Get view-projection matrix from ECS camera
+    const aspectRatio = this.canvas.width / this.canvas.height;
+    const viewProjMatrix = this.cameraSystem.getViewProjectionMatrix(this.cameraEntity, aspectRatio);
+
+    // Get camera position from Transform component
+    const cameraTransform = this.world.getComponent(this.cameraEntity, Transform);
+    if (!cameraTransform) return;
 
     // Get uniform locations
     const mvpLoc = gl.getUniformLocation(program.program, 'uModelViewProjection');
@@ -469,8 +554,7 @@ export class Demo {
 
     // Set common uniforms
     gl.uniform3f(lightDirLoc, 0.5, 1.0, 0.5);
-    const camPos = this.camera.getPosition();
-    gl.uniform3f(cameraPosLoc, camPos[0], camPos[1], camPos[2]);
+    gl.uniform3f(cameraPosLoc, cameraTransform.x, cameraTransform.y, cameraTransform.z);
 
     // Get attribute locations
     const posLoc = gl.getAttribLocation(program.program, 'aPosition');
@@ -499,16 +583,24 @@ export class Demo {
     const sphereNormalBuffer = bufferManager.getBuffer(this.sphereNormalBufferId);
     const sphereIndexBuffer = bufferManager.getBuffer(this.sphereIndexBufferId);
 
-    // Draw all dice
-    if (this.physicsWorld && this.diceBodies.length > 0) {
-      for (const die of this.diceBodies) {
-        const position = this.physicsWorld.getPosition(die.handle);
-        const rotation = this.physicsWorld.getRotation(die.handle);
+    // Draw all dice using ECS query
+    const diceQuery = this.world.query().with(Transform).with(DiceEntity).build();
+    const diceEntities = this.world.executeQuery(diceQuery);
+
+    if (this.physicsWorld && diceEntities.length > 0) {
+      for (const { components } of diceEntities) {
+        const transform = components.get(Transform);
+        const diceEntity = components.get(DiceEntity);
+
+        if (!transform || !diceEntity) continue;
+
+        const position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
+        const rotation = this.physicsWorld.getRotation(diceEntity.bodyHandle);
         const modelMatrix = this.createModelMatrix(position, rotation);
         const mvpMatrix = this.multiplyMatrices(viewProjMatrix, modelMatrix);
 
         // Use cube mesh for D6, sphere for everything else
-        const useCube = die.sides === 6;
+        const useCube = diceEntity.sides === 6;
 
         if (useCube && cubeVertexBuffer && cubeNormalBuffer && cubeIndexBuffer) {
           gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexBuffer.buffer);
@@ -546,7 +638,7 @@ export class Demo {
 
         // Add depth-based darkening and respawn pulse
         const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
-        const [r, g, b] = getDieColor(die.sides);
+        const [r, g, b] = getDieColor(diceEntity.sides);
         let brightness = 0.7 + depth * 0.3; // Brighter when higher up
 
         // Add pulsing effect when near respawn time
@@ -582,8 +674,12 @@ export class Demo {
   private respawnDice(): void {
     if (!this.physicsWorld) return;
 
-    // Respawn all current dice
-    for (const die of this.diceBodies) {
+    // Respawn all current dice using ECS query
+    const query = this.world.query().with(DiceEntity).build();
+    for (const { components } of this.world.executeQuery(query)) {
+      const diceEntity = components.get(DiceEntity);
+      if (!diceEntity) continue;
+
       // Reset position to spawn point with random offset (spread across larger area)
       const randomOffset = {
         x: (Math.random() - 0.5) * 20.0,
@@ -591,10 +687,10 @@ export class Demo {
         z: (Math.random() - 0.5) * 20.0,
       };
 
-      this.physicsWorld.setPosition(die.handle, {
-        x: die.spawnPos.x + randomOffset.x,
-        y: die.spawnPos.y + randomOffset.y,
-        z: die.spawnPos.z + randomOffset.z,
+      this.physicsWorld.setPosition(diceEntity.bodyHandle, {
+        x: diceEntity.spawnX + randomOffset.x,
+        y: diceEntity.spawnY + randomOffset.y,
+        z: diceEntity.spawnZ + randomOffset.z,
       });
 
       // Random rotation
@@ -602,7 +698,7 @@ export class Demo {
       const axis = Math.random() < 0.33 ? { x: 1, y: 0, z: 0 } : Math.random() < 0.5 ? { x: 0, y: 1, z: 0 } : { x: 0, y: 0, z: 1 };
       const halfAngle = randomRot / 2;
       const s = Math.sin(halfAngle);
-      this.physicsWorld.setRotation(die.handle, {
+      this.physicsWorld.setRotation(diceEntity.bodyHandle, {
         x: axis.x * s,
         y: axis.y * s,
         z: axis.z * s,
@@ -610,18 +706,18 @@ export class Demo {
       });
 
       // Set linear velocity to zero
-      this.physicsWorld.setLinearVelocity(die.handle, { x: 0, y: 0, z: 0 });
+      this.physicsWorld.setLinearVelocity(diceEntity.bodyHandle, { x: 0, y: 0, z: 0 });
 
       // Set new random angular velocity
       const newAngularVel = {
-        x: die.angularVel.x * (0.5 + Math.random()),
-        y: die.angularVel.y * (0.5 + Math.random()),
-        z: die.angularVel.z * (0.5 + Math.random()),
+        x: diceEntity.angularVelX * (0.5 + Math.random()),
+        y: diceEntity.angularVelY * (0.5 + Math.random()),
+        z: diceEntity.angularVelZ * (0.5 + Math.random()),
       };
-      this.physicsWorld.setAngularVelocity(die.handle, newAngularVel);
+      this.physicsWorld.setAngularVelocity(diceEntity.bodyHandle, newAngularVel);
 
       // Wake up the body
-      this.physicsWorld.wakeUp(die.handle);
+      this.physicsWorld.wakeUp(diceEntity.bodyHandle);
     }
   }
 
@@ -672,17 +768,44 @@ export class Demo {
         angularVelocity: angularVel,
       });
 
-      this.diceBodies.push({ handle, sides: template.sides, spawnPos, angularVel });
+      // Create ECS entity for this dice
+      const entity = this.world.createEntity();
+
+      // Add Transform component (will be synced from physics)
+      this.world.addComponent(entity, Transform, new Transform(
+        spawnPos.x,
+        spawnPos.y,
+        spawnPos.z
+      ));
+
+      // Add DiceEntity component (links to physics body)
+      this.world.addComponent(entity, DiceEntity, new DiceEntity(
+        handle,
+        template.sides,
+        spawnPos,
+        angularVel
+      ));
     }
   }
 
   private removeExcessDice(keepCount: number): void {
     if (!this.physicsWorld) return;
 
-    while (this.diceBodies.length > keepCount) {
-      const die = this.diceBodies.pop();
-      if (die) {
-        this.physicsWorld.removeRigidBody(die.handle);
+    // Get all dice entities
+    const query = this.world.query().with(DiceEntity).build();
+    const diceEntities = Array.from(this.world.executeQuery(query));
+
+    // Remove excess dice
+    while (diceEntities.length > keepCount) {
+      const { entity, components } = diceEntities.pop()!;
+      const diceEntity = components.get(DiceEntity);
+
+      if (diceEntity) {
+        // Remove physics body
+        this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
+
+        // Remove ECS entity
+        this.world.removeEntity(entity);
       }
     }
   }
@@ -765,7 +888,10 @@ export class Demo {
   public manualRoll(): void {
     // Set dice to the target count
     const targetDiceCount = this.diceSets * 6;
-    const currentDiceCount = this.diceBodies.length;
+
+    // Count current dice using ECS query
+    const query = this.world.query().with(DiceEntity).build();
+    const currentDiceCount = Array.from(this.world.executeQuery(query)).length;
 
     if (targetDiceCount > currentDiceCount) {
       this.addMoreDice(targetDiceCount - currentDiceCount);
@@ -779,6 +905,14 @@ export class Demo {
 
   public getDiceSets(): number {
     return this.diceSets;
+  }
+
+  public setDiceSets(value: number): void {
+    const clampedValue = Math.max(1, Math.min(200, Math.floor(value)));
+    if (this.diceSets !== clampedValue) {
+      this.diceSets = clampedValue;
+      this.updateDiceCountDisplay();
+    }
   }
 
   private updateDiceCountDisplay(): void {
@@ -798,11 +932,9 @@ export class Demo {
       this.resizeHandler = null;
     }
 
-    // Dispose orbit controls
-    if (this.controls) {
-      this.controls.dispose();
-      this.controls = null;
-    }
+    // ECS camera cleanup (entities managed by World)
+    this.cameraEntity = null;
+    this.orbitController = null;
 
     // Dispose physics world
     if (this.physicsWorld) {
@@ -816,8 +948,7 @@ export class Demo {
       this.renderer = null;
     }
 
-    this.camera = null;
-    this.diceBodies = [];
+    // Note: Dice entities are managed by World and will be cleaned up automatically
     this.groundBody = null;
   }
 }

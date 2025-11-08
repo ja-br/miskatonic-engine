@@ -36,23 +36,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     demo.start();
 
     // Wire up UI controls
-    const minusBtn = document.getElementById('minus-btn');
-    const plusBtn = document.getElementById('plus-btn');
+    const diceSlider = document.getElementById('dice-slider') as HTMLInputElement;
     const rollBtn = document.getElementById('roll-btn');
     const diceSetsEl = document.getElementById('dice-sets');
 
-    if (minusBtn) {
-      minusBtn.addEventListener('click', () => {
-        demo.decrementDiceSets();
-        if (diceSetsEl) {
-          diceSetsEl.textContent = demo.getDiceSets().toString();
-        }
-      });
-    }
-
-    if (plusBtn) {
-      plusBtn.addEventListener('click', () => {
-        demo.incrementDiceSets();
+    if (diceSlider) {
+      diceSlider.addEventListener('input', () => {
+        const value = parseInt(diceSlider.value, 10);
+        demo.setDiceSets(value);
         if (diceSetsEl) {
           diceSetsEl.textContent = demo.getDiceSets().toString();
         }

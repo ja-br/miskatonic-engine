@@ -69,14 +69,64 @@
       }
 
       .control-group {
-        margin-bottom: 10px;
+        margin-bottom: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .control-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .slider-container {
         display: flex;
         align-items: center;
         gap: 10px;
       }
 
-      .control-group:last-child {
-        margin-bottom: 0;
+      input[type="range"] {
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background: #333;
+        outline: none;
+        -webkit-appearance: none;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #0f0;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      input[type="range"]::-webkit-slider-thumb:hover {
+        background: #0c0;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #0f0;
+        cursor: pointer;
+        border: none;
+        transition: background 0.2s;
+      }
+
+      input[type="range"]::-moz-range-thumb:hover {
+        background: #0c0;
+      }
+
+      .slider-label {
+        color: #888;
+        font-size: 12px;
+        margin-bottom: 4px;
       }
 
       button {
@@ -101,17 +151,18 @@
 
       #dice-sets {
         color: #0f0;
-        font-size: 18px;
+        font-size: 20px;
         font-weight: bold;
-        min-width: 40px;
+        min-width: 30px;
         text-align: center;
       }
 
       #roll-btn {
         background: #0a0;
-        padding: 10px 20px;
+        padding: 12px 24px;
         font-size: 16px;
         font-weight: bold;
+        width: 100%;
       }
 
       #roll-btn:hover {
@@ -125,7 +176,7 @@
       #dice-count {
         color: #888;
         font-size: 12px;
-        margin-top: 5px;
+        text-align: center;
       }
 
       .nav-link {
@@ -158,9 +209,10 @@
       </div>
       <div id="controls">
         <div class="control-group">
-          <button id="minus-btn">-</button>
-          <span id="dice-sets">1</span>
-          <button id="plus-btn">+</button>
+          <div class="slider-label">Dice Sets: <span id="dice-sets">1</span></div>
+          <div class="slider-container">
+            <input type="range" id="dice-slider" min="1" max="10" value="1" step="1">
+          </div>
         </div>
         <div class="control-group">
           <button id="roll-btn">ROLL DICE</button>

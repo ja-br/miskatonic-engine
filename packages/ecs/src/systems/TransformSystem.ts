@@ -104,9 +104,9 @@ export class TransformSystem implements System {
    * Performance: O(n) where n = number of dirty transforms
    * Zero allocations: uses composeTRSTo() and multiplyTo()
    */
-  update(_deltaTime: number): void {
-    const query = this.world.query().with(Transform as ComponentType<Transform>).build();
-    const entities = this.world.executeQuery(query);
+  update(world: World, _deltaTime: number): void {
+    const query = world.query().with(Transform as ComponentType<Transform>).build();
+    const entities = world.executeQuery(query);
 
     // Process all transforms
     for (const { entity: entityId, components } of entities) {
@@ -122,7 +122,7 @@ export class TransformSystem implements System {
 
       // Only process dirty transforms
       if (transform.dirty === 1) {
-        this.updateTransform(entityId, transform);
+        this.updateTransform(world, entityId, transform);
       }
     }
   }
@@ -133,7 +133,7 @@ export class TransformSystem implements System {
    *
    * Uses iterative parent chain update to prevent stack overflow with deep hierarchies.
    */
-  private updateTransform(entityId: EntityId, transform: TransformData): void {
+  private updateTransform(world: World, entityId: EntityId, transform: TransformData): void {
     // Build ancestor chain if parent is dirty (iterative to prevent stack overflow)
     const ancestorChain: EntityId[] = [];
     let currentId = entityId;
@@ -144,7 +144,7 @@ export class TransformSystem implements System {
     // Walk up parent chain, collecting dirty ancestors
     while (currentTransform.parentId !== -1 && depth < MAX_HIERARCHY_DEPTH) {
       const parentId = currentTransform.parentId;
-      const parentTransform = this.world.getComponent(parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
+      const parentTransform = world.getComponent(parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
 
       if (!parentTransform) {
         console.warn(`Transform parent ${parentId} not found for entity ${currentId}`);
@@ -170,21 +170,21 @@ export class TransformSystem implements System {
     // Update ancestors from root to leaf (reverse order)
     for (let i = ancestorChain.length - 1; i >= 0; i--) {
       const ancestorId = ancestorChain[i];
-      const ancestorTransform = this.world.getComponent(ancestorId, Transform as ComponentType<Transform>) as TransformData | undefined;
+      const ancestorTransform = world.getComponent(ancestorId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (ancestorTransform) {
-        this.updateTransformSingle(ancestorId, ancestorTransform);
+        this.updateTransformSingle(world, ancestorId, ancestorTransform);
       }
     }
 
     // Finally update this transform
-    this.updateTransformSingle(entityId, transform);
+    this.updateTransformSingle(world, entityId, transform);
   }
 
   /**
    * Update a single transform without recursion
    * Assumes parent is already up to date
    */
-  private updateTransformSingle(entityId: EntityId, transform: TransformData): void {
+  private updateTransformSingle(world: World, entityId: EntityId, transform: TransformData): void {
     // 1. Calculate local matrix (T × R × S) - ZERO ALLOCATION
     const localMatrix = this.matrixStorage.getLocalMatrix(transform.localMatrixIndex);
     Mat4.composeTRSTo(
@@ -202,7 +202,7 @@ export class TransformSystem implements System {
       worldMatrix.set(localMatrix);
     } else {
       // Has parent: world = parent.world × local
-      const parentTransform = this.world.getComponent(transform.parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
+      const parentTransform = world.getComponent(transform.parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!parentTransform) {
         console.warn(`Transform parent ${transform.parentId} not found for entity ${entityId}`);
         worldMatrix.set(localMatrix);
@@ -220,7 +220,7 @@ export class TransformSystem implements System {
     // Walk linked list of children
     let childId = transform.firstChildId;
     while (childId !== -1) {
-      const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
+      const childTransform = world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!childTransform) {
         console.warn(`Child ${childId} not found in linked list for entity ${entityId}`);
         break;
@@ -464,7 +464,7 @@ export class TransformSystem implements System {
 
     // Update if dirty
     if (transform.dirty === 1) {
-      this.updateTransform(entityId, transform);
+      this.updateTransform(this.world, entityId, transform);
     }
 
     return this.matrixStorage.getWorldMatrix(transform.worldMatrixIndex);
@@ -482,7 +482,7 @@ export class TransformSystem implements System {
 
     // Update if dirty
     if (transform.dirty === 1) {
-      this.updateTransform(entityId, transform);
+      this.updateTransform(this.world, entityId, transform);
     }
 
     return this.matrixStorage.getLocalMatrix(transform.localMatrixIndex);
@@ -497,7 +497,7 @@ export class TransformSystem implements System {
     if (!transform) return;
 
     transform.dirty = 1;
-    this.updateTransform(entityId, transform);
+    this.updateTransform(this.world, entityId, transform);
   }
 
   /**
@@ -513,7 +513,7 @@ export class TransformSystem implements System {
       if (!transform) continue;
 
       transform.dirty = 1;
-      this.updateTransform(entityId, transform);
+      this.updateTransform(this.world, entityId, transform);
     }
   }
 
