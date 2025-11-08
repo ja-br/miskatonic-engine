@@ -1,4 +1,4 @@
-import type { Archetype, ComponentType, EntityId } from './types';
+import type { Archetype, ComponentType, Component, EntityId } from './types';
 import { ComponentStorage } from './ComponentStorage';
 import { ComponentRegistry } from './ComponentRegistry';
 
@@ -179,7 +179,7 @@ export class ArchetypeManager {
   /**
    * Get component for entity at index
    */
-  getComponent<T>(archetype: Archetype, type: ComponentType<T>, index: number): T | undefined {
+  getComponent<T extends Component>(archetype: Archetype, type: ComponentType<T>, index: number): T | undefined {
     const storage = archetype.components.get(type);
     if (!storage) {
       return undefined;
@@ -191,7 +191,7 @@ export class ArchetypeManager {
   /**
    * Set component for entity at index
    */
-  setComponent<T>(
+  setComponent<T extends Component>(
     archetype: Archetype,
     type: ComponentType<T>,
     index: number,

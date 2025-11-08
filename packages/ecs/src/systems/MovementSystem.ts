@@ -1,4 +1,4 @@
-import type { System } from '../types';
+import type { System, ComponentType } from '../types';
 import { SystemPriority } from '../types';
 import type { World } from '../World';
 import { Transform } from '../components/Transform';
@@ -26,8 +26,8 @@ export class MovementSystem implements System {
     // Cache query to avoid rebuilding every frame
     this.query = world
       .query()
-      .with(Transform)
-      .with(Velocity)
+      .with(Transform as ComponentType<Transform>)
+      .with(Velocity as ComponentType<Velocity>)
       .build();
   }
 
@@ -41,9 +41,9 @@ export class MovementSystem implements System {
     }
 
     // Execute query and update each matching entity
-    this.query!.forEach(world.getArchetypeManager(), (entityId, components) => {
-      const transform = components.get(Transform) as Transform;
-      const velocity = components.get(Velocity) as Velocity;
+    this.query!.forEach(world.getArchetypeManager(), (_entityId, components) => {
+      const transform = components.get(Transform as ComponentType<Transform>) as Transform;
+      const velocity = components.get(Velocity as ComponentType<Velocity>) as Velocity;
 
       // Update position based on velocity and delta time
       // deltaTime is in seconds, so this gives us units per second movement
@@ -56,7 +56,7 @@ export class MovementSystem implements System {
   /**
    * Cleanup the system (optional)
    */
-  cleanup(world: World): void {
+  cleanup(_world: World): void {
     this.query = undefined;
   }
 }

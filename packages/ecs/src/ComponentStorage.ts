@@ -1,4 +1,4 @@
-import type { ComponentType } from './types';
+import type { ComponentType, Component } from './types';
 
 /**
  * Component Storage - manages typed array storage for component fields
@@ -157,7 +157,7 @@ export class ComponentStorage<T> {
     }
 
     // Swap all field values
-    for (const [fieldName, array] of this.fields) {
+    for (const [, array] of this.fields) {
       array[targetIndex] = array[sourceIndex];
     }
   }
@@ -275,7 +275,7 @@ export class ComponentStorage<T> {
 /**
  * Component schema definition for registering component types
  */
-export interface ComponentSchema<T> {
+export interface ComponentSchema<T extends Component> {
   /** Component type constructor */
   type: ComponentType<T>;
 
@@ -293,10 +293,10 @@ export interface ComponentSchema<T> {
  * Most game engine values are floats (positions, rotations, velocities)
  * Integer fields must explicitly specify Int32Array or Uint8Array
  *
- * @param value - Default value (used for type inference)
+ * @param _value - Default value (used for type inference)
  * @returns Typed array constructor
  */
-export function inferArrayType(value: any): TypedArrayConstructor {
+export function inferArrayType(_value: any): TypedArrayConstructor {
   // Default to Float32Array for all numeric values
   // This is safer for game engines where most values are floats
   // Integer fields (IDs, indices, flags) should explicitly specify their array type

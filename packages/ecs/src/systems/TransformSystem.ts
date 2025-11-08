@@ -24,7 +24,7 @@
  * - Hierarchy via linked list (parentId, firstChildId, nextSiblingId)
  */
 
-import type { System } from '../types';
+import type { System, ComponentType } from '../types';
 import type { World } from '../World';
 import type { EntityId } from '../types';
 import { Transform, type TransformData } from '../components/Transform';
@@ -48,11 +48,11 @@ export class TransformSystem implements System {
    * Allocates matrix indices for all existing transforms
    */
   init(): void {
-    const query = this.world.query().with(Transform).build();
+    const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
-    for (const { entity: entityId, components } of entities) {
-      const transform = components.get(Transform) as TransformData | undefined;
+    for (const { entity: _entityId, components } of entities) {
+      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       // Allocate matrix indices if not already allocated
@@ -69,11 +69,11 @@ export class TransformSystem implements System {
    * Frees all matrix indices
    */
   destroy(): void {
-    const query = this.world.query().with(Transform).build();
+    const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
     for (const { components } of entities) {
-      const transform = components.get(Transform) as TransformData | undefined;
+      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       // Free matrix indices
@@ -105,12 +105,12 @@ export class TransformSystem implements System {
    * Zero allocations: uses composeTRSTo() and multiplyTo()
    */
   update(_deltaTime: number): void {
-    const query = this.world.query().with(Transform).build();
+    const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
     // Process all transforms
     for (const { entity: entityId, components } of entities) {
-      const transform = components.get(Transform) as TransformData | undefined;
+      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       // Allocate matrix indices if needed (entity created after init)
@@ -144,7 +144,7 @@ export class TransformSystem implements System {
     // Walk up parent chain, collecting dirty ancestors
     while (currentTransform.parentId !== -1 && depth < MAX_HIERARCHY_DEPTH) {
       const parentId = currentTransform.parentId;
-      const parentTransform = this.world.getComponent(parentId, Transform) as TransformData | undefined;
+      const parentTransform = this.world.getComponent(parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
 
       if (!parentTransform) {
         console.warn(`Transform parent ${parentId} not found for entity ${currentId}`);
@@ -170,7 +170,7 @@ export class TransformSystem implements System {
     // Update ancestors from root to leaf (reverse order)
     for (let i = ancestorChain.length - 1; i >= 0; i--) {
       const ancestorId = ancestorChain[i];
-      const ancestorTransform = this.world.getComponent(ancestorId, Transform) as TransformData | undefined;
+      const ancestorTransform = this.world.getComponent(ancestorId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (ancestorTransform) {
         this.updateTransformSingle(ancestorId, ancestorTransform);
       }
@@ -202,7 +202,7 @@ export class TransformSystem implements System {
       worldMatrix.set(localMatrix);
     } else {
       // Has parent: world = parent.world × local
-      const parentTransform = this.world.getComponent(transform.parentId, Transform) as TransformData | undefined;
+      const parentTransform = this.world.getComponent(transform.parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!parentTransform) {
         console.warn(`Transform parent ${transform.parentId} not found for entity ${entityId}`);
         worldMatrix.set(localMatrix);
@@ -220,7 +220,7 @@ export class TransformSystem implements System {
     // Walk linked list of children
     let childId = transform.firstChildId;
     while (childId !== -1) {
-      const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+      const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!childTransform) {
         console.warn(`Child ${childId} not found in linked list for entity ${entityId}`);
         break;
@@ -245,7 +245,7 @@ export class TransformSystem implements System {
    * @param z - Z position
    */
   setPosition(entityId: EntityId, x: number, y: number, z: number): void {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return;
 
     transform.x = x;
@@ -263,7 +263,7 @@ export class TransformSystem implements System {
    * @param z - Rotation around Z axis (roll)
    */
   setRotation(entityId: EntityId, x: number, y: number, z: number): void {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return;
 
     transform.rotationX = x;
@@ -281,7 +281,7 @@ export class TransformSystem implements System {
    * @param z - Z scale
    */
   setScale(entityId: EntityId, x: number, y: number, z: number): void {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return;
 
     transform.scaleX = x;
@@ -296,7 +296,7 @@ export class TransformSystem implements System {
    * @param entityId - Entity to mark dirty
    */
   markDirty(entityId: EntityId): void {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return;
 
     transform.dirty = 1;
@@ -309,7 +309,7 @@ export class TransformSystem implements System {
    * @returns true if dirty, false if clean
    */
   isDirty(entityId: EntityId): boolean {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return false;
 
     return transform.dirty === 1;
@@ -322,7 +322,7 @@ export class TransformSystem implements System {
    * @param parentId - Parent entity (undefined to clear parent)
    */
   setParent(childId: EntityId, parentId?: EntityId): void {
-    const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+    const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!childTransform) return;
 
     // Circular dependency detection
@@ -354,7 +354,7 @@ export class TransformSystem implements System {
    * @returns Array of child entity IDs
    */
   getChildren(entityId: EntityId): EntityId[] {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return [];
 
     const children: EntityId[] = [];
@@ -363,7 +363,7 @@ export class TransformSystem implements System {
     while (childId !== -1) {
       children.push(childId);
 
-      const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+      const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!childTransform) break;
 
       childId = childTransform.nextSiblingId;
@@ -386,7 +386,7 @@ export class TransformSystem implements System {
 
       visited.add(currentId);
 
-      const currentTransform = this.world.getComponent(currentId, Transform) as TransformData | undefined;
+      const currentTransform = this.world.getComponent(currentId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!currentTransform) break;
 
       currentId = currentTransform.parentId;
@@ -399,13 +399,13 @@ export class TransformSystem implements System {
    * Remove entity from parent's linked list of children
    */
   private removeFromParentList(childId: EntityId, parentId: EntityId): void {
-    const parentTransform = this.world.getComponent(parentId, Transform) as TransformData | undefined;
+    const parentTransform = this.world.getComponent(parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!parentTransform) return;
 
     // Find child in linked list
     if (parentTransform.firstChildId === childId) {
       // Child is first in list
-      const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+      const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!childTransform) return;
 
       parentTransform.firstChildId = childTransform.nextSiblingId;
@@ -415,12 +415,12 @@ export class TransformSystem implements System {
       let prevSiblingId = parentTransform.firstChildId;
 
       while (prevSiblingId !== -1) {
-        const prevSibling = this.world.getComponent(prevSiblingId, Transform) as TransformData | undefined;
+        const prevSibling = this.world.getComponent(prevSiblingId, Transform as ComponentType<Transform>) as TransformData | undefined;
         if (!prevSibling) break;
 
         if (prevSibling.nextSiblingId === childId) {
           // Found it
-          const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+          const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
           if (!childTransform) break;
 
           prevSibling.nextSiblingId = childTransform.nextSiblingId;
@@ -437,10 +437,10 @@ export class TransformSystem implements System {
    * Add entity to parent's linked list of children
    */
   private addToParentList(childId: EntityId, parentId: EntityId): void {
-    const parentTransform = this.world.getComponent(parentId, Transform) as TransformData | undefined;
+    const parentTransform = this.world.getComponent(parentId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!parentTransform) return;
 
-    const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+    const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!childTransform) return;
 
     // Add to front of linked list
@@ -459,7 +459,7 @@ export class TransformSystem implements System {
    * @returns World matrix or undefined if entity has no Transform
    */
   getWorldMatrix(entityId: EntityId): Float32Array | undefined {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return undefined;
 
     // Update if dirty
@@ -477,7 +477,7 @@ export class TransformSystem implements System {
    * @returns Local matrix or undefined if entity has no Transform
    */
   getLocalMatrix(entityId: EntityId): Float32Array | undefined {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return undefined;
 
     // Update if dirty
@@ -493,7 +493,7 @@ export class TransformSystem implements System {
    * Useful for debugging or when you need immediate update
    */
   forceUpdate(entityId: EntityId): void {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return;
 
     transform.dirty = 1;
@@ -505,11 +505,11 @@ export class TransformSystem implements System {
    * Use sparingly - defeats the purpose of dirty flag optimization
    */
   forceUpdateAll(): void {
-    const query = this.world.query().with(Transform).build();
+    const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
     for (const { entity: entityId, components } of entities) {
-      const transform = components.get(Transform) as TransformData | undefined;
+      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       transform.dirty = 1;
@@ -527,7 +527,7 @@ export class TransformSystem implements System {
     matrixMemoryBytes: number;
     matrixUtilization: number;
   } {
-    const query = this.world.query().with(Transform).build();
+    const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
     let totalTransforms = 0;
@@ -535,7 +535,7 @@ export class TransformSystem implements System {
     let hierarchicalTransforms = 0;
 
     for (const { components } of entities) {
-      const transform = components.get(Transform) as TransformData | undefined;
+      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       totalTransforms++;
@@ -568,7 +568,7 @@ export class TransformSystem implements System {
    * @param entityId - Entity being destroyed
    */
   onEntityDestroyed(entityId: EntityId): void {
-    const transform = this.world.getComponent(entityId, Transform) as TransformData | undefined;
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
     if (!transform) return;
 
     // Free matrix indices
@@ -589,7 +589,7 @@ export class TransformSystem implements System {
     // Clear children's parent references
     let childId = transform.firstChildId;
     while (childId !== -1) {
-      const childTransform = this.world.getComponent(childId, Transform) as TransformData | undefined;
+      const childTransform = this.world.getComponent(childId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!childTransform) break;
 
       const nextSiblingId = childTransform.nextSiblingId;

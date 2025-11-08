@@ -1,5 +1,5 @@
-import type { ComponentType } from './types';
-import type { ComponentSchema, FieldDescriptor } from './ComponentStorage';
+import type { ComponentType, Component } from './types';
+import type { FieldDescriptor } from './ComponentStorage';
 import { createFieldDescriptor } from './ComponentStorage';
 
 /**
@@ -26,7 +26,7 @@ export class ComponentRegistry {
    * @param type - Component type constructor
    * @param fields - Field descriptors for component properties
    */
-  static register<T>(type: ComponentType<T>, fields: FieldDescriptor[]): void {
+  static register<T extends Component>(type: ComponentType<T>, fields: FieldDescriptor[]): void {
     if (this.schemas.has(type)) {
       console.warn(`Component ${type.name} is already registered, overwriting`);
     }
@@ -39,7 +39,7 @@ export class ComponentRegistry {
    * @param type - Component type constructor
    * @param sampleInstance - Optional sample instance (uses default constructor if not provided)
    */
-  static autoRegister<T>(type: ComponentType<T>, sampleInstance?: T): void {
+  static autoRegister<T extends Component>(type: ComponentType<T>, sampleInstance?: T): void {
     const instance = sampleInstance || new type();
     const fields: FieldDescriptor[] = [];
 
@@ -70,7 +70,7 @@ export class ComponentRegistry {
    * @param type - Component type constructor
    * @returns Field descriptors, or undefined if not registered
    */
-  static getFields<T>(type: ComponentType<T>): FieldDescriptor[] | undefined {
+  static getFields<T extends Component>(type: ComponentType<T>): FieldDescriptor[] | undefined {
     return this.schemas.get(type);
   }
 
@@ -79,7 +79,7 @@ export class ComponentRegistry {
    *
    * @param type - Component type constructor
    */
-  static isRegistered<T>(type: ComponentType<T>): boolean {
+  static isRegistered<T extends Component>(type: ComponentType<T>): boolean {
     return this.schemas.has(type);
   }
 
@@ -132,7 +132,7 @@ export class ComponentRegistry {
  * }
  * ```
  */
-export function RegisterComponent<T>(constructor: ComponentType<T>): ComponentType<T> {
+export function RegisterComponent<T extends Component>(constructor: ComponentType<T>): ComponentType<T> {
   ComponentRegistry.autoRegister(constructor);
   return constructor;
 }

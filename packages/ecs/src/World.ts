@@ -2,7 +2,7 @@ import { EntityManager } from './Entity';
 import { ArchetypeManager } from './Archetype';
 import { SystemManager } from './System';
 import { Query, QueryBuilder } from './Query';
-import type { ComponentType, EntityId, System } from './types';
+import type { Component, ComponentType, EntityId, System } from './types';
 import type { TransformSystem } from './systems/TransformSystem';
 import { Transform } from './components/Transform';
 
@@ -55,7 +55,7 @@ export class World {
 
     // Cleanup TransformSystem matrix indices if entity has Transform (Epic 3.11.5)
     const transformSystem = this.getTransformSystem();
-    if (transformSystem && this.hasComponent(entityId, Transform)) {
+    if (transformSystem && this.hasComponent(entityId, Transform as ComponentType<Transform>)) {
       transformSystem.onEntityDestroyed(entityId);
     }
 
@@ -93,7 +93,7 @@ export class World {
   /**
    * Add a component to an entity
    */
-  addComponent<T>(entityId: EntityId, type: ComponentType<T>, component: T): void {
+  addComponent<T extends Component>(entityId: EntityId, type: ComponentType<T>, component: T): void {
     const metadata = this.entityManager.getMetadata(entityId);
     if (!metadata) {
       throw new Error(`Entity ${entityId} does not exist`);
@@ -153,7 +153,7 @@ export class World {
   /**
    * Remove a component from an entity
    */
-  removeComponent<T>(entityId: EntityId, type: ComponentType<T>): void {
+  removeComponent<T extends Component>(entityId: EntityId, type: ComponentType<T>): void {
     const metadata = this.entityManager.getMetadata(entityId);
     if (!metadata || !metadata.archetype) {
       return;
@@ -220,7 +220,7 @@ export class World {
   /**
    * Get a component from an entity
    */
-  getComponent<T>(entityId: EntityId, type: ComponentType<T>): T | undefined {
+  getComponent<T extends Component>(entityId: EntityId, type: ComponentType<T>): T | undefined {
     const metadata = this.entityManager.getMetadata(entityId);
     if (!metadata || !metadata.archetype) {
       return undefined;
@@ -245,7 +245,7 @@ export class World {
    * transform.x = 10;
    * world.setComponent(entity, Transform, transform); // Write back changes
    */
-  setComponent<T>(entityId: EntityId, type: ComponentType<T>, component: Partial<T>): void {
+  setComponent<T extends Component>(entityId: EntityId, type: ComponentType<T>, component: Partial<T>): void {
     const metadata = this.entityManager.getMetadata(entityId);
     if (!metadata || !metadata.archetype) {
       return;
@@ -263,7 +263,7 @@ export class World {
   /**
    * Check if entity has a component
    */
-  hasComponent<T>(entityId: EntityId, type: ComponentType<T>): boolean {
+  hasComponent<T extends Component>(entityId: EntityId, type: ComponentType<T>): boolean {
     return this.getComponent(entityId, type) !== undefined;
   }
 

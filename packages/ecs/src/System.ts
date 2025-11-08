@@ -1,4 +1,4 @@
-import type { System, SystemPriority } from './types';
+import type { System } from './types';
 
 /**
  * System Manager - manages system registration and execution

@@ -10,10 +10,11 @@ import { createFieldDescriptor } from './ComponentStorage';
 import { Transform } from './components/Transform';
 import { Velocity } from './components/Velocity';
 import { Camera } from './components/Camera';
+import type { ComponentType } from './types';
 
 // Register Transform component
 // Epic 3.11.5: Cache-efficient storage with ALL data in typed arrays
-ComponentRegistry.register(Transform, [
+ComponentRegistry.register(Transform as ComponentType<Transform>, [
   // Position (3 × Float32 = 12 bytes)
   createFieldDescriptor('x', 0),
   createFieldDescriptor('y', 0),
@@ -46,14 +47,14 @@ ComponentRegistry.register(Transform, [
 ]);
 
 // Register Velocity component
-ComponentRegistry.register(Velocity, [
+ComponentRegistry.register(Velocity as ComponentType<Velocity>, [
   createFieldDescriptor('vx', 0),
   createFieldDescriptor('vy', 0),
   createFieldDescriptor('vz', 0),
 ]);
 
 // Register Camera component (Epic 3.10)
-ComponentRegistry.register(Camera, [
+ComponentRegistry.register(Camera as ComponentType<Camera>, [
   // Projection type and settings
   createFieldDescriptor('projectionType', 0, Uint8Array), // 0=perspective, 1=orthographic
   createFieldDescriptor('fov', Math.PI / 4),
