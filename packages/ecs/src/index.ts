@@ -23,7 +23,6 @@ export type {
   Component,
   ComponentType,
   System,
-  SystemPriority,
   QueryFilter,
   Archetype,
   EntityMetadata,
@@ -45,3 +44,8 @@ export { Velocity } from './components/Velocity';
 
 // Example systems
 export { MovementSystem } from './systems/MovementSystem';
+export { TransformSystem } from './systems/TransformSystem';
+
+// Math utilities (Epic 3.11 + 3.11.5)
+export * as Mat4 from './math/Mat4';
+export { MatrixStorage } from './math/MatrixStorage';

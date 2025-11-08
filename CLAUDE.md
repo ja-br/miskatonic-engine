@@ -208,20 +208,22 @@ npm run docs             # Generate API documentation with TypeDoc
 - `@miskatonic/ecs`: 65/65 tests passing (Epic 2.1)
 - `@miskatonic/events`: 49/49 tests passing (Epic 2.3)
 - `@miskatonic/resources`: 91/91 tests passing (Epic 2.4)
+- `@miskatonic/core`: 62 tests passing (Epics 2.7-2.9) - MiskatonicEngine, GameLoop, Commands
 - `@miskatonic/physics`: Integration tests passing (Epics 4.1-4.5)
 - `@miskatonic/network`: 89 tests, 94.82% coverage (Epic 5.2)
-- `@miskatonic/core`: 62 tests passing (Epics 2.7-2.9)
-- `@miskatonic/debug-console`: 69/69 tests passing (Epic 6.1) ⚡ NEW
+- `@miskatonic/debug-console`: 69/69 tests passing (Epic 6.1)
 
 For packages without tests, running `npm test --workspace=@miskatonic/<package>` will show "No test files found."
 
 ```bash
 # Test a specific package
-npm test --workspace=@miskatonic/physics
-npm test --workspace=@miskatonic/network
+npm test --workspace=@miskatonic/core
 npm test --workspace=@miskatonic/ecs
 npm test --workspace=@miskatonic/events
 npm test --workspace=@miskatonic/resources
+npm test --workspace=@miskatonic/physics
+npm test --workspace=@miskatonic/network
+npm test --workspace=@miskatonic/debug-console
 
 # Run specific test files from root
 npm test -- tests/unit/physics/serialization.test.ts
@@ -261,7 +263,7 @@ node --expose-gc packages/ecs/benchmark-runner.js
 
 ## Current Project Status
 
-**Completed Epics (13 of 70+ planned):**
+**Completed Epics (17 of 70+ planned):**
 
 ✅ **Epic 1.1-1.2: Electron Foundation** - COMPLETE
 - Secure multi-process architecture (main, preload, renderer)
@@ -270,17 +272,24 @@ node --expose-gc packages/ecs/benchmark-runner.js
 - Process monitoring and crash recovery
 - Native OS integration (file dialogs, menus, tray, shortcuts, notifications)
 
-✅ **Epic 2.1: ECS Core** - COMPLETE (65/65 tests) **⚠️ NEEDS REFACTORING**
+✅ **Epic 2.1 + 2.10-2.11: ECS Core with Cache Optimization** - COMPLETE (65/65 tests)
 - Archetype-based ECS with generation validation
 - Query system with component filtering
-- **KNOWN ISSUE**: Uses object arrays instead of cache-efficient typed arrays (see Epic 2.10-2.11)
-- **PERFORMANCE IMPACT**: Current implementation ~10x slower than optimal
+- Structure of Arrays (SoA) with typed arrays for cache efficiency
+- **Performance**: 4.16x faster iteration than object arrays (validated in Epic 2.10)
 
 ✅ **Epic 2.3: Event System** - COMPLETE (49/49 tests)
 - Production-ready event bus with critical fixes
 
 ✅ **Epic 2.4: Resource Management** - COMPLETE (91/91 tests)
 - Async loading, reference counting, hot-reload, memory profiling
+
+✅ **Epic 2.7-2.9: Main Engine Class & Game Loop** - COMPLETE (62 tests passing)
+- MiskatonicEngine class with lifecycle management
+- Phase-based game loop (PRE_UPDATE, UPDATE, POST_UPDATE, RENDER)
+- Fixed timestep physics, variable timestep rendering
+- Command system with built-in commands
+- System registration and priority-based execution
 
 ✅ **Epic 4.1-4.5: Physics Engine** - COMPLETE
 - Physics abstraction layer (supports Rapier, Cannon-es, Box2D)
@@ -295,14 +304,7 @@ node --expose-gc packages/ecs/benchmark-runner.js
 - Interest management (spatial, grid, and always-interested policies)
 - State replication with bandwidth optimization
 
-✅ **Epic 2.7-2.9: Main Engine Class & Game Loop** - COMPLETE (62 tests passing)
-- MiskatonicEngine class with lifecycle management
-- Phase-based game loop (PRE_UPDATE, UPDATE, POST_UPDATE, RENDER)
-- Fixed timestep physics, variable timestep rendering
-- Command system with built-in commands
-- System registration and priority-based execution
-
-✅ **Epic 6.1: Debug Console** - COMPLETE (69 tests passing) ⚡ NEW
+✅ **Epic 6.1: Debug Console** - COMPLETE (69 tests passing)
 - In-game developer console with ~ key toggle
 - Command execution via CommandSystem integration
 - Command history with up/down arrow navigation (100 entries)
@@ -315,26 +317,20 @@ node --expose-gc packages/ecs/benchmark-runner.js
 
 From recent architecture analyses (November 2025), these are the most critical gaps:
 
-1. **Epic 2.10-2.11: Cache-Efficient ECS Refactoring** (URGENT)
-   - Current ECS uses object arrays (not cache-efficient)
-   - Need SoA (Structure of Arrays) with typed arrays
-   - Expected 10x performance improvement
-   - Blocks rendering and game loop work
+1. **Epic 3.9-3.12: Rendering Foundation** (HIGHEST PRIORITY)
+   - Shader system (3.9) - WGSL/GLSL support, hot-reload
+   - Camera system (3.10) - View/projection matrices, camera controllers
+   - Transform system (3.11) - Hierarchical transforms, matrix generation
+   - Render queue (3.12) - Opaque/transparent sorting, batching
+   - Required before full WebGL2/WebGPU rendering can work
 
-2. **Epic 2.7-2.9: Main Engine Class & Game Loop**
-   - No main engine class exists yet
-   - No game loop integration
-   - No command/action system
-   - Required before rendering can be integrated
+2. **Epic 3.1-3.2: Rendering Abstraction & WebGPU Implementation** (HIGH PRIORITY)
+   - IRenderer interface
+   - WebGPU backend (primary)
+   - WebGL2 backend (fallback)
+   - Depends on Epic 3.9-3.12 foundation
 
-3. **Epic 3.9-3.12: Rendering Foundation**
-   - Shader system (3.9)
-   - Camera system (3.10)
-   - Transform hierarchy (3.11)
-   - Render queue (3.12)
-   - Required before WebGL2/WebGPU backends
-
-4. **Epic 2.13-2.14: Memory Management**
+3. **Epic 2.13-2.14: Memory Management** (HIGH PRIORITY)
    - GC mitigation strategies
    - Object pooling
    - Frame allocators
@@ -360,49 +356,32 @@ From recent architecture analyses (November 2025), these are the most critical g
    - [planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md](planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md) - Recent analysis of architectural gaps
 
 2. **Critical Context** (November 2025):
-   - ECS Core (Epic 2.1) is complete but NEEDS REFACTORING for cache efficiency
-   - No main engine class exists yet (Epic 2.7)
-   - No game loop integration yet (Epic 2.8)
-   - Rendering system is partially designed but not implemented
+   - ECS Core OPTIMIZED (Epic 2.1 + 2.10-2.11): Cache-efficient SoA with typed arrays, 4.16x faster iteration
+   - Main engine class EXISTS (Epic 2.7-2.9 complete): MiskatonicEngine, GameLoop, CommandSystem all implemented
+   - Rendering foundation NOT STARTED (Epic 3.9-3.12): Need shader system, camera, transforms, render queue - **THIS IS THE CRITICAL PATH**
    - Physics and networking foundations are solid and production-ready
+   - Debug console complete (Epic 6.1): In-game developer console with command execution
 
 3. **Recommended Next Steps**:
-   - **If working on performance**: Start with Epic 2.10-2.11 (Cache-Efficient ECS)
-   - **If working on integration**: Start with Epic 2.7-2.9 (Main Engine Class & Game Loop)
-   - **If working on rendering**: Start with Epic 3.9-3.12 (Rendering Foundation)
+   - **If working on rendering**: Start with Epic 3.9-3.12 (Rendering Foundation - HIGHEST PRIORITY)
+   - **If working on memory**: Start with Epic 2.13-2.14 (Memory Management - GC mitigation, pooling)
    - **If working on new features**: Check ARCHITECTURE.md for dependencies first
+   - **Note**: Cache-efficient ECS is already done (Epic 2.10-2.11 complete)
 
 ## Known Architectural Issues
 
 **⚠️ CRITICAL: These issues are documented and planned for resolution**
 
-### 1. ECS Performance (Epic 2.10-2.11)
-**Issue:** Current ECS implementation uses object arrays instead of cache-efficient typed arrays
-- **Impact:** ~10x slower than optimal for component iteration
-- **Status:** Works correctly, all tests pass, but performance is suboptimal
-- **Resolution:** Planned refactoring to SoA (Structure of Arrays) with typed arrays
-- **When to Refactor:** Before starting Epic 2.7-2.9 (Main Engine Integration) or Epic 3.9+ (Rendering)
-- **Why Not Now:** Current implementation works correctly and is fully tested. Refactoring can wait until it becomes a bottleneck or blocks other work.
-- **Timeline:** High priority, blocks optimal rendering performance
-- **Reference:** planning/CACHE_ARCHITECTURE_ANALYSIS.md
-
-### 2. Missing Main Engine Integration (Epic 2.7-2.9)
-**Issue:** No main engine class or game loop exists yet
-- **Impact:** Individual systems (ECS, physics, network) work but aren't integrated
-- **Status:** Systems tested independently, integration layer not built
-- **Resolution:** Build MiskatonicEngine class with integrated game loop
-- **Timeline:** Required before rendering can be properly integrated
-- **Reference:** ARCHITECTURE.md section on integration gaps
-
-### 3. Rendering Foundation Missing (Epic 3.9-3.12)
-**Issue:** Rendering system designed but not implemented
-- **Impact:** Cannot render anything yet despite having ECS and physics
-- **Status:** Architecture documented in HLD.md, implementation not started
-- **Resolution:** Build shader system, camera, transform hierarchy, render queue
-- **Timeline:** Depends on main engine integration (Epic 2.7-2.9)
+### 1. Rendering Foundation Missing (Epic 3.9-3.12) - **MOST CRITICAL GAP**
+**Issue:** No rendering foundation exists (shader system, camera, transforms, render queue)
+- **Impact:** Cannot render anything despite having ECS, physics, and main engine
+- **Status:** Architecture documented but implementation not started
+- **Resolution:** Build shader management, camera system, transform hierarchy, render queue
+- **Timeline:** Highest priority for rendering functionality
+- **Blocks:** Full WebGL2/WebGPU renderer implementation (Epic 3.1-3.2)
 - **Reference:** planning/RENDERING_ARCHITECTURE_ANALYSIS.md
 
-### 4. Memory Management Not Optimized (Epic 2.13-2.14)
+### 2. Memory Management Not Optimized (Epic 2.13-2.14)
 **Issue:** No GC mitigation strategies in place
 - **Impact:** Potential frame drops from garbage collection
 - **Status:** Basic implementations work, but not optimized for 60 FPS
@@ -702,6 +681,46 @@ network.send(batch);
 
 // Client: Apply received batch
 replication.applyStateBatch(receivedBatch);
+```
+
+### Working with Core Engine (Epic 2.7-2.9 Complete)
+
+```typescript
+import { MiskatonicEngine, SystemPhase } from '@miskatonic/core';
+
+// Create engine instance
+const engine = new MiskatonicEngine({
+  fixedTimestep: 1/60,  // 60 FPS for physics
+  maxFrameTime: 0.25    // Cap delta to avoid spiral of death
+});
+
+// Register systems with phases
+engine.registerSystem({
+  name: 'MyGameSystem',
+  phase: SystemPhase.UPDATE,
+  update(dt: number) {
+    // Game logic here
+  }
+});
+
+// Register commands
+engine.commands.register({
+  name: 'spawn',
+  description: 'Spawn an entity',
+  execute(args: string[]) {
+    const [x, y, z] = args.map(Number);
+    // Spawn entity at position
+  }
+});
+
+// Start engine
+engine.start();
+
+// Access subsystems
+engine.world;      // ECS World
+engine.events;     // Event bus
+engine.resources;  // Resource manager
+engine.commands;   // Command system
 ```
 
 ## Troubleshooting

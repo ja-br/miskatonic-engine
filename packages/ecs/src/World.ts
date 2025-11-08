@@ -3,6 +3,8 @@ import { ArchetypeManager } from './Archetype';
 import { SystemManager } from './System';
 import { Query, QueryBuilder } from './Query';
 import type { ComponentType, EntityId, System } from './types';
+import type { TransformSystem } from './systems/TransformSystem';
+import { Transform } from './components/Transform';
 
 /**
  * World - central container for the ECS
@@ -49,6 +51,12 @@ export class World {
     if (!this.entityManager.isValid(entityId, metadata.generation)) {
       console.warn(`Attempted to destroy entity ${entityId} with invalid generation`);
       return;
+    }
+
+    // Cleanup TransformSystem matrix indices if entity has Transform (Epic 3.11.5)
+    const transformSystem = this.getTransformSystem();
+    if (transformSystem && this.hasComponent(entityId, Transform)) {
+      transformSystem.onEntityDestroyed(entityId);
     }
 
     // Remove from archetype
@@ -304,6 +312,13 @@ export class World {
   }
 
   /**
+   * Get a system by name
+   */
+  getSystem<T extends System>(systemName: string): T | undefined {
+    return this.systemManager.get(systemName) as T | undefined;
+  }
+
+  /**
    * Get statistics for debugging
    */
   getStats() {
@@ -312,5 +327,142 @@ export class World {
       archetypes: this.archetypeManager.getStats(),
       systems: this.systemManager.getStats(),
     };
+  }
+
+  // =============================================================================
+  // TRANSFORM SYSTEM CONVENIENCE API (Epic 3.11.5)
+  // =============================================================================
+
+  /**
+   * Get TransformSystem instance
+   * Returns undefined if TransformSystem is not registered
+   */
+  private getTransformSystem(): TransformSystem | undefined {
+    return this.getSystem<TransformSystem>('TransformSystem');
+  }
+
+  /**
+   * Set entity position
+   *
+   * Convenience method for transformSystem.setPosition()
+   *
+   * @param entityId - Entity to modify
+   * @param x - X position
+   * @param y - Y position
+   * @param z - Z position
+   */
+  setPosition(entityId: EntityId, x: number, y: number, z: number): void {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return;
+    }
+    transformSystem.setPosition(entityId, x, y, z);
+  }
+
+  /**
+   * Set entity rotation (Euler angles in radians)
+   *
+   * Convenience method for transformSystem.setRotation()
+   *
+   * @param entityId - Entity to modify
+   * @param x - Rotation around X axis (pitch)
+   * @param y - Rotation around Y axis (yaw)
+   * @param z - Rotation around Z axis (roll)
+   */
+  setRotation(entityId: EntityId, x: number, y: number, z: number): void {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return;
+    }
+    transformSystem.setRotation(entityId, x, y, z);
+  }
+
+  /**
+   * Set entity scale
+   *
+   * Convenience method for transformSystem.setScale()
+   *
+   * @param entityId - Entity to modify
+   * @param x - X scale
+   * @param y - Y scale
+   * @param z - Z scale
+   */
+  setScale(entityId: EntityId, x: number, y: number, z: number): void {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return;
+    }
+    transformSystem.setScale(entityId, x, y, z);
+  }
+
+  /**
+   * Set parent-child relationship
+   *
+   * Convenience method for transformSystem.setParent()
+   *
+   * @param childId - Child entity
+   * @param parentId - Parent entity (undefined to clear parent)
+   */
+  setParent(childId: EntityId, parentId?: EntityId): void {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return;
+    }
+    transformSystem.setParent(childId, parentId);
+  }
+
+  /**
+   * Get children of entity
+   *
+   * Convenience method for transformSystem.getChildren()
+   *
+   * @param entityId - Parent entity
+   * @returns Array of child entity IDs
+   */
+  getChildren(entityId: EntityId): EntityId[] {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return [];
+    }
+    return transformSystem.getChildren(entityId);
+  }
+
+  /**
+   * Get world matrix for entity
+   *
+   * Convenience method for transformSystem.getWorldMatrix()
+   *
+   * @param entityId - Entity to get matrix for
+   * @returns World matrix or undefined if entity has no Transform
+   */
+  getWorldMatrix(entityId: EntityId): Float32Array | undefined {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return undefined;
+    }
+    return transformSystem.getWorldMatrix(entityId);
+  }
+
+  /**
+   * Get local matrix for entity
+   *
+   * Convenience method for transformSystem.getLocalMatrix()
+   *
+   * @param entityId - Entity to get matrix for
+   * @returns Local matrix or undefined if entity has no Transform
+   */
+  getLocalMatrix(entityId: EntityId): Float32Array | undefined {
+    const transformSystem = this.getTransformSystem();
+    if (!transformSystem) {
+      console.warn('TransformSystem not registered. Call world.registerSystem(transformSystem) first.');
+      return undefined;
+    }
+    return transformSystem.getLocalMatrix(entityId);
   }
 }
