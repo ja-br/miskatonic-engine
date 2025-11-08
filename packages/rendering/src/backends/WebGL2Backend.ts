@@ -842,6 +842,17 @@ export class WebGL2Backend implements IRendererBackend {
       const location = shader.attributes.get(attr.name);
       if (location === undefined) continue;
 
+      // Bind the appropriate buffer for this attribute (if specified)
+      if (attr.bufferId) {
+        const buffer = this.buffers.get(attr.bufferId);
+        if (buffer) {
+          this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer.buffer);
+        } else {
+          console.warn(`Buffer ${attr.bufferId} not found for attribute ${attr.name}`);
+          continue;
+        }
+      }
+
       this.gl.enableVertexAttribArray(location);
 
       const type = attr.type === 'float' ? this.gl.FLOAT :

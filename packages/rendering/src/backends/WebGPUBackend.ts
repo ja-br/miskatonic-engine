@@ -82,6 +82,7 @@ export class WebGPUBackend implements IRendererBackend {
   // Render state
   private currentRenderPass: GPURenderPassEncoder | null = null;
   private currentCommandEncoder: GPUCommandEncoder | null = null;
+  private depthTexture: GPUTexture | null = null;
   private stats: RenderStats = this.createEmptyStats();
 
   async initialize(config: BackendConfig): Promise<boolean> {
@@ -120,6 +121,16 @@ export class WebGPUBackend implements IRendererBackend {
         device: this.device,
         format: this.preferredFormat,
         alphaMode: config.alpha ? 'premultiplied' : 'opaque',
+      });
+
+      // Create depth texture
+      this.depthTexture = this.device.createTexture({
+        size: {
+          width: this.canvas.width,
+          height: this.canvas.height,
+        },
+        format: 'depth24plus',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
 
       // Set up device lost handler
@@ -238,7 +249,15 @@ export class WebGPUBackend implements IRendererBackend {
     // In a full implementation, this would be more configurable
     const bindGroupLayout = this.device.createBindGroupLayout({
       label: `BindGroupLayout: ${id}`,
-      entries: [], // Would be populated based on shader reflection
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: {
+            type: 'uniform',
+          },
+        },
+      ],
     });
 
     const pipelineLayout = this.device.createPipelineLayout({
@@ -252,7 +271,28 @@ export class WebGPUBackend implements IRendererBackend {
       vertex: {
         module: shaderModule,
         entryPoint: 'vs_main',
-        buffers: [], // Would be populated based on vertex layout
+        buffers: [
+          {
+            arrayStride: 12, // 3 floats * 4 bytes
+            attributes: [
+              {
+                shaderLocation: 0,
+                offset: 0,
+                format: 'float32x3',
+              },
+            ],
+          },
+          {
+            arrayStride: 12, // 3 floats * 4 bytes
+            attributes: [
+              {
+                shaderLocation: 1,
+                offset: 0,
+                format: 'float32x3',
+              },
+            ],
+          },
+        ],
       },
       fragment: {
         module: shaderModule,
@@ -543,6 +583,7 @@ export class WebGPUBackend implements IRendererBackend {
     // Begin render pass if not already active
     if (!this.currentRenderPass) {
       const textureView = this.context.getCurrentTexture().createView();
+      const depthView = this.depthTexture?.createView();
 
       this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
         colorAttachments: [
@@ -553,16 +594,100 @@ export class WebGPUBackend implements IRendererBackend {
             storeOp: 'store',
           },
         ],
+        depthStencilAttachment: depthView ? {
+          view: depthView,
+          depthClearValue: 1.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store',
+        } : undefined,
       });
     }
 
     // Set pipeline
     this.currentRenderPass.setPipeline(shader.pipeline);
 
-    // Bind vertex buffer
-    const vertexBuffer = this.buffers.get(command.vertexBufferId);
-    if (vertexBuffer) {
-      this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
+    // Create and bind uniform buffer with all uniforms
+    if (command.uniforms && command.uniforms.size > 0) {
+      // Pack all uniforms into a single buffer
+      // For our shader we need: mat4 (64 bytes) + mat4 (64 bytes) + mat3 (48 bytes aligned to 64) + vec3 (16) + vec3 (16) + vec3 (16) = 240 bytes
+      const uniformData = new ArrayBuffer(256); // Padded to 256 for alignment
+      const dataView = new DataView(uniformData);
+      let offset = 0;
+
+      // Write uniforms in the specific order they appear in the shader struct
+      const uniformOrder = [
+        'uModelViewProjection',
+        'uModel',
+        'uNormalMatrix',
+        'uLightDir',
+        'uCameraPos',
+        'uBaseColor'
+      ];
+
+      for (const name of uniformOrder) {
+        const uniform = command.uniforms.get(name);
+        if (!uniform) continue;
+
+        if (uniform.type === 'mat4') {
+          for (let i = 0; i < 16; i++) {
+            dataView.setFloat32(offset + i * 4, uniform.value[i], true);
+          }
+          offset += 64;
+        } else if (uniform.type === 'mat3') {
+          // Mat3 needs special handling - pad each column to vec4
+          for (let col = 0; col < 3; col++) {
+            for (let row = 0; row < 3; row++) {
+              dataView.setFloat32(offset + row * 4, uniform.value[col * 3 + row], true);
+            }
+            offset += 16; // vec4 alignment per column
+          }
+          // NO extra padding needed after mat3
+        } else if (uniform.type === 'vec3') {
+          for (let i = 0; i < 3; i++) {
+            dataView.setFloat32(offset + i * 4, uniform.value[i], true);
+          }
+          offset += 16; // vec3 is aligned to vec4
+        }
+      }
+
+      // Create uniform buffer
+      const uniformBuffer = this.device.createBuffer({
+        size: uniformData.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      });
+      this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
+
+      // Create bind group
+      const bindGroup = this.device.createBindGroup({
+        layout: shader.bindGroupLayout,
+        entries: [
+          {
+            binding: 0,
+            resource: {
+              buffer: uniformBuffer,
+            },
+          },
+        ],
+      });
+
+      // Bind the group
+      this.currentRenderPass.setBindGroup(0, bindGroup);
+    }
+
+    // Bind vertex buffers based on vertex layout
+    if (command.vertexLayout && command.vertexLayout.attributes) {
+      for (const attr of command.vertexLayout.attributes) {
+        const buffer = this.buffers.get(attr.bufferId || command.vertexBufferId);
+        if (buffer) {
+          this.currentRenderPass.setVertexBuffer(attr.location, buffer.buffer);
+        }
+      }
+    } else {
+      // Fallback: bind first vertex buffer
+      const vertexBuffer = this.buffers.get(command.vertexBufferId);
+      if (vertexBuffer) {
+        this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
+      }
     }
 
     // Bind index buffer if present

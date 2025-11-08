@@ -9,9 +9,17 @@ import {
   OrbitControls as LegacyOrbitControls,
   CameraSystem,
   OrbitCameraController,
+  RenderQueue,
+  RenderCommandType,
+  PrimitiveMode,
+  BackendFactory,
   createCube,
   createSphere,
   type RendererConfig,
+  type QueuedDrawCommand,
+  type CameraInfo,
+  type DrawCommand,
+  type IRendererBackend,
 } from '../../rendering/src';
 import {
   PhysicsWorld,
@@ -27,6 +35,7 @@ import './components/registerDemoComponents'; // Register custom components
 export class Demo {
   private canvas: HTMLCanvasElement;
   private renderer: Renderer | null = null;
+  private backend: IRendererBackend | null = null;
   private animationId: number | null = null;
   private startTime: number = 0;
   private frameCount: number = 0;
@@ -41,6 +50,9 @@ export class Demo {
   // ECS Camera
   private cameraEntity: EntityId | null = null;
   private orbitController: OrbitCameraController | null = null;
+
+  // Render queue for organized drawing
+  private renderQueue: RenderQueue;
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
@@ -71,6 +83,9 @@ export class Demo {
 
     // CameraSystem is a utility class, not a System
     this.cameraSystem = new CameraSystem(this.world);
+
+    // Initialize render queue
+    this.renderQueue = new RenderQueue();
   }
 
   async initialize(): Promise<boolean> {
@@ -85,18 +100,32 @@ export class Demo {
       this.resizeHandler = () => this.resizeCanvas();
       window.addEventListener('resize', this.resizeHandler);
 
-      // Create renderer config
-      const config: RendererConfig = {
-        backend: RenderBackend.WEBGL2,
-        canvas: this.canvas,
-        width: this.canvas.width,
-        height: this.canvas.height,
+      // Create backend with automatic WebGPU/WebGL2 detection and fallback
+      console.log('Creating rendering backend...');
+
+      this.backend = await BackendFactory.create(this.canvas, {
+        enableWebGPU: true,  // Enable WebGPU with automatic fallback to WebGL2
+        enableWebGL2: true,
         antialias: true,
         alpha: false,
-      };
+        depth: true,
+        powerPreference: 'high-performance',
+      });
+      console.log(`Using backend: ${this.backend.name}`);
 
-      // Initialize renderer (constructor does all initialization)
-      this.renderer = new Renderer(config);
+      // Create legacy Renderer ONLY for WebGL2 backend (for BufferManager/ShaderManager)
+      // WebGPU backend handles buffers/shaders directly
+      if (this.backend.name === 'WebGL2') {
+        const config: RendererConfig = {
+          backend: RenderBackend.WEBGL2,
+          canvas: this.canvas,
+          width: this.canvas.width,
+          height: this.canvas.height,
+          antialias: true,
+          alpha: false,
+        };
+        this.renderer = new Renderer(config);
+      }
 
       // Create ECS camera entity
       this.cameraEntity = this.world.createEntity();
@@ -139,78 +168,94 @@ export class Demo {
   }
 
   private async createShaders(): Promise<void> {
-    if (!this.renderer) return;
+    if (!this.backend) return;
 
-    // Import shaders as raw strings using Vite's ?raw suffix
-    const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
-    const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
+    // Load appropriate shaders based on backend
+    if (this.backend.name === 'WebGPU') {
+      console.log('Loading WGSL shaders for WebGPU backend');
+      const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
 
-    const shaderManager = this.renderer.getShaderManager();
-    try {
-      shaderManager.createProgram(this.shaderProgramId, {
-        vertex: vertexShaderSource,
-        fragment: fragmentShaderSource,
+      // Create shader via backend
+      await this.backend.createShader(this.shaderProgramId, {
+        vertex: wgslSource,  // WGSL uses single-file shaders
+        fragment: wgslSource,
       });
-
-      // Verify shader program was created successfully
-      const program = shaderManager.getProgram(this.shaderProgramId);
-      if (!program) {
-        throw new Error('Shader program creation failed - program not found after creation');
+      console.log('WGSL shaders compiled successfully');
+    } else {
+      // WebGL2 backend - requires legacy Renderer
+      if (!this.renderer) {
+        throw new Error('WebGL2 backend requires Renderer for shader management');
       }
 
-      console.log('Shaders compiled and linked successfully');
-    } catch (error) {
-      console.error('Shader compilation failed:', error);
-      throw new Error(`Failed to create shader program: ${error instanceof Error ? error.message : String(error)}`);
+      console.log('Loading GLSL shaders for WebGL2 backend');
+      const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
+      const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
+
+      const shaderManager = this.renderer.getShaderManager();
+      try {
+        shaderManager.createProgram(this.shaderProgramId, {
+          vertex: vertexShaderSource,
+          fragment: fragmentShaderSource,
+        });
+
+        // Verify shader program was created successfully
+        const program = shaderManager.getProgram(this.shaderProgramId);
+        if (!program) {
+          throw new Error('Shader program creation failed - program not found after creation');
+        }
+
+        console.log('GLSL shaders compiled and linked successfully');
+      } catch (error) {
+        console.error('Shader compilation failed:', error);
+        throw new Error(`Failed to create shader program: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
   }
 
   private createGeometry(): void {
-    if (!this.renderer) return;
-
-    const bufferManager = this.renderer.getBufferManager();
+    if (!this.backend) return;
 
     // Create cube geometry
     const cubeData = createCube(1.0);
-    bufferManager.createBuffer(
+    this.backend.createBuffer(
       this.cubeVertexBufferId,
       'vertex',
       cubeData.positions,
-      'static_draw'
+      'static'
     );
-    bufferManager.createBuffer(
+    this.backend.createBuffer(
       this.cubeNormalBufferId,
       'vertex',
       cubeData.normals,
-      'static_draw'
+      'static'
     );
-    bufferManager.createBuffer(
+    this.backend.createBuffer(
       this.cubeIndexBufferId,
       'index',
       cubeData.indices,
-      'static_draw'
+      'static'
     );
     this.cubeIndexCount = cubeData.indices.length;
 
     // Create sphere geometry
     const sphereData = createSphere(0.5, 16, 12);
-    bufferManager.createBuffer(
+    this.backend.createBuffer(
       this.sphereVertexBufferId,
       'vertex',
       sphereData.positions,
-      'static_draw'
+      'static'
     );
-    bufferManager.createBuffer(
+    this.backend.createBuffer(
       this.sphereNormalBufferId,
       'vertex',
       sphereData.normals,
-      'static_draw'
+      'static'
     );
-    bufferManager.createBuffer(
+    this.backend.createBuffer(
       this.sphereIndexBufferId,
       'index',
       sphereData.indices,
-      'static_draw'
+      'static'
     );
     this.sphereIndexCount = sphereData.indices.length;
   }
@@ -365,8 +410,8 @@ export class Demo {
   }
 
   start(): void {
-    if (!this.renderer) {
-      console.error('Renderer not initialized');
+    if (!this.backend) {
+      console.error('Backend not initialized');
       return;
     }
 
@@ -478,7 +523,7 @@ export class Demo {
   }
 
   private renderLoop = (): void => {
-    if (!this.renderer || !this.cameraEntity) return;
+    if (!this.backend || !this.cameraEntity) return;
 
     const now = performance.now();
     const deltaTime = this.lastTime ? (now - this.lastTime) / 1000 : 0;
@@ -498,43 +543,32 @@ export class Demo {
         const diceEntity = components.get(DiceEntity);
 
         if (transform && diceEntity) {
-          const physicsPos = this.physicsWorld.getPosition(diceEntity.bodyHandle);
-          const physicsRot = this.physicsWorld.getRotation(diceEntity.bodyHandle);
+          try {
+            const physicsPos = this.physicsWorld.getPosition(diceEntity.bodyHandle);
+            const physicsRot = this.physicsWorld.getRotation(diceEntity.bodyHandle);
 
-          // Update transform position
-          transform.x = physicsPos.x;
-          transform.y = physicsPos.y;
-          transform.z = physicsPos.z;
+            // Update transform position
+            transform.x = physicsPos.x;
+            transform.y = physicsPos.y;
+            transform.z = physicsPos.z;
 
-          // Update transform rotation (quaternion to euler angles)
-          // For now, we'll store the quaternion in the rotation fields
-          // TODO: Convert quaternion to euler angles properly
-          transform.rotationX = physicsRot.x;
-          transform.rotationY = physicsRot.y;
-          transform.rotationZ = physicsRot.z;
+            // Update transform rotation (quaternion to euler angles)
+            // For now, we'll store the quaternion in the rotation fields
+            // TODO: Convert quaternion to euler angles properly
+            transform.rotationX = physicsRot.x;
+            transform.rotationY = physicsRot.y;
+            transform.rotationZ = physicsRot.z;
+          } catch (error) {
+            // Physics body was removed but entity still exists (race condition during removal)
+            // Skip this entity - it will be cleaned up on next frame
+            continue;
+          }
         }
       }
     }
 
     // Update ECS systems (includes TransformSystem)
     this.world.update(deltaTime);
-
-    const gl = this.renderer.getContext().gl;
-    const shaderManager = this.renderer.getShaderManager();
-    const bufferManager = this.renderer.getBufferManager();
-
-    // Clear with dark background
-    gl.clearColor(0.05, 0.05, 0.08, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.enable(gl.DEPTH_TEST);
-    gl.enable(gl.CULL_FACE);
-
-    // Get shader program
-    const program = shaderManager.getProgram(this.shaderProgramId);
-    if (!program) return;
-
-    // Use shader
-    gl.useProgram(program.program);
 
     // Get view-projection matrix from ECS camera
     const aspectRatio = this.canvas.width / this.canvas.height;
@@ -544,23 +578,19 @@ export class Demo {
     const cameraTransform = this.world.getComponent(this.cameraEntity, Transform);
     if (!cameraTransform) return;
 
-    // Get uniform locations
-    const mvpLoc = gl.getUniformLocation(program.program, 'uModelViewProjection');
-    const modelLoc = gl.getUniformLocation(program.program, 'uModel');
-    const normalMatLoc = gl.getUniformLocation(program.program, 'uNormalMatrix');
-    const lightDirLoc = gl.getUniformLocation(program.program, 'uLightDir');
-    const cameraPosLoc = gl.getUniformLocation(program.program, 'uCameraPos');
-    const baseColorLoc = gl.getUniformLocation(program.program, 'uBaseColor');
+    // Set up camera info for render queue
+    const viewMatrix = this.cameraSystem.getViewMatrix(this.cameraEntity);
+    const projMatrix = this.cameraSystem.getProjectionMatrix(this.cameraEntity, aspectRatio);
+    if (viewMatrix && projMatrix) {
+      this.renderQueue.setCamera({
+        position: new Float32Array([cameraTransform.x, cameraTransform.y, cameraTransform.z]),
+        viewMatrix,
+        projectionMatrix: projMatrix,
+      });
+    }
 
-    // Set common uniforms
-    gl.uniform3f(lightDirLoc, 0.5, 1.0, 0.5);
-    gl.uniform3f(cameraPosLoc, cameraTransform.x, cameraTransform.y, cameraTransform.z);
-
-    // Get attribute locations
-    const posLoc = gl.getAttribLocation(program.program, 'aPosition');
-    const normLoc = gl.getAttribLocation(program.program, 'aNormal');
-
-    let drawCalls = 0;
+    // Clear render queue for this frame
+    this.renderQueue.clear();
 
     // Helper function to get die color based on number of sides
     const getDieColor = (sides: number): [number, number, number] => {
@@ -575,15 +605,9 @@ export class Demo {
       }
     };
 
-    // Get buffers
-    const cubeVertexBuffer = bufferManager.getBuffer(this.cubeVertexBufferId);
-    const cubeNormalBuffer = bufferManager.getBuffer(this.cubeNormalBufferId);
-    const cubeIndexBuffer = bufferManager.getBuffer(this.cubeIndexBufferId);
-    const sphereVertexBuffer = bufferManager.getBuffer(this.sphereVertexBufferId);
-    const sphereNormalBuffer = bufferManager.getBuffer(this.sphereNormalBufferId);
-    const sphereIndexBuffer = bufferManager.getBuffer(this.sphereIndexBufferId);
+    let drawCalls = 0;
 
-    // Draw all dice using ECS query
+    // Submit draw commands for all dice using ECS query
     const diceQuery = this.world.query().with(Transform).with(DiceEntity).build();
     const diceEntities = this.world.executeQuery(diceQuery);
 
@@ -601,40 +625,10 @@ export class Demo {
 
         // Use cube mesh for D6, sphere for everything else
         const useCube = diceEntity.sides === 6;
-
-        if (useCube && cubeVertexBuffer && cubeNormalBuffer && cubeIndexBuffer) {
-          gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexBuffer.buffer);
-          gl.enableVertexAttribArray(posLoc);
-          gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-
-          gl.bindBuffer(gl.ARRAY_BUFFER, cubeNormalBuffer.buffer);
-          gl.enableVertexAttribArray(normLoc);
-          gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
-
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeIndexBuffer.buffer);
-        } else if (!useCube && sphereVertexBuffer && sphereNormalBuffer && sphereIndexBuffer) {
-          gl.bindBuffer(gl.ARRAY_BUFFER, sphereVertexBuffer.buffer);
-          gl.enableVertexAttribArray(posLoc);
-          gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-
-          gl.bindBuffer(gl.ARRAY_BUFFER, sphereNormalBuffer.buffer);
-          gl.enableVertexAttribArray(normLoc);
-          gl.vertexAttribPointer(normLoc, 3, gl.FLOAT, false, 0, 0);
-
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer.buffer);
-        } else {
-          continue;
-        }
-
-        gl.uniformMatrix4fv(mvpLoc, false, mvpMatrix);
-        gl.uniformMatrix4fv(modelLoc, false, modelMatrix);
-        // Calculate normal matrix (inverse transpose of model matrix upper-left 3x3)
-        // For now using identity since we don't have non-uniform scaling
-        gl.uniformMatrix3fv(normalMatLoc, false, new Float32Array([
-          1, 0, 0,
-          0, 1, 0,
-          0, 0, 1,
-        ]));
+        const vertexBufferId = useCube ? this.cubeVertexBufferId : this.sphereVertexBufferId;
+        const normalBufferId = useCube ? this.cubeNormalBufferId : this.sphereNormalBufferId;
+        const indexBufferId = useCube ? this.cubeIndexBufferId : this.sphereIndexBufferId;
+        const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
 
         // Add depth-based darkening and respawn pulse
         const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
@@ -648,13 +642,77 @@ export class Demo {
           brightness *= pulse;
         }
 
-        gl.uniform3f(baseColorLoc, r * brightness, g * brightness, b * brightness);
+        // Create draw command
+        const drawCmd: DrawCommand = {
+          type: RenderCommandType.DRAW,
+          shader: this.shaderProgramId,
+          mode: PrimitiveMode.TRIANGLES,
+          vertexBufferId,
+          indexBufferId,
+          indexType: 'uint16',
+          vertexCount: indexCount,
+          vertexLayout: {
+            attributes: [
+              {
+                name: 'aPosition',
+                location: 0,
+                format: 'float32x3',
+                offset: 0,
+                stride: 12,
+                bufferId: vertexBufferId,
+              },
+              {
+                name: 'aNormal',
+                location: 1,
+                format: 'float32x3',
+                offset: 0,
+                stride: 12,
+                bufferId: normalBufferId,
+              },
+            ],
+          },
+          uniforms: new Map([
+            ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: mvpMatrix }],
+            ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
+            ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]) }],
+            ['uLightDir', { name: 'uLightDir', type: 'vec3', value: new Float32Array([0.5, 1.0, 0.5]) }],
+            ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: new Float32Array([cameraTransform.x, cameraTransform.y, cameraTransform.z]) }],
+            ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: new Float32Array([r * brightness, g * brightness, b * brightness]) }],
+          ]),
+          state: {
+            blendMode: 'none',
+            depthTest: 'less',
+            depthWrite: true,
+            cullMode: 'back',
+          },
+        };
 
-        const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
-        gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_SHORT, 0);
+        // Submit to render queue
+        this.renderQueue.submit({
+          drawCommand: drawCmd,
+          materialId: `dice-${diceEntity.sides}`,
+          worldMatrix: modelMatrix,
+          depth: 0,
+          sortKey: 0,
+        });
+
         drawCalls++;
       }
     }
+
+    // Sort and execute render queue
+    this.renderQueue.sort();
+    const queuedCommands = this.renderQueue.getCommands();
+    const renderCommands = queuedCommands.map(qc => qc.drawCommand);
+
+    // Begin frame
+    this.backend.beginFrame({ clearColor: [0.05, 0.05, 0.08, 1.0], clearDepth: 1.0 });
+
+    // Execute all render commands
+    this.backend.executeCommands(renderCommands);
+
+    // End frame
+    this.backend.endFrame();
 
     // Update FPS counter
     this.frameCount++;
@@ -805,7 +863,7 @@ export class Demo {
         this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
 
         // Remove ECS entity
-        this.world.removeEntity(entity);
+        this.world.destroyEntity(entity);
       }
     }
   }

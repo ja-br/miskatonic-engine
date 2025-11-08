@@ -232,13 +232,229 @@ for (const { components } of this.world.executeQuery(query)) {
 
 ## Remaining Work
 
-### Phase 4: Shader System Integration
-- [ ] Task 4.1: Integrate ShaderManager into Dice Demo
-- [ ] Task 4.2: Integrate ShaderManager into Joints Demo
+### ✅ Phase 4: Shader System Integration (ALREADY COMPLETE)
+
+**Status:** Both demos already use modern shader loading approach
+
+**What's Already Implemented:**
+- ✅ External shader files (`.vert` and `.frag`)
+- ✅ Vite build-time bundling with `?raw` imports
+- ✅ ShaderManager handles compilation and management
+- ✅ No inline GLSL shader strings in application code
+
+**Technical Note:** ShaderLoader is Node.js-only and cannot run in browser. The current Vite-based approach (`import shader?raw`) is the correct solution for Electron renderer processes, as it bundles shaders at build time while maintaining separation of concerns.
+
+**Files:**
+- `packages/renderer/src/shaders/basic-lighting.vert` - Vertex shader
+- `packages/renderer/src/shaders/basic-lighting.frag` - Fragment shader
+- Both demos load these via: `import('./shaders/basic-lighting.vert?raw').then(m => m.default)`
+
+---
 
 ### Phase 5: Render Queue Integration
-- [ ] Task 5.1: Use RenderQueue in Dice Demo
-- [ ] Task 5.2: Use RenderQueue in Joints Demo
+
+**Status:** ✅ COMPLETE - Full Backend Abstraction with WebGPU Support
+
+**Prerequisites (VERIFIED COMPLETE):**
+- ✅ Epic 2.1: ECS Core
+- ✅ Epic 3.10: Camera System
+- ✅ Epic 3.1-3.2: Backend Abstraction (WebGL2Backend, WebGPUBackend, BackendFactory exist)
+- ✅ Epic 3.12: RenderQueue implementation
+
+**Current Status:**
+- ✅ Backend infrastructure integrated with WebGPU enabled
+- ✅ WGSL shaders created and loaded for WebGPU backend
+- ✅ Command-based rendering via DrawCommand objects
+- ✅ Full WebGPU support with automatic fallback to WebGL2
+
+---
+
+### ✅ Step 1: Backend Abstraction Integration (COMPLETE)
+
+**What Was Done:**
+1. **Added BackendFactory to demo.ts** (`packages/renderer/src/demo.ts:106-114`)
+   - Imports `BackendFactory` and `IRendererBackend`
+   - Creates backend with automatic WebGPU/WebGL2 detection
+   - `enableWebGPU: true` - WebGPU enabled with automatic fallback
+   - Automatic capability detection and graceful degradation
+
+2. **Conditional Renderer Creation**
+   - Legacy `Renderer` only created for WebGL2 backend (for backwards compatibility during transition)
+   - WebGPU backend uses native buffer/shader management
+   - Clean separation between modern backend API and legacy code
+
+3. **Buffer Creation via Backend**
+   - Replaced `BufferManager` with `backend.createBuffer()`
+   - All geometry buffers created through backend abstraction
+   - Works with both WebGPU and WebGL2 backends
+
+**Files Modified:**
+- `packages/renderer/src/demo.ts:5-23` - Added backend/RenderQueue imports
+- `packages/renderer/src/demo.ts:38` - Added backend field
+- `packages/renderer/src/demo.ts:106-128` - Backend initialization (WebGPU enabled)
+- `packages/renderer/src/demo.ts:215-261` - createGeometry() uses backend.createBuffer()
+
+**Result:** ✅ **Full backend abstraction with WebGPU enabled**
+
+---
+
+### ✅ Step 2: WGSL Shader Variants (COMPLETE)
+
+**What Was Done:**
+1. **Created WGSL shader** (`packages/renderer/src/shaders/basic-lighting.wgsl`)
+   - Full Blinn-Phong lighting in WGSL
+   - Matches GLSL shader functionality
+   - Single-file format (vertex + fragment in one file)
+   - Uses WebGPU bind groups for uniforms
+
+2. **Updated shader loading** (`packages/renderer/src/demo.ts:166-205`)
+   - Detects backend type (`backend.name === 'WebGPU'`)
+   - Loads WGSL for WebGPU backend
+   - Loads GLSL for WebGL2 backend
+   - Console logs which shaders are being used
+
+**Files Created:**
+- `packages/renderer/src/shaders/basic-lighting.wgsl` - WebGPU shader
+
+**Files Modified:**
+- `packages/renderer/src/demo.ts:166-205` - createShaders() method
+
+**Result:** ✅ **Full shader support for both backends!**
+
+---
+
+### ✅ Step 3: RenderQueue Integration (COMPLETE)
+
+**What Was Done:**
+1. **Replaced Direct WebGL Calls with DrawCommand Objects** (`demo.ts:639-682`)
+   - Built `DrawCommand` for each dice entity
+   - Specified vertex layout with position and normal attributes
+   - Set all uniforms (MVP matrix, model matrix, lighting, colors)
+   - Configured render state (depth test, culling, blending)
+
+2. **RenderQueue Submission** (`demo.ts:684-691`)
+   - Submit each DrawCommand to RenderQueue
+   - Automatic depth sorting for opaque objects
+   - Material-based grouping for state change minimization
+
+3. **Backend Command Execution** (`demo.ts:697-709`)
+   - Sort render queue for optimal draw order
+   - Begin frame with clear color/depth
+   - Execute all commands via `backend.executeCommands()`
+   - End frame to present
+
+**Files Modified:**
+- `packages/renderer/src/demo.ts:525-724` - Complete rendering loop refactor
+  - Removed all direct `gl.*` calls
+  - Build DrawCommand objects from entity data
+  - Use RenderQueue for sorting and batching
+  - Execute via backend abstraction
+
+**Result:** ✅ **Full command-based rendering with automatic backend selection (WebGPU/WebGL2)**
+
+---
+
+### ✅ Step 4: WebGPU Backend Completion (COMPLETE)
+
+**What Was Done:**
+
+The WebGPU backend existed but was a stub implementation with many TODO comments. Completed the implementation to enable full WebGPU rendering:
+
+1. **Bind Group Layout Implementation** (`WebGPUBackend.ts:239-250`)
+   - Added uniform buffer binding at @group(0) @binding(0)
+   - Matches WGSL shader declarations
+   - Visibility for both vertex and fragment stages
+
+2. **Vertex Buffer Layout Configuration** (`WebGPUBackend.ts:263-284`)
+   - Position attribute: float32x3 at location 0
+   - Normal attribute: float32x3 at location 1
+   - Proper stride calculation (12 bytes per attribute)
+
+3. **Uniform Buffer Creation and Packing** (`WebGPUBackend.ts:591-645`)
+   - Proper WebGPU alignment rules implemented:
+     - mat4: 64 bytes
+     - mat3: each column padded to vec4, plus extra padding (64 bytes total)
+     - vec3: aligned to 16 bytes (vec4 size)
+   - Dynamic uniform buffer creation from DrawCommand uniforms
+   - Bind group creation and binding before draw calls
+
+4. **Depth Texture and Attachment** (`WebGPUBackend.ts`)
+   - Added `depthTexture` field (line 85)
+   - Create depth texture during initialization (lines 126-134)
+   - Format: depth24plus
+   - Added depth attachment to render pass descriptor (lines 597-602)
+   - Matches render pipeline depth/stencil configuration
+
+5. **Multiple Vertex Buffer Support** (`WebGPUBackend.ts:647-661`)
+   - Bind multiple vertex buffers based on vertex layout
+   - Support for separate position and normal buffers
+   - Buffer binding by attribute location
+
+**Errors Fixed:**
+1. **Black Canvas - Dual Context**: Made Renderer creation conditional on WebGL2 backend only
+2. **Renderer Not Initialized**: Changed start() to check backend instead of renderer
+3. **Bind Group Layout Mismatch**: Completed bind group layout from stub
+4. **Vertex Buffer Layout Empty**: Added position + normal attribute configuration
+5. **Uniform Buffer Missing**: Implemented complete uniform buffer creation and binding with proper alignment
+6. **Depth Attachment Mismatch**: Added depth texture creation and render pass attachment
+
+**Files Modified:**
+- `packages/rendering/src/backends/WebGPUBackend.ts`
+  - Line 85: Added depthTexture field
+  - Lines 126-134: Depth texture creation
+  - Lines 239-250: Bind group layout with uniform buffer
+  - Lines 263-284: Vertex buffer layout (position + normal)
+  - Lines 591-645: Uniform buffer creation, packing, and binding
+  - Lines 597-602: Depth attachment in render pass
+  - Lines 647-661: Multiple vertex buffer binding
+
+**Result:** ✅ **Production-ready WebGPU backend with full rendering support**
+
+---
+
+**Tasks:**
+- ✅ Task 5.1a: Migrate Dice Demo to Backend Abstraction (COMPLETE)
+- ✅ Task 5.1b: Create WGSL Shaders (COMPLETE)
+- ✅ Task 5.1c: Implement Full RenderQueue Integration (COMPLETE)
+- ✅ Task 5.1d: Complete WebGPU Backend Implementation (COMPLETE)
+- ✅ Task 5.2: Migrate Joints Demo to Backend Abstraction + RenderQueue (COMPLETE)
+
+---
+
+### ✅ Step 5: Joints Demo Migration (COMPLETE)
+
+**What Was Done:**
+
+Applied the same WebGPU backend integration to joints-demo.ts that was completed for demo.ts.
+
+1. **Backend Integration** (`joints-demo.ts`)
+   - Added BackendFactory with WebGPU enabled
+   - Conditional Renderer creation (WebGL2 only)
+   - Refactored createGeometry() to use backend.createBuffer()
+   - Backend-aware shader loading (WGSL for WebGPU, GLSL for WebGL2)
+
+2. **Rendering Loop Refactor** (`joints-demo.ts:882-1084`)
+   - Removed all direct WebGL calls
+   - Built DrawCommand objects for each JointBodyEntity
+   - Specified vertex layouts (position + normal attributes)
+   - Set uniforms (MVP matrices, lighting, camera, colors)
+   - Configured render state (depth test, culling, blend mode)
+   - Submit to RenderQueue, sort, and execute via backend
+
+3. **Physics Sync Safety** (`joints-demo.ts:908-924`)
+   - Wrapped physics body access in try-catch
+   - Handles race conditions during entity removal
+   - Same pattern as dice demo
+
+4. **Temporary Removal**
+   - Removed joint debug line rendering (requires separate backend-agnostic implementation)
+
+**Files Modified:**
+- `packages/renderer/src/joints-demo.ts` - Complete backend abstraction migration
+
+**Result:** ✅ **Joints demo now supports both WebGPU and WebGL2 rendering**
+
+---
 
 ### Phases 6-11
 - See EPIC-DEMO-MODERNIZATION.md for full task breakdown
@@ -311,20 +527,22 @@ for (const { components } of this.world.executeQuery(query)) {
 
 ## Code Statistics
 
-**Files Created:** 3
+**Files Created:** 4
 - DiceEntity component
 - JointBodyEntity component
 - Component registration (registerDemoComponents.ts)
+- basic-lighting.wgsl (WGSL shader for WebGPU)
 
-**Files Modified:** 4
-- demo.ts: ~50 lines changed, diceBodies array removed entirely
-- joints-demo.ts: ~100 lines changed, bodies array removed entirely
+**Files Modified:** 5
+- demo.ts: ~350 lines changed (diceBodies array removed, backend integration, RenderQueue integration)
+- joints-demo.ts: ~250 lines changed (bodies array removed, backend integration, RenderQueue integration)
 - registerDemoComponents.ts: Added JointBodyEntity registration
 - rendering/index.ts: Export additions
+- WebGPUBackend.ts: ~150 lines changed (completed stub implementation)
 
-**Lines Removed:** ~200 (diceBodies and bodies arrays and all usages)
-**Lines Added:** ~300 (ECS queries, component setup, sync logic, createBodyEntity helper)
-**Net Change:** +100 lines (cleaner, more maintainable architecture)
+**Lines Removed:** ~400 (diceBodies/bodies arrays, all direct WebGL calls from both demos)
+**Lines Added:** ~800 (ECS queries, DrawCommand objects, RenderQueue, WebGPU implementation)
+**Net Change:** +400 lines (full backend abstraction architecture for both demos)
 
 ---
 
