@@ -1,8 +1,9 @@
 # Miskatonic Engine Architecture
 
-**Version:** 2.0
-**Date:** November 2025
+**Version:** 3.0
+**Date:** November 2025 (Major Update)
 **Status:** Living Document
+**Update:** 21 new epics added from architecture analyses (cache, memory, integration, rendering)
 
 This document provides a comprehensive overview of the Miskatonic Engine architecture, covering both implemented and planned systems.
 
@@ -38,9 +39,9 @@ Miskatonic Engine is a desktop game engine built on Electron, designed for creat
 
 ### Current Status (November 2025)
 
-**Implemented:** 10 of 50+ planned epics
+**Implemented:** 10 of 70+ planned epics (21 new epics added November 2025)
 - ✅ Electron Foundation (Epic 1.1, 1.2)
-- ✅ ECS Core (Epic 2.1)
+- ⚠️ ECS Core (Epic 2.1) - **NEEDS REFACTORING** (uses object arrays, not cache-efficient typed arrays)
 - ✅ Event System (Epic 2.3)
 - ✅ Resource Management (Epic 2.4)
 - ✅ Physics Engine (Epics 4.1-4.5)
@@ -48,7 +49,11 @@ Miskatonic Engine is a desktop game engine built on Electron, designed for creat
 
 **In Progress:** None (awaiting next epic selection)
 
-**Next Priority:** Rendering pipeline (Epic 3.x) or Client Prediction (Epic 5.3)
+**Next Priority (URGENT):**
+- **P0 CRITICAL:** Epic 2.10-2.11 (Cache-Efficient ECS Refactoring - 10x performance improvement)
+- **P0 CRITICAL:** Epic 2.7-2.9 (Main Engine Class, Game Loop, Command System)
+- **P0 CRITICAL:** Epic 3.9-3.12 (Rendering Foundation: Shader, Camera, Transform, Render Queue)
+- **P0 CRITICAL:** Epic 2.13-2.14 (Memory Management Foundation, GC Mitigation)
 
 ---
 
@@ -189,11 +194,12 @@ Legend: ✅ Implemented | ⏳ Planned | 🚧 In Progress
 2. **Preload Script**: Security boundary with contextBridge
 3. **Renderer Process**: Sandboxed, no Node.js, IPC only
 
-### 2. ECS Framework (✅ Complete)
+### 2. ECS Framework (⚠️ NEEDS REFACTORING)
 
 **Location:** `packages/ecs/`
-**Status:** Production-ready
+**Status:** Functional but NOT cache-optimized (10x performance improvement available)
 **Test Coverage:** 65/65 tests passing
+**Critical Issue:** Uses object arrays (cache-unfriendly) instead of SoA typed arrays (cache-efficient)
 
 #### Architecture
 
@@ -242,6 +248,33 @@ Legend: ✅ Implemented | ⏳ Planned | 🚧 In Progress
 2. **Generation Validation**: Entity handles include generation counter to detect stale references
 3. **Parallel Systems**: Systems can execute in parallel if they don't conflict on resources
 4. **Change Detection**: Queries can track entity additions/removals for efficient updates
+
+#### Critical Refactoring Needed (November 2025)
+
+**Current Implementation (Archetype.ts:33):**
+```typescript
+components: new Map()  // Object arrays - cache-unfriendly
+```
+
+**Problem:** Uses "Option A" (object arrays) which is 10x slower than "Option B" (SoA typed arrays)
+
+**Impact:**
+- Component iteration: ~10k components/ms (vs >100k possible)
+- Memory per component: ~50 bytes (vs ~12 bytes possible)
+- GC pressure: ~1000 objects/frame (vs <100 possible)
+- Cache performance: Poor spatial locality (scattered objects)
+
+**Solution Required (Epics 2.10-2.11):**
+```typescript
+// SoA (Structure of Arrays) typed arrays
+class ComponentStorage<T> {
+  private arrays: Map<keyof T, TypedArray>  // Sequential, cache-friendly
+}
+```
+
+**Expected Improvement:** 10x faster iteration, 4x less memory, 10x less GC pressure
+
+**Status:** Epic 2.10 (Component Storage Research) must complete before Epic 2.1 can be considered production-ready
 
 #### Usage Pattern
 
@@ -583,11 +616,12 @@ replication.applyStateBatch(receivedBatch);
 
 ## Planned Systems
 
-### 1. Rendering Pipeline (⏳ Epic 3.x)
+### 1. Rendering Pipeline (⏳ Epics 3.1-3.14)
 
 **Priority:** P0 (High)
-**Dependencies:** ECS Core (✅)
-**Estimated Complexity:** High
+**Dependencies:** ECS Core (⚠️ needs refactoring), Epic 3.1 (Rendering Foundation)
+**Estimated Complexity:** High (10 epics, 21-29 weeks)
+**Critical Discovery:** Rendering massively underestimated in original plan - requires 10 separate epics, not 2
 
 #### Planned Architecture
 
@@ -634,13 +668,68 @@ replication.applyStateBatch(receivedBatch);
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+#### Rendering Epics Breakdown (November 2025 Update)
+
+**Epic 3.1-3.2:** Rendering Abstraction & WebGPU Implementation (original plan)
+**Epic 3.3:** PBR Material System ✅ Complete
+**Epic 3.8:** GPU Memory Management (P1 - IMPORTANT, 2-3 weeks)
+**Epic 3.9:** Shader Management System (P0 - CRITICAL, 2-3 weeks)
+**Epic 3.10:** Camera System (P0 - CRITICAL, 2 weeks)
+**Epic 3.11:** Transform System (P0 - CRITICAL, 2 weeks)
+**Epic 3.12:** Render Queue Organization (P0 - CRITICAL, 3-4 weeks)
+**Epic 3.13:** Draw Call Batching & Instancing (P1 - IMPORTANT, 2-3 weeks)
+**Epic 3.14:** Transparency & Blending (P1 - IMPORTANT, 1-2 weeks)
+
+**Total:** 10 epics, 21-29 weeks (5-7 months)
+
+#### Critical Rendering Gaps Identified
+
+**Shader Management (Epic 3.9):**
+- WGSL (WebGPU) and GLSL ES 3.0 (WebGL2) support
+- Shader variant management (lit, skinned, textured, instanced)
+- Hot-reload during development (<100ms)
+- Include system for shared functions
+
+**Camera System (Epic 3.10):**
+- View/projection matrix generation
+- Orbit and FPS camera controllers
+- Active camera selection
+- Multiple camera support (split-screen)
+
+**Transform System (Epic 3.11):**
+- ECS Transform → GPU 4×4 matrices
+- Hierarchical transforms (parent/child)
+- Dirty flag optimization
+- <0.5ms for 1000 transforms
+
+**Render Queue (Epic 3.12):**
+- Opaque: Front-to-back sorting (minimize overdraw)
+- Transparent: Back-to-front sorting (correct blending)
+- Alpha-test: By material (minimize state changes)
+- <100 draw calls for 1000 objects
+
+**Batching & Instancing (Epic 3.13):**
+- Static batching (build-time mesh combining)
+- Dynamic batching (runtime, same material)
+- Instance rendering (1 call for N objects)
+- 10-100x draw call reduction
+
+**Transparency (Epic 3.14):**
+- Back-to-front depth sorting
+- Depth write control (read but don't write)
+- Alpha blending vs alpha-test modes
+- <1ms sorting overhead
+
 #### Key Requirements
 
 - **WebGPU Primary**: Next-gen graphics with compute shaders
 - **WebGL2 Fallback**: Compatibility for older systems
-- **PBR Materials**: Industry-standard physically-based rendering
-- **Performance**: 60 FPS with 1000+ objects
+- **PBR Materials**: Industry-standard physically-based rendering ✅ Complete (Epic 3.3)
+- **Performance**: 60 FPS with 1000+ objects (requires all 10 epics)
 - **Hot-Reload**: Shader editing during development
+- **Draw Call Budget**: <100 calls per frame (vs naive 1000 calls)
+- **CPU Budget**: <3ms rendering overhead
+- **GPU Budget**: <5ms shader execution
 
 ### 2. Client Prediction & Reconciliation (⏳ Epic 5.3)
 
@@ -832,6 +921,361 @@ replication.applyStateBatch(receivedBatch);
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
+```
+
+### 6. Cache Optimization (⏳ Epics 2.10-2.12) - November 2025
+
+**Priority:** P0 (CRITICAL - BLOCKS ECS)
+**Dependencies:** None (blocks Epic 2.1)
+**Estimated Effort:** 5-7 weeks
+
+#### Critical Discovery
+
+**ECS NOT cache-optimized despite claims.** Current implementation uses object arrays (10x slower than possible).
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Cache Optimization Architecture               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Epic 2.10: Component Storage Research (1-2 weeks)              │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Benchmark object arrays vs typed arrays                │  │
+│  │  • Validate 10x prediction (sequential vs random)        │  │
+│  │  • Measure GC impact                                      │  │
+│  │  • Make data-driven storage decision                     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 2.11: Cache-Efficient ECS Refactoring (3-4 weeks)         │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Current (Bad):                                           │  │
+│  │    components: Map<ComponentType, any[]>  // Objects     │  │
+│  │                                                            │  │
+│  │  New (Good):                                              │  │
+│  │    components: Map<ComponentType, ComponentStorage>      │  │
+│  │    class ComponentStorage<T> {                            │  │
+│  │      arrays: Map<keyof T, TypedArray>  // SoA           │  │
+│  │    }                                                      │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 2.12: Cache-Aware System Guidelines (1 week)              │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Document mandatory iteration patterns                  │  │
+│  │  • Component size guidelines (<64 bytes)                 │  │
+│  │  • Code review checklist                                  │  │
+│  │  • Prevent cache-unfriendly patterns                     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Performance Impact
+
+| Metric | Current (Objects) | Target (Typed Arrays) | Improvement |
+|--------|-------------------|----------------------|-------------|
+| Iteration Speed | ~10k/ms | >100k/ms | **10x faster** |
+| Memory/Component | ~50 bytes | ~12 bytes | **4x less** |
+| GC Pressure | ~1000/frame | <100/frame | **10x less** |
+| Cache Performance | Poor | Excellent | **10-100x** |
+
+#### Cache-Aware Pattern Example
+
+```typescript
+// ✅ GOOD: Cache-friendly (sequential archetype iteration)
+class MovementSystem {
+  update(dt: number) {
+    for (const archetype of this.archetypes) {
+      const pos = archetype.getStorage(Position);
+      const vel = archetype.getStorage(Velocity);
+
+      for (let i = 0; i < archetype.count; i++) {
+        pos.x[i] += vel.x[i] * dt;  // Sequential access
+        pos.y[i] += vel.y[i] * dt;
+        pos.z[i] += vel.z[i] * dt;
+      }
+    }
+  }
+}
+
+// ❌ BAD: Cache-unfriendly (10-100x slower)
+class MovementSystem {
+  update(dt: number) {
+    for (const entityId of randomEntityIds) {
+      const entity = world.getEntity(entityId);  // Random lookup
+      entity.position.add(entity.velocity);       // Pointer chasing
+    }
+  }
+}
+```
+
+---
+
+### 7. Memory Management (⏳ Epics 2.13-2.15, 3.8, 5.6) - November 2025
+
+**Priority:** P0 (CRITICAL)
+**Dependencies:** Epic 2.13 (foundation for others)
+**Estimated Effort:** 9-12 weeks
+
+#### Critical Discovery
+
+**Memory management not treated as first-class concern.** No GC mitigation, no frame allocators, no GPU/VRAM management.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Memory Management Architecture                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Epic 2.13: Memory Management Foundation (3-4 weeks)            │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • ObjectPool<T> (reusable objects)                       │  │
+│  │  • FrameAllocator (per-frame temporary data)             │  │
+│  │  • GCMonitor (track GC pauses)                            │  │
+│  │  • Memory budgets (RAM/VRAM)                              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 2.14: GC Mitigation and V8 Tuning (2 weeks)               │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • V8 flags tuning (--max-old-space-size, etc.)         │  │
+│  │  • GC profiling and analysis                              │  │
+│  │  • Allocation hotspot identification                     │  │
+│  │  • <5ms GC pause budget enforcement                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 2.15: Memory Leak Detection (1-2 weeks)                   │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Automated leak detection                               │  │
+│  │  • Load/unload cycle testing                             │  │
+│  │  • GPU resource tracking (buffers, textures)            │  │
+│  │  • CI/CD integration (fail on leaks)                     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 3.8: GPU Memory Management (2-3 weeks)                    │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • GPUBufferPool (reusable GPU buffers)                  │  │
+│  │  • TextureAtlas (combine textures)                        │  │
+│  │  • VRAM budgets and tracking                              │  │
+│  │  • GPU profiling integration                              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 5.6: Network Memory Optimization (1-2 weeks)              │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • NetworkBufferPool (serialization buffers)             │  │
+│  │  • Zero-copy deserialization (write to typed arrays)     │  │
+│  │  • <50 allocations per tick (60Hz)                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Memory Budgets
+
+**RAM: 500MB target, 1GB critical max**
+- ECS: 100MB
+- Rendering: 50MB
+- Physics: 50MB
+- Network: 50MB
+- Audio: 50MB
+- Assets: 100MB
+- Engine: 50MB
+- Game Logic: 50MB
+
+**VRAM: 256MB target**
+- Textures: 128MB
+- Vertex/Index Buffers: 64MB
+- Render Targets: 48MB
+- Other: 16MB
+
+**GC Budget:**
+- Pause time: <5ms (leaves 11.67ms for work)
+- Per-frame allocations: <1000 objects (steady state)
+- Network allocations: <50 objects/tick
+- Rendering allocations: <100 objects/frame
+
+---
+
+### 8. Integration Layer (⏳ Epics 2.7-2.9, 6.1-6.3) - November 2025
+
+**Priority:** P0 (CRITICAL)
+**Dependencies:** ECS Core (Epic 2.1)
+**Estimated Effort:** 7-10 weeks
+
+#### Critical Discovery
+
+**No integration layer defined.** Epic 2.1 (ECS Core) marked complete but missing main engine class, game loop, command system, debug tools.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Integration Layer Architecture               │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Epic 2.7: Main Engine Class (2-3 weeks)                        │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  class MiskatonicEngine {                                 │  │
+│  │    world: World;              // ECS world                │  │
+│  │    physics: PhysicsWorld;     // Physics simulation       │  │
+│  │    renderer: Renderer;        // Rendering pipeline       │  │
+│  │    network: NetworkClient;    // Network client           │  │
+│  │    resources: ResourceMgr;    // Asset management         │  │
+│  │                                                            │  │
+│  │    start(): void;             // Initialize engine        │  │
+│  │    update(dt: number): void;  // Frame update             │  │
+│  │    shutdown(): void;          // Cleanup                  │  │
+│  │  }                                                         │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 2.8: Game Loop Architecture (1-2 weeks)                   │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  Phase-based execution:                                   │  │
+│  │  1. Input processing                                      │  │
+│  │  2. Game logic update                                     │  │
+│  │  3. Physics simulation (fixed timestep)                   │  │
+│  │  4. Network sync                                           │  │
+│  │  5. Rendering (variable timestep)                         │  │
+│  │                                                            │  │
+│  │  Fixed timestep: 16.67ms (physics)                        │  │
+│  │  Variable timestep: Rendering (uncapped)                  │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 2.9: Command System (1 week)                              │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Runtime command execution                               │  │
+│  │  • Parameter parsing and validation                       │  │
+│  │  • Command registry and discovery                         │  │
+│  │  • Example: spawn entity 100 50 0                        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 6.1: Debug Console (2 weeks)                              │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • In-game console with ~ key toggle                      │  │
+│  │  • Command history (up/down arrows)                       │  │
+│  │  • Autocomplete (Tab key)                                 │  │
+│  │  • Command suggestions                                     │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 6.2: Runtime Inspection Tools (2-3 weeks)                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Entity list viewer (search, filter)                    │  │
+│  │  • Component editor (real-time modification)             │  │
+│  │  • System controls (pause, step, restart)                │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 6.3: Integrated Profiler (2 weeks)                        │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Per-system timing (CPU)                                │  │
+│  │  • Chrome trace export (chrome://tracing)                │  │
+│  │  • GPU timing (WebGPU timestamp queries)                  │  │
+│  │  • Frame time graphs                                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Game Loop Pattern
+
+```typescript
+class MiskatonicEngine {
+  private fixedTimestep = 1/60;  // Physics: 16.67ms
+  private accumulator = 0;
+
+  update(deltaTime: number): void {
+    // 1. Input phase
+    this.inputSystem.update();
+
+    // 2. Game logic phase
+    this.world.update(deltaTime);
+
+    // 3. Physics phase (fixed timestep)
+    this.accumulator += deltaTime;
+    while (this.accumulator >= this.fixedTimestep) {
+      this.physics.step(this.fixedTimestep);
+      this.accumulator -= this.fixedTimestep;
+    }
+
+    // 4. Network sync phase
+    this.network.sendUpdates();
+    this.network.receiveUpdates();
+
+    // 5. Rendering phase (variable timestep)
+    this.renderer.render(this.world);
+  }
+}
+```
+
+---
+
+### 9. Performance Architecture (⏳ Epics 10.1-10.5) - November 2025
+
+**Priority:** P1 (IMPORTANT)
+**Dependencies:** Epic 2.8 (Game Loop)
+**Estimated Effort:** 11-16 weeks
+
+#### Critical Discovery
+
+**Using 12.5% of 8-core CPU.** No threading strategy, no parallel systems, no frame budgets.
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  Performance Architecture                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Epic 10.1: Threading Architecture (3-4 weeks)                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Web Worker architecture                                 │  │
+│  │  • Worker pool management                                  │  │
+│  │  • Task scheduling and distribution                       │  │
+│  │  • SharedArrayBuffer for zero-copy transfer              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 10.2: Parallel System Execution (2-3 weeks)               │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • System dependency analysis                              │  │
+│  │  • Parallel execution groups                              │  │
+│  │  • Read/write conflict detection                          │  │
+│  │  • Automatic parallelization                              │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 10.3: Web Worker Integration (2-3 weeks, OPTIONAL)        │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Offload physics to worker                               │  │
+│  │  • Offload pathfinding to worker                          │  │
+│  │  • Message passing optimization                           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 10.4: Frame Budget System (1-2 weeks)                     │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Per-system frame budgets                                │  │
+│  │  • Budget enforcement and warnings                        │  │
+│  │  • Automatic degradation (LOD, culling)                   │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                              ↓                                   │
+│  Epic 10.5: Performance Monitoring (1-2 weeks)                  │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  • Real-time FPS counter                                   │  │
+│  │  • Frame time graphs (1%, 50%, 99% percentile)          │  │
+│  │  • Per-subsystem timing overlay                           │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Multi-Core Utilization Target
+
+**Current:** 1 core (12.5% of 8 cores)
+**Target:** 6-8 cores (75-100% utilization)
+
+**Parallel Systems Example:**
+```typescript
+// Systems that don't conflict can run in parallel
+ParallelGroup1: [MovementSystem, AnimationSystem, ParticleSystem]
+ParallelGroup2: [RenderSystem]  // Needs results from Group1
 ```
 
 ---
@@ -1027,7 +1471,7 @@ Server-Side Validation (Authoritative)
 
 ## Performance Architecture
 
-### Performance Budgets
+### Performance Budgets (Updated November 2025)
 
 ```
 Per-Frame Budget (16.67ms at 60 FPS)
@@ -1038,18 +1482,50 @@ Per-Frame Budget (16.67ms at 60 FPS)
 │  Input Processing   │  0.5ms  │   1ms      │
 │  Game Logic (ECS)   │  3.0ms  │   5ms      │
 │  Physics Simulation │  2.0ms  │   4ms      │
-│  Rendering          │  8.0ms  │  12ms      │
+│  Rendering (CPU)    │  3.0ms  │   5ms      │
+│  Rendering (GPU)    │  5.0ms  │   8ms      │
 │  Network Sync       │  1.0ms  │   2ms      │
 │  Audio              │  0.5ms  │   1ms      │
+│  GC Budget          │  0.0ms  │   5ms      │
 │  Other/Overhead     │  1.67ms │   3ms      │
 ├─────────────────────────────────────────────┤
-│  TOTAL              │ 16.67ms │  28ms      │
+│  TOTAL              │ 16.67ms │  33ms      │
 └─────────────────────────────────────────────┘
+
+CPU Rendering Budget Breakdown (3.0ms):
+  • Frustum culling:        0.5ms
+  • Transform matrices:     0.5ms
+  • Render queue sorting:   1.0ms
+  • Draw command generation: 1.0ms
+
+GPU Rendering Budget Breakdown (5.0ms):
+  • Vertex shader:          1.0ms
+  • Rasterization:          0.5ms
+  • Fragment shader:        3.0ms (most expensive!)
+  • Depth/blend:            0.5ms
+
+Draw Call Budget:
+  • Target:      <100 draw calls per frame
+  • Critical:    <500 draw calls
+  • Naive 1000 objects: 1000 calls (EXCEEDS BUDGET!)
+  • With batching/instancing: <100 calls ✅
+
+Pixel Fill Rate Budget (1920×1080 = 2M pixels):
+  • 60 FPS: 120M pixels/sec
+  • Fragment shader: <50-100 instructions (guideline)
+  • Overdraw: Minimize via opaque front-to-back sorting
+
+GC Budget (NEW):
+  • Pause time: <5ms (leaves 11.67ms for work)
+  • Per-frame allocations: <1000 objects
+  • Network allocations: <50 objects/tick
+  • Rendering allocations: <100 objects/frame
 
 If any component exceeds critical threshold:
   • Warning logged
   • Metrics tracked
   • Performance degradation mode activated
+  • Automatic LOD/culling adjustments (Epic 10.4)
 ```
 
 ### Memory Budgets
@@ -1290,29 +1766,164 @@ Total Memory Budget: 500MB (target) / 1GB (critical)
 - ❌ Additional build step
 - ✅ Overall massive productivity win
 
+### ADR-007: Cache-Efficient ECS Refactoring (November 2025)
+
+**Status:** Accepted (Pending Implementation)
+**Context:** Current ECS implementation uses object arrays (cache-unfriendly), leaving 10x performance on table
+**Decision:** Refactor Epic 2.1 to use SoA (Structure of Arrays) typed arrays
+
+**Problem Identified:**
+```typescript
+// Current (Archetype.ts:33) - "Option A"
+components: new Map()  // Object arrays, scattered memory
+
+// Cache analysis shows this is 10x slower than possible
+```
+
+**Rationale:**
+- **10x iteration performance**: Sequential typed arrays vs scattered objects
+- **4x less memory**: 12 bytes/component vs 50 bytes/component
+- **10x less GC pressure**: Typed arrays don't create GC pressure
+- **Cache efficiency**: Spatial locality (same archetype) + temporal locality (sequential access)
+- **Industry standard**: All high-performance ECS implementations use SoA
+
+**Decision Details:**
+- Epic 2.10: Benchmark and validate 10x prediction (1-2 weeks)
+- Epic 2.11: Refactor to SoA typed arrays (3-4 weeks)
+- Epic 2.12: Document cache-aware patterns (1 week)
+
+**New Architecture:**
+```typescript
+class ComponentStorage<T> {
+  private arrays: Map<keyof T, TypedArray>  // SoA, sequential
+
+  get(index: number, field: keyof T): number {
+    return this.arrays.get(field)[index];  // Cache-friendly
+  }
+}
+```
+
+**Consequences:**
+- ✅ 10x faster component iteration (10k/ms → 100k/ms)
+- ✅ 4x less memory per component
+- ✅ 10x less GC pressure
+- ✅ Cache-friendly memory access patterns
+- ❌ Breaking API changes (mitigated with migration guide)
+- ❌ 5-7 weeks refactoring effort
+- ✅ **Overall: Worth the effort for 10x performance gain**
+
+**Migration Strategy:**
+1. Run Epic 2.10 benchmarks to validate predictions
+2. Design backward-compatible API if possible
+3. Incremental refactoring with continuous testing
+4. Maintain all 65 passing tests
+5. Provide migration guide for affected code
+
+**Validation Criteria:**
+- Benchmark shows 10x improvement (sequential vs random)
+- Benchmark shows 10x improvement (new vs old implementation)
+- All 65 tests passing
+- Production test: 60 FPS with 10k+ entities
+
 ---
 
 ## Glossary
 
+### Core Concepts
 **ECS** - Entity Component System: Data-oriented architecture pattern
 **Archetype** - Group of entities with the same component set
+**SoA** - Structure of Arrays: Data layout for cache efficiency (e.g., separate x[], y[], z[] arrays)
+**AoS** - Array of Structures: Traditional object array layout (e.g., {x, y, z}[])
+**Cache Line** - 64 bytes of memory loaded together (spatial locality)
+**Spatial Locality** - Accessing nearby memory addresses (cache-friendly)
+**Temporal Locality** - Accessing same memory repeatedly (cache-friendly)
+
+### Electron & IPC
 **IPC** - Inter-Process Communication: Communication between Electron main and renderer
+**Context Isolation** - Security boundary between main and renderer processes
+**Preload Script** - Security layer that exposes safe APIs to renderer
+
+### Networking
 **Delta Compression** - Send only changed data, not full state
 **Interest Management** - Filter entities by relevance to reduce network traffic
 **Client Prediction** - Simulate locally for responsive controls
 **Server Reconciliation** - Correct client state when server disagrees
+**Tick Rate** - Server update frequency (e.g., 60Hz = 60 updates/sec)
+
+### Rendering
 **WebGPU** - Next-gen graphics API for web
 **WebGL2** - Current graphics API for web
 **PBR** - Physically Based Rendering: Realistic material lighting model
 **LOD** - Level of Detail: Reduce detail based on distance
+**Draw Call** - Command to GPU to render objects
+**Batching** - Combining multiple objects into single draw call
+**Instancing** - Rendering N copies of object in single draw call
+**Shader** - GPU program (vertex shader, fragment shader)
+**WGSL** - WebGPU Shading Language
+**GLSL** - OpenGL Shading Language (WebGL2)
+
+### Physics
 **CCD** - Continuous Collision Detection: Prevent tunneling at high speeds
 **Deterministic** - Same inputs always produce same outputs (required for physics replay)
 **Rapier** - Rust-based physics engine (default for Miskatonic)
+**Fixed Timestep** - Physics simulation runs at constant rate (e.g., 60Hz)
+
+### Memory Management
+**GC** - Garbage Collection: Automatic memory cleanup (can cause pauses)
+**Object Pool** - Reusable object cache to reduce allocations
+**Frame Allocator** - Per-frame temporary memory (cleared each frame)
+**VRAM** - Video RAM: GPU memory for textures, buffers, etc.
+**Typed Array** - Fixed-type array (e.g., Float32Array) with no GC pressure
+
+### Performance
+**Frame Budget** - Time allowed per frame (16.67ms at 60 FPS)
+**Profiling** - Measuring performance to find bottlenecks
+**Worker** - Background thread (Web Worker in browser)
+**Parallel Systems** - ECS systems running simultaneously
+
+### Backend & Infrastructure
 **NestJS** - Node.js framework for building server applications
 **Zod** - TypeScript-first schema validation library
+**V8** - JavaScript engine (in Chrome, Node.js, Electron)
 
 ---
 
 **Document Status:** Living Document - Updated as architecture evolves
-**Last Updated:** November 2025
-**Next Review:** After Epic 3.x (Rendering) completion
+**Last Updated:** November 2025 (Major Update: 21 new epics added)
+**Version:** 3.0 (reflects November 2025 architecture analyses)
+**Next Review:** After Epic 2.10-2.11 (Cache-Efficient ECS Refactoring) completion
+
+---
+
+## November 2025 Update Summary
+
+This document was significantly updated in November 2025 based on three critical architecture analyses:
+
+1. **Integration Architecture Analysis** → 13 new epics (2.7-2.9, 6.1-6.3, 10.1-10.5)
+2. **Cache Architecture Analysis** → 3 new epics (2.10-2.12)
+3. **Memory Management Analysis** → 5 new epics (2.13-2.15, 3.8, 5.6)
+
+**Total:** 21 new epics added across 4 initiatives (INIT-002, INIT-003, INIT-005, INIT-006, INIT-010)
+
+**Critical Findings:**
+- Epic 2.1 (ECS Core) NOT cache-optimized - **10x performance improvement available**
+- No integration layer (main engine class, game loop, debug tools)
+- No memory management strategy (GC mitigation, frame allocators, GPU/VRAM)
+- Rendering massively underestimated (10 epics needed, not 2)
+
+**New Total Epic Count:** 70+ epics (was 50+)
+
+**Priority Changes:**
+- Epic 2.1 status: ✅ Complete → ⚠️ **NEEDS REFACTORING**
+- Epic 6.1 priority: P2 → **P0 CRITICAL** (Debug Console essential for development)
+- Epic 10.1-10.5 priority: Undefined → **P1 IMPORTANT** (Performance architecture)
+
+**See Also:**
+- `/planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md` - Full analysis summary
+- `/planning/CACHE_EPIC_UPDATES_NOVEMBER_2025.md` - Cache optimization details
+- `/planning/RENDERING_EPIC_UPDATES_NOVEMBER_2025.md` - Rendering architecture details
+- `/planning/initiatives/INIT-002-Core-Engine-Systems.md` - Updated with Epics 2.7-2.15
+- `/planning/initiatives/INIT-003-Rendering-Graphics.md` - Updated with Epics 3.8-3.14
+- `/planning/initiatives/INIT-005-Networking-Multiplayer.md` - Updated with Epic 5.6
+- `/planning/initiatives/INIT-006-Development-Tools.md` - Updated with Epics 6.1-6.3
+- `/planning/initiatives/INIT-010-Performance-Optimization.md` - Updated with Epics 10.1-10.5

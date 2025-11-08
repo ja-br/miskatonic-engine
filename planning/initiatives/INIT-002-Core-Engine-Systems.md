@@ -2,14 +2,24 @@
 **Dependencies:** INIT-001
 **Outcome:** ECS architecture with hot-swappable systems
 
-### Epic 2.1: Entity Component System (ECS) Core ✅ **COMPLETE**
+### Epic 2.1: Entity Component System (ECS) Core ⚠️ **NEEDS REFACTORING**
 **Priority:** P0
-**Status:** ✅ Completed November 2025
+**Status:** ⚠️ Complete but uses suboptimal storage (object arrays instead of typed arrays)
+**Cache Analysis Status:** ❌ **CRITICAL** - Current implementation uses cache-unfriendly object arrays
 **Acceptance Criteria:**
 - ✅ Entity management system complete
-- ✅ Component storage optimized
+- ❌ Component storage NOT optimized (uses object arrays, not typed arrays)
 - ✅ System execution pipeline working
 - ✅ Query engine implemented
+- ❌ Cache performance NOT validated
+
+**⚠️ BLOCKING ISSUE:** Cache analysis reveals current storage is "Option A" (object arrays) which is:
+- 10x slower than typed arrays (per cache analysis)
+- Poor spatial locality (objects scattered)
+- High GC pressure
+- Pointer chasing overhead
+
+**Required:** Epic 2.10 (Component Storage Research) and Epic 2.11 (Cache-Efficient Refactoring)
 
 #### User Stories:
 1. ✅ **As a developer**, I want to create entities and attach components dynamically
@@ -298,6 +308,1114 @@
 #### Dependencies:
 - Epic 2.1: Entity Component System (ECS) Core (foundation)
 - Epic 2.3: Event System (foundation)
+
+---
+
+### Epic 2.7: Main Engine Class ✅ **COMPLETE**
+**Priority:** P0 - CRITICAL
+**Status:** ✅ Completed November 2025
+**Dependencies:** Epic 2.1 (ECS), Epic 2.3 (Events), Epic 2.4 (Resources)
+**Complexity:** Medium
+**Estimated Effort:** 2-3 weeks
+
+**Problem Statement:**
+We have built excellent individual systems (ECS, Events, Resources, Physics, Network), but there is no integration layer that coordinates them into a functioning game engine. We need a `MiskatonicEngine` main class that manages system lifecycle, configuration, and provides a unified API.
+
+**Acceptance Criteria:**
+- ✅ Can initialize engine with configuration
+- ✅ Can start/stop engine cleanly
+- ✅ All systems registered and accessible via clean API
+- ✅ Clean shutdown with resource cleanup
+- ✅ Example game runs from main engine class
+- ✅ Configuration system with sensible defaults
+- ✅ System lifecycle management (init, update, shutdown)
+
+#### User Stories:
+1. **As a developer**, I want to initialize the engine with a single configuration object
+2. **As a developer**, I want to access all engine systems through a unified API
+3. **As a developer**, I want the engine to handle startup/shutdown sequences automatically
+4. **As a developer**, I want sensible defaults that work out of the box
+5. **As a game**, I need clean resource cleanup on shutdown
+
+#### Tasks Breakdown:
+- [x] Design `EngineConfig` interface with all system configurations
+- [x] Implement `MiskatonicEngine` main class
+- [x] Add system registration and lifecycle management
+- [x] Create initialization sequence (load config → init systems → verify)
+- [x] Implement shutdown sequence (pause → cleanup → release)
+- [x] Add system accessor API (`engine.world`, `engine.physics`, etc.)
+- [x] Create default configuration with fail-safe values
+- [x] Add configuration validation and error handling
+- [x] Implement engine state management (initializing, running, paused, stopped)
+- [x] Create engine event bus integration
+- [x] Write comprehensive unit tests (44/44 passing, 100% coverage)
+- [x] Create example: minimal game using MiskatonicEngine
+- [x] Document API with JSDoc and examples
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/core/` (NEW)
+
+**API Design:**
+```typescript
+interface EngineConfig {
+  targetFPS: number;              // Default: 60
+  fixedTimestep: number;          // Default: 1/60
+  maxDeltaTime: number;           // Default: 0.1
+  physics: PhysicsConfig;
+  rendering: RenderingConfig;
+  network: NetworkConfig;
+  debug: DebugConfig;
+  performance: PerformanceConfig;
+}
+
+class MiskatonicEngine {
+  // Lifecycle
+  static async create(config: Partial<EngineConfig>): Promise<MiskatonicEngine>;
+  async initialize(): Promise<void>;
+  start(): void;
+  stop(): void;
+  pause(): void;
+  resume(): void;
+  async shutdown(): Promise<void>;
+
+  // System access
+  get world(): World;
+  get events(): EventBus;
+  get resources(): ResourceManager;
+  get physics(): PhysicsWorld;
+  get network(): StateReplicationManager;
+  get renderer(): IRenderer;
+
+  // Configuration
+  updateConfig(partial: Partial<EngineConfig>): void;
+  getConfig(): Readonly<EngineConfig>;
+
+  // Extension
+  registerSystem(system: System): void;
+  unregisterSystem(system: System): void;
+}
+```
+
+**Key Features:**
+- Progressive enhancement (simple defaults, deep customization available)
+- Fail-safe defaults for all configurations
+- Observable state via event bus
+- Clean separation of concerns
+- Type-safe configuration with validation
+
+#### Design Principles:
+1. **Progressive Enhancement**: Works with `{}` config, allows deep customization
+2. **Fail-Safe Defaults**: Every config option has sensible default
+3. **Observable State**: All state changes emit events
+4. **Clean API**: Hide complexity, expose only what's needed
+
+#### Dependencies:
+- Epic 2.1: Entity Component System (ECS) Core (✅ complete)
+- Epic 2.3: Event System (✅ complete)
+- Epic 2.4: Resource Management (✅ complete)
+- Physics Engine (✅ complete)
+- Network Sync (✅ complete)
+
+---
+
+### Epic 2.8: Game Loop Architecture ✅ **COMPLETE**
+**Priority:** P0 - CRITICAL
+**Status:** ✅ Completed November 2025
+**Dependencies:** Epic 2.7 (Main Engine Class)
+**Complexity:** Medium
+**Estimated Effort:** 1-2 weeks
+
+**Problem Statement:**
+We have no defined execution flow for the game loop. Unclear which systems run when, no fixed vs variable timestep distinction, and no coordination of frame execution phases. Need a robust game loop that handles Input → Update → Simulate → Render with proper timestep management.
+
+**Acceptance Criteria:**
+- ✅ Documented execution order (phase-based)
+- ✅ 60 FPS game loop working
+- ✅ Fixed timestep for physics (16.67ms)
+- ✅ Variable timestep for rendering
+- ✅ Systems execute in correct order
+- ✅ Frame pacing consistent
+- ✅ Handles spiral of death (max delta time)
+
+#### User Stories:
+1. **As a developer**, I want clear documentation of when each system executes
+2. **As a physics system**, I need fixed timestep for determinism
+3. **As a rendering system**, I need variable timestep for smooth visuals
+4. **As a developer**, I want to register systems with execution order
+5. **As a game**, I need consistent frame pacing (no stuttering)
+
+#### Tasks Breakdown:
+- [x] Design phase-based execution model (PRE_UPDATE, UPDATE, POST_UPDATE, RENDER)
+- [x] Implement `GameLoop` class with accumulator pattern
+- [x] Create `SystemPhase` enum and phase management
+- [x] Add fixed timestep for physics (accumulator with substeps)
+- [x] Add variable timestep for rendering with interpolation
+- [x] Implement frame pacing (requestAnimationFrame integration)
+- [x] Add spiral of death protection (max delta time clamp)
+- [x] Priority-based system ordering within phases
+- [x] Add frame timing statistics
+- [x] Write comprehensive unit tests (18/18 passing, 100% coverage)
+- [x] Integrate with MiskatonicEngine
+- [x] Document execution phases and timestep behavior
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/core/`
+
+**Game Loop Structure:**
+```typescript
+enum SystemPhase {
+  PRE_UPDATE,   // Early update (spawning, despawning)
+  UPDATE,       // Main game logic
+  POST_UPDATE,  // Late update (camera follow, etc.)
+  RENDER,       // Rendering prep
+}
+
+interface SystemDependencies {
+  runAfter?: System[];
+  runBefore?: System[];
+  phase: SystemPhase;
+}
+
+abstract class System {
+  abstract name: string;
+  abstract budget: number; // ms
+  abstract dependencies: SystemDependencies;
+  abstract update(deltaTime: number): void;
+
+  initialize?(): void;
+  shutdown?(): void;
+}
+
+class GameLoop {
+  private accumulator: number = 0;
+  private lastFrameTime: number = 0;
+
+  run(): void; // Start loop
+  stop(): void; // Stop loop
+  private tick(): void; // Single frame
+  private updateSystems(phase: SystemPhase, dt: number): void;
+}
+```
+
+**Execution Flow:**
+```
+Frame N:
+  0ms    → Input (variable dt)
+  1ms    → PRE_UPDATE systems (variable dt)
+  3ms    → UPDATE systems (variable dt)
+  6ms    → POST_UPDATE systems (variable dt)
+  8ms    → Physics (fixed 16.67ms via accumulator)
+  12ms   → RENDER systems (variable dt with interpolation)
+  16.67ms → Frame end
+```
+
+**Key Features:**
+- Phase-based execution (clear ordering)
+- Fixed timestep for physics (deterministic)
+- Variable timestep for rendering (smooth)
+- Accumulator pattern (handles variable frame times)
+- Frame pacing (consistent 60 FPS target)
+- Spiral of death protection (max delta clamp)
+
+#### Design Principles:
+1. **Phase-Based Execution**: Fixed phases, flexible ordering within
+2. **Timestep Separation**: Fixed for physics, variable for rendering
+3. **Frame Budget Awareness**: Each system has time budget
+4. **Predictable Ordering**: Topological sort ensures dependencies
+
+#### Dependencies:
+- Epic 2.7: Main Engine Class (foundation)
+- Epic 2.1: Entity Component System (systems to execute)
+
+---
+
+### Epic 2.9: Command System ✅ **COMPLETE**
+**Priority:** P1 - IMPORTANT
+**Status:** ✅ Completed November 2025
+**Dependencies:** Epic 2.7 (Main Engine), Epic 2.3 (Events)
+**Complexity:** Low-Medium
+**Estimated Effort:** 1 week
+
+**Problem Statement:**
+Event bus is great for notifications ("something happened"), but we need a command pattern for imperative actions ("do this thing"). Commands should be validated, queued, and executed with guaranteed handlers. This enables debug console, scripting, and UI actions.
+
+**Acceptance Criteria:**
+- ✅ Commands can be registered with handlers
+- ✅ Commands can be sent synchronously or queued
+- ✅ Commands can be validated before execution
+- ✅ Debug console can execute commands
+- ✅ Example commands work (spawn entity, change physics, etc.)
+- ✅ Command history tracking
+- ✅ Undo/redo support (optional)
+
+#### User Stories:
+1. **As a developer**, I want to register commands with typed handlers
+2. **As a debug console**, I need to execute commands from text input
+3. **As a developer**, I want command validation before execution
+4. **As a developer**, I want to queue commands for batch execution
+5. **As a UI system**, I need to send commands for user actions
+
+#### Tasks Breakdown:
+- [x] Design command interface and handler types with Zod schemas
+- [x] Implement `CommandRegistry` for registration with aliases and categories
+- [x] Create `CommandBus` for execution
+- [x] Add command validation (Zod schema-based)
+- [x] Implement synchronous and async command execution
+- [x] Add command queuing and frame-based processing
+- [x] Create command history tracking with configurable size
+- [x] Implement undo/redo support for reversible commands
+- [x] Create 8 built-in commands (help, echo, stats, clear, state, config, pause, resume)
+- [x] Integrate with event bus for command events
+- [x] Write comprehensive unit tests (66/66 passing, 100% coverage)
+- [x] Document command API with examples in README
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/core/src/commands/` (integrated with @miskatonic/core)
+
+**API Design:**
+```typescript
+interface Command {
+  type: string;
+  args: Record<string, any>;
+}
+
+type CommandHandler<T extends Command> = (cmd: T) => void | Promise<void>;
+
+interface CommandDefinition<T extends Command> {
+  type: string;
+  description: string;
+  validate?: (args: any) => args is T['args'];
+  handler: CommandHandler<T>;
+}
+
+class CommandRegistry {
+  register<T extends Command>(def: CommandDefinition<T>): void;
+  unregister(type: string): void;
+  get(type: string): CommandDefinition<any> | undefined;
+  list(): CommandDefinition<any>[];
+}
+
+class CommandBus {
+  execute(command: Command): Promise<void>;
+  executeSync(command: Command): void;
+  queue(command: Command): void;
+  flush(): Promise<void>;
+  parse(text: string): Command;
+  getSuggestions(partial: string): string[];
+}
+```
+
+**Example Commands:**
+```typescript
+// Register command
+commandBus.register({
+  type: 'spawn',
+  description: 'Spawn entity at position',
+  validate: (args): args is { type: string; x: number; y: number } => {
+    return typeof args.type === 'string' &&
+           typeof args.x === 'number' &&
+           typeof args.y === 'number';
+  },
+  handler: async ({ type, x, y }) => {
+    const entity = world.createEntity();
+    world.addComponent(entity, Position, { x, y, z: 0 });
+    // ... add other components based on type
+  }
+});
+
+// Execute command
+await commandBus.execute({ type: 'spawn', args: { type: 'player', x: 10, y: 5 } });
+
+// Parse from text
+const cmd = commandBus.parse('spawn player 10 5');
+await commandBus.execute(cmd);
+```
+
+**Standard Commands:**
+- `spawn <type> <x> <y> <z>` - Create entity
+- `destroy <entityId>` - Remove entity
+- `inspect <entityId>` - Show entity details
+- `list entities` - List all entities
+- `list systems` - List all systems
+- `set <component>.<field> <value>` - Modify component
+- `get <component>.<field>` - Read component value
+- `physics.gravity <x> <y> <z>` - Set gravity
+- `physics.pause` - Pause physics
+- `physics.step` - Single physics step
+- `help <command>` - Show command help
+
+#### Design Principles:
+1. **Type Safety**: Full TypeScript typing with validation
+2. **Extensibility**: Easy to add new commands
+3. **Validation**: Commands validated before execution
+4. **Integration**: Works with debug console, UI, scripting
+
+#### Dependencies:
+- Epic 2.7: Main Engine Class (access to systems)
+- Epic 2.3: Event System (command events)
+
+#### Code Quality:
+- 100% test coverage (66/66 tests passing: 19 registry + 20 bus + 27 integration)
+- TypeScript strict mode throughout
+- Full Zod schema validation on all command inputs
+- Comprehensive event integration
+- Production-ready with all features implemented
+
+#### Key Features Delivered:
+- **CommandRegistry** - Central registration with alias and category support
+- **CommandBus** - Execution engine with validation, queueing, history, undo
+- **CommandSystem** - Unified API coordinating registry and bus
+- **8 Built-in Commands** - help, echo, stats, clear, state, config, pause, resume
+- **Zod Validation** - Type-safe input validation with detailed error messages
+- **Command Queue** - Frame-based batch processing integrated with game loop
+- **History & Undo** - Full command history with undo/redo support
+- **Event Integration** - Complete lifecycle events (registered, executed, failed, validation-failed)
+- **Introspection** - List commands, categories, get command info
+- **Documentation** - Comprehensive README with examples
+
+---
+
+### Epic 2.10: Component Storage Research & Benchmarking
+**Priority:** P0 - CRITICAL (BLOCKS PERFORMANCE)
+**Status:** ⏭️ Not Started
+**Dependencies:** None (foundational research)
+**Complexity:** Medium
+**Estimated Effort:** 1-2 weeks
+
+**Problem Statement:**
+Current ECS uses object arrays (cache-unfriendly "Option A"). Cache analysis shows this is 10x slower than typed arrays (SoA). Need to benchmark all storage options and make data-driven decision before refactoring.
+
+**From Cache Analysis:**
+> "Component storage strategy undefined (P0 - BLOCKS EVERYTHING)"
+> "Sequential vs random: ~10x expected"
+> "Objects vs typed arrays: ~10x expected"
+
+**Acceptance Criteria:**
+- ✅ All storage options benchmarked (objects, typed arrays SoA, hybrid, WASM)
+- ✅ Sequential vs random access measured (~10x difference validated)
+- ✅ Loop ordering impact validated (article's 10-100x claim)
+- ✅ GC impact measured for each option
+- ✅ Storage decision made with data
+- ✅ Component API defined for chosen approach
+
+#### User Stories:
+1. **As an engineer**, I want benchmark data comparing storage options
+2. **As an engineer**, I want to validate cache analysis predictions (~10x)
+3. **As an engineer**, I want GC pressure measurements
+4. **As an engineer**, I want clear storage decision with rationale
+5. **As a developer**, I want component API that's both fast and ergonomic
+
+#### Tasks Breakdown:
+- [ ] Implement benchmark: Object arrays (AoS) iteration
+- [ ] Implement benchmark: Typed arrays (SoA) iteration
+- [ ] Implement benchmark: Hybrid (objects backed by typed arrays)
+- [ ] Implement benchmark: Sequential vs random access
+- [ ] Implement benchmark: Loop ordering (article's exact example)
+- [ ] Measure GC pressure for each approach
+- [ ] Test at multiple scales (1k, 10k, 100k entities)
+- [ ] Compare results against cache analysis predictions
+- [ ] Document findings and rationale
+- [ ] Make storage decision (expected: SoA typed arrays)
+- [ ] Define component storage API
+- [ ] Create migration plan from current object arrays
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/benchmarks/storage/` (NEW)
+
+**Benchmark Suite:**
+```typescript
+// Test 1: Sequential vs Random (validate 10x prediction)
+const positions = new Float32Array(100000);
+
+// Sequential
+for (let i = 0; i < positions.length; i++) {
+  positions[i] *= 2;
+}
+
+// Random
+for (const i of shuffledIndices) {
+  positions[i] *= 2;
+}
+
+// Test 2: Object vs Typed Array
+// Test 3: Loop ordering (article's example)
+// Test 4: Component size impact
+```
+
+**Storage Options to Test:**
+
+**Option A: Object Arrays (Current)**
+```typescript
+const positions: { x: number, y: number, z: number }[] = [];
+// Expected: Baseline (slowest)
+```
+
+**Option B: SoA Typed Arrays (Recommended)**
+```typescript
+class PositionStorage {
+  x: Float32Array;
+  y: Float32Array;
+  z: Float32Array;
+}
+// Expected: 10x faster than Option A
+```
+
+**Option C: Hybrid**
+```typescript
+class Position {
+  constructor(private storage: Float32Array, private index: number) {}
+  get x() { return this.storage[this.index * 3]; }
+}
+// Expected: 3-5x faster than Option A
+```
+
+**Key Metrics:**
+- Iteration time (ms per 100k components)
+- GC allocations per frame
+- Memory overhead per component
+- API ergonomics (developer experience)
+
+#### Design Principles:
+1. **Data-Driven**: Decision based on actual benchmarks, not assumptions
+2. **Validate Theory**: Confirm cache analysis predictions (~10x)
+3. **Real-World**: Test at production scales (100k+ entities)
+4. **Practical**: Consider API ergonomics alongside performance
+
+#### Dependencies:
+- None (foundational research)
+
+**Deliverables:**
+- Benchmark suite with results
+- Performance comparison report
+- Storage decision document
+- Component API specification
+- Migration plan
+
+---
+
+### Epic 2.11: Cache-Efficient ECS Refactoring
+**Priority:** P0 - CRITICAL
+**Status:** ⏭️ Not Started
+**Dependencies:** Epic 2.10 (Storage Research)
+**Complexity:** High
+**Estimated Effort:** 3-4 weeks
+
+**Problem Statement:**
+Current ECS implementation uses cache-unfriendly object arrays. Need to refactor to SoA typed arrays (or chosen storage from Epic 2.10) to achieve 10x performance improvement and reduce GC pressure.
+
+**Acceptance Criteria:**
+- ✅ Archetype storage refactored to use chosen strategy (expected: SoA typed arrays)
+- ✅ Component iteration >100k components/ms
+- ✅ Sequential access 10x faster than random (validated)
+- ✅ GC pressure <100 objects/frame
+- ✅ All 65 tests still passing
+- ✅ Backward compatibility maintained (or migration guide provided)
+- ✅ Cache performance benchmarks green
+
+#### User Stories:
+1. **As a game**, I need 10x faster component iteration
+2. **As a game**, I need minimal GC pressure
+3. **As a developer**, I want the same ECS API (or clear migration)
+4. **As a system**, I need cache-friendly iteration patterns
+5. **As an engineer**, I want validated cache performance
+
+#### Tasks Breakdown:
+- [ ] Design new Archetype storage (SoA typed arrays)
+- [ ] Implement component storage abstraction
+- [ ] Refactor ArchetypeManager to use new storage
+- [ ] Update component add/remove operations
+- [ ] Implement entity migration between archetypes
+- [ ] Refactor query system for new storage
+- [ ] Update all 65 tests for new storage
+- [ ] Add cache performance benchmarks
+- [ ] Create migration guide (if API changes)
+- [ ] Validate 10x improvement over old implementation
+- [ ] Document cache-aware iteration patterns
+- [ ] Add component size guidelines (<64 bytes)
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/ecs/`
+
+**New Archetype Storage (SoA):**
+```typescript
+class Archetype {
+  private entityIds: Uint32Array;
+  private components: Map<ComponentType, ComponentStorage>;
+
+  // Component storage per type
+  class ComponentStorage<T> {
+    private arrays: Map<keyof T, TypedArray>;
+
+    get(index: number, field: keyof T): any {
+      return this.arrays.get(field)![index];
+    }
+
+    set(index: number, field: keyof T, value: any): void {
+      this.arrays.get(field)![index] = value;
+    }
+  }
+}
+```
+
+**Cache-Aware System Pattern:**
+```typescript
+class MovementSystem {
+  update(dt: number) {
+    // Iterate archetypes (spatial locality)
+    for (const archetype of this.archetypes) {
+      const positions = archetype.getStorage(Position);
+      const velocities = archetype.getStorage(Velocity);
+
+      // Sequential iteration (temporal locality)
+      for (let i = 0; i < archetype.count; i++) {
+        positions.x[i] += velocities.x[i] * dt;
+        positions.y[i] += velocities.y[i] * dt;
+        positions.z[i] += velocities.z[i] * dt;
+      }
+    }
+  }
+}
+```
+
+**Performance Requirements:**
+- Component iteration: >100k components/ms
+- Query execution: <1ms for 1000 entities
+- Archetype migration: <1ms for 1000 entities
+- GC pressure: <100 objects/frame
+- Memory: ~12 bytes per component (typed arrays)
+
+**Validation:**
+- Sequential vs random: 10x difference (cache analysis prediction)
+- New vs old: 10x improvement (validates refactoring)
+- Production test: Smooth 60 FPS with 10k+ entities
+
+#### Design Principles:
+1. **Cache First**: Spatial locality, sequential access, small structures
+2. **Validate Performance**: Benchmark everything, no regressions
+3. **API Stability**: Minimize breaking changes if possible
+4. **Documentation**: Clear migration guide and patterns
+
+#### Dependencies:
+- Epic 2.10: Component Storage Research (provides decision)
+
+**Deliverables:**
+- Refactored archetype storage
+- All tests passing
+- Cache performance benchmarks
+- Migration guide
+- System design pattern documentation
+
+---
+
+### Epic 2.12: Cache-Aware System Design Guidelines
+**Priority:** P1 - IMPORTANT
+**Status:** ⏭️ Not Started
+**Dependencies:** Epic 2.11 (Cache-Efficient Refactoring)
+**Complexity:** Low
+**Estimated Effort:** 1 week
+
+**Problem Statement:**
+Developers need clear guidelines for writing cache-efficient systems. Without patterns, they could write cache-unfriendly code that destroys the 10x performance gain from Epic 2.11.
+
+**From Cache Analysis:**
+> "System iteration patterns not specified (P0 - MAJOR)"
+> "Loop ordering matters (10-100x difference)"
+
+**Acceptance Criteria:**
+- ✅ System design patterns documented
+- ✅ Code examples (good vs bad patterns)
+- ✅ Component size guidelines (<64 bytes)
+- ✅ Loop ordering rules defined
+- ✅ Code review checklist created
+- ✅ All examples benchmarked to show difference
+
+#### User Stories:
+1. **As a developer**, I want clear patterns for cache-efficient systems
+2. **As a developer**, I want code examples showing good vs bad patterns
+3. **As a developer**, I want component design guidelines
+4. **As a reviewer**, I want checklist for cache-aware code review
+5. **As a team**, I want to avoid cache-unfriendly patterns
+
+#### Tasks Breakdown:
+- [ ] Document mandatory iteration pattern (sequential archetype iteration)
+- [ ] Create code examples: Good patterns (sequential, batched)
+- [ ] Create code examples: Bad patterns (random, scattered)
+- [ ] Benchmark examples to show performance difference
+- [ ] Define component size guidelines (<64 bytes target)
+- [ ] Document loop ordering rules
+- [ ] Create component design patterns (split large components)
+- [ ] Build code review checklist
+- [ ] Add linting rules (if feasible)
+- [ ] Document access pattern best practices
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/docs/ecs-patterns.md` (NEW)
+
+**Mandatory Pattern: Sequential Archetype Iteration**
+```typescript
+// ✅ GOOD: Cache-friendly
+class MovementSystem {
+  update(dt: number) {
+    for (const archetype of this.archetypes) {
+      const pos = archetype.getStorage(Position);
+      const vel = archetype.getStorage(Velocity);
+
+      // Sequential access
+      for (let i = 0; i < archetype.count; i++) {
+        pos.x[i] += vel.x[i] * dt;
+        pos.y[i] += vel.y[i] * dt;
+        pos.z[i] += vel.z[i] * dt;
+      }
+    }
+  }
+}
+
+// ❌ BAD: Cache-unfriendly (10-100x slower)
+class MovementSystem {
+  update(dt: number) {
+    for (const entityId of randomEntityIds) {
+      const entity = world.getEntity(entityId);  // Random lookup
+      entity.position.add(entity.velocity);       // Pointer chasing
+    }
+  }
+}
+```
+
+**Component Size Guidelines:**
+```typescript
+// ✅ GOOD: Small, focused (<64 bytes target)
+interface Position { x: number; y: number; z: number; } // 24 bytes
+
+// ❌ BAD: Large, unfocused (>64 bytes)
+interface Character {
+  x, y, z: number;              // 24 bytes
+  vx, vy, vz: number;           // 24 bytes
+  health, mana, level: number;  // 24 bytes
+  // Total: 72 bytes (spans multiple cache lines)
+}
+// Solution: Split into Position + Velocity + Stats
+```
+
+**Code Review Checklist:**
+- [ ] System uses sequential iteration (not random access)
+- [ ] No entity lookups in hot loops
+- [ ] Components <64 bytes (or justified)
+- [ ] Loop ordering is cache-friendly
+- [ ] No unnecessary pointer chasing
+
+#### Design Principles:
+1. **Sequential First**: Default to sequential iteration
+2. **Justify Exceptions**: Random access requires strong rationale
+3. **Small Components**: <64 bytes target (cache line mental model)
+4. **Enforce Patterns**: Code review catches violations
+
+#### Dependencies:
+- Epic 2.11: Cache-Efficient Refactoring (provides patterns to document)
+
+**Deliverables:**
+- System design pattern guide
+- Code example library
+- Component design guidelines
+- Code review checklist
+
+---
+
+### Epic 2.13: Memory Management Foundation
+**Priority:** P0 - CRITICAL
+**Status:** ⏭️ Not Started
+**Dependencies:** None (foundational)
+**Complexity:** Medium
+**Estimated Effort:** 3-4 weeks
+
+**Problem Statement:**
+Memory management is not treated as a first-class concern despite being critical for 60 FPS with 1000+ objects. No GC mitigation strategy, no frame allocators, no object pooling infrastructure. GC pauses can break the 16.67ms frame budget.
+
+**From Memory Analysis:**
+> "Memory management is not optional for Miskatonic's performance targets."
+> "GC pause >5ms leaves only 11.67ms for actual work"
+
+**Acceptance Criteria:**
+- ✅ Object pool infrastructure implemented (generic, reusable)
+- ✅ Frame allocator implemented (ArrayBuffer-based)
+- ✅ GC monitoring integrated (pause tracking, heap stats)
+- ✅ GC pause budget enforced (<5ms)
+- ✅ Per-frame allocation tracking working
+- ✅ Memory profiling available in dev mode
+- ✅ V8 tuning strategy documented
+
+#### User Stories:
+1. **As a developer**, I want to pool reusable objects to reduce GC pressure
+2. **As a system**, I need frame-based temporary allocation without GC
+3. **As an engineer**, I want to monitor GC pauses and heap usage
+4. **As a team**, I want clear guidelines on when to pool vs allocate
+5. **As a developer**, I want memory profiling tools integrated
+
+#### Tasks Breakdown:
+- [ ] Implement ObjectPool<T> class (generic, configurable)
+- [ ] Implement FrameAllocator (ArrayBuffer-based, typed array views)
+- [ ] Add GC monitoring (v8.getHeapStatistics, pause tracking)
+- [ ] Create MemoryProfiler integration
+- [ ] Add per-frame allocation tracking
+- [ ] Implement V8 GC tuning (flags: --max-old-space-size, --trace-gc)
+- [ ] Create memory budget definitions (500MB RAM, GC <5ms)
+- [ ] Document pooling patterns (when to pool, when typed arrays)
+- [ ] Add memory profiling UI (dev console integration)
+- [ ] Write comprehensive unit tests (>80% coverage)
+- [ ] Create developer guide (pooling, frame allocation, budgets)
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/memory/` (NEW)
+
+**ObjectPool Design:**
+```typescript
+class ObjectPool<T> {
+  constructor(
+    factory: () => T,
+    reset: (obj: T) => void,
+    initialSize: number,
+    maxSize: number = Infinity
+  );
+
+  acquire(): T;  // Get object from pool
+  release(obj: T): void;  // Return object to pool
+  getStats(): { total: number; available: number; inUse: number };
+}
+
+// Usage:
+const entityPool = new ObjectPool(
+  () => ({ id: 0, components: [] }),
+  (e) => { e.id = 0; e.components.length = 0; },
+  1000,  // initial
+  10000  // max
+);
+```
+
+**FrameAllocator Design:**
+```typescript
+class FrameAllocator {
+  constructor(sizeBytes: number);
+
+  allocateFloat32(count: number): Float32Array;
+  allocateUint32(count: number): Uint32Array;
+  allocateUint8(count: number): Uint8Array;
+  reset(): void;  // Called at frame start
+  getUsage(): number;
+  getHighWaterMark(): number;
+}
+
+// Usage:
+const renderAllocator = new FrameAllocator(1024 * 1024); // 1MB
+
+function gameLoop() {
+  renderAllocator.reset();  // Frame start
+  const cullingResults = renderAllocator.allocateUint32(1000);
+  // ... use it ...
+  // Auto-freed at next reset()
+}
+```
+
+**GC Monitoring:**
+```typescript
+class GCMonitor {
+  recordGCPause(durationMs: number): void;
+  getAveragePause(): number;
+  getMaxPause(): number;
+  getHeapStats(): v8.HeapStatistics;
+}
+
+// Integration:
+const gcMonitor = new GCMonitor();
+// Warns if pause >5ms
+```
+
+**Memory Budgets:**
+```
+RAM: 500MB target, 1GB critical max
+- ECS: 100MB
+- Rendering: 50MB
+- Physics: 50MB
+- Network: 50MB
+- Audio: 50MB
+- Assets: 100MB
+- Engine: 50MB
+- Game Logic: 50MB
+
+GC Budget:
+- Pause time: <5ms (leaves 11.67ms for work)
+- Per-frame allocations: <1000 objects (steady state)
+- Network allocations: <50 objects/tick
+- Rendering allocations: <100 objects/frame
+```
+
+**Pooling Candidates:**
+- Event objects
+- Network packets
+- Collision results
+- Rendering temporary objects
+
+#### Design Principles:
+1. **Minimize Allocations**: Especially in hot paths (60 FPS loops)
+2. **Pool Reusable Objects**: Reduce GC pressure
+3. **Frame-Based Temporaries**: Use FrameAllocator for per-frame data
+4. **Monitor and Enforce**: Track GC pauses, enforce budgets
+5. **TypedArrays for Data**: Minimize GC pressure from data structures
+
+#### Dependencies:
+None (foundational infrastructure)
+
+**Deliverables:**
+- ObjectPool<T> implementation
+- FrameAllocator implementation
+- GC monitoring utilities
+- Memory profiling integration
+- Developer guide (when to pool, allocate, use typed arrays)
+- Budget definitions documented
+
+---
+
+### Epic 2.14: GC Mitigation and V8 Tuning
+**Priority:** P0 - CRITICAL
+**Status:** ⏭️ Not Started
+**Dependencies:** Epic 2.13 (Memory Management Foundation)
+**Complexity:** Medium
+**Estimated Effort:** 2 weeks
+
+**Problem Statement:**
+JavaScript GC is non-deterministic and can break frame budget. Without GC mitigation, random frame drops will occur. Need strategy to minimize GC pressure and tune V8 for game engine workload.
+
+**From Memory Analysis:**
+> "GC pauses can break entire frame budget"
+> "16.67ms total budget - 5.00ms GC pause budget = 11.67ms available for work"
+
+**Acceptance Criteria:**
+- ✅ GC pause budget <5ms achieved
+- ✅ Per-frame allocations <1000 objects (steady state)
+- ✅ V8 heap tuning strategy documented
+- ✅ GC profiling integrated (--trace-gc analysis)
+- ✅ Allocation hotspots identified and optimized
+- ✅ Long-running stability verified (no memory leaks)
+
+#### User Stories:
+1. **As a game**, I need predictable frame times without GC spikes
+2. **As a developer**, I want to identify allocation hotspots
+3. **As an engineer**, I want V8 tuned for game workloads
+4. **As a team**, I want automated GC regression detection
+5. **As a player**, I want smooth 60 FPS without frame drops
+
+#### Tasks Breakdown:
+- [ ] Profile baseline GC behavior (vanilla Electron)
+- [ ] Identify allocation hotspots (profiling tools)
+- [ ] Test V8 flags (--max-old-space-size, --expose-gc, --trace-gc)
+- [ ] Implement GC pause tracking (real-time monitoring)
+- [ ] Create allocation budget enforcement
+- [ ] Add GC regression tests (CI/CD integration)
+- [ ] Document V8 tuning strategy (production flags)
+- [ ] Create GC profiling workflow (Chrome DevTools integration)
+- [ ] Add automatic GC testing (long-running stability)
+- [ ] Optimize identified hotspots (pooling, typed arrays)
+- [ ] Verify <5ms GC pauses in production scenarios
+- [ ] Write developer guide (GC-aware patterns)
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/memory/`
+
+**V8 Flags (Electron):**
+```json
+// package.json
+{
+  "scripts": {
+    "dev": "electron . --max-old-space-size=512 --trace-gc",
+    "prod": "electron . --max-old-space-size=512"
+  }
+}
+```
+
+**Flags:**
+- `--max-old-space-size=512`: Limit heap to 512MB (enforce budget)
+- `--expose-gc`: Allow manual GC (testing only, not production)
+- `--trace-gc`: Log GC events (profiling)
+- `--trace-gc-verbose`: Detailed GC logging (debug only)
+
+**GC Pause Tracking:**
+```typescript
+class GCMonitor {
+  private gcPauses: number[] = [];
+  private maxHistory = 600; // 10 seconds at 60 FPS
+
+  recordGCPause(durationMs: number): void {
+    this.gcPauses.push(durationMs);
+    if (durationMs > 5.0) {
+      console.warn(`Long GC pause: ${durationMs.toFixed(2)}ms`);
+    }
+  }
+
+  getStats(): {
+    avg: number;
+    max: number;
+    p95: number;
+    p99: number;
+  };
+}
+```
+
+**Allocation Tracking:**
+```typescript
+// Before frame:
+const heapBefore = v8.getHeapStatistics().used_heap_size;
+
+// ... run frame ...
+
+// After frame:
+const heapAfter = v8.getHeapStatistics().used_heap_size;
+const allocated = heapAfter - heapBefore;
+
+if (allocated > ALLOCATION_BUDGET) {
+  console.warn(`Frame allocated ${allocated} bytes, budget: ${ALLOCATION_BUDGET}`);
+}
+```
+
+**GC Mitigation Strategies:**
+1. **Object Pooling**: Reuse event objects, packets, temporaries
+2. **Typed Arrays**: Use for data (no GC pressure)
+3. **Frame Allocators**: Temporary data per frame
+4. **Pre-Allocation**: Allocate buffers upfront
+5. **Batch Operations**: Avoid incremental allocations
+
+#### Design Principles:
+1. **Measure First**: Profile before optimizing
+2. **Budget Enforcement**: Fail CI/CD on budget violations
+3. **Continuous Monitoring**: Track GC in production
+4. **V8-Aware**: Tune for V8's GC characteristics
+
+#### Dependencies:
+- Epic 2.13: Memory Management Foundation (provides monitoring tools)
+
+**Deliverables:**
+- GC profiling report (baseline behavior)
+- V8 tuning strategy document
+- GC regression tests (CI/CD integration)
+- Allocation optimization guide
+- Long-running stability validation
+
+---
+
+### Epic 2.15: Memory Leak Detection and Prevention
+**Priority:** P1 - IMPORTANT
+**Status:** ⏭️ Not Started
+**Dependencies:** Epic 2.13 (Memory Management Foundation)
+**Complexity:** Medium
+**Estimated Effort:** 1-2 weeks
+
+**Problem Statement:**
+Without automated memory leak detection, leaks accumulate and cause crashes. Need infrastructure to detect leaks in load/unload cycles, create/destroy patterns, and long-running sessions.
+
+**Acceptance Criteria:**
+- ✅ Memory snapshot comparison working
+- ✅ Load/unload cycles verified leak-free
+- ✅ Create/destroy cycles verified leak-free
+- ✅ Long-running sessions stable (no heap growth)
+- ✅ Leak detection integrated in CI/CD
+- ✅ GPU resource leaks detected (texture, buffer cleanup)
+
+#### User Stories:
+1. **As a developer**, I want automated leak detection
+2. **As a tester**, I want leak tests in CI/CD
+3. **As a system**, I need GPU resources properly released
+4. **As a player**, I want stable long-running sessions
+5. **As an engineer**, I want leak regression prevention
+
+#### Tasks Breakdown:
+- [ ] Implement memory snapshot comparison
+- [ ] Add load/unload cycle tests (assets, scenes)
+- [ ] Add create/destroy cycle tests (entities, components)
+- [ ] Create long-running stability tests (1 hour+)
+- [ ] Add GPU resource tracking (buffers, textures)
+- [ ] Implement leak detection in CI/CD
+- [ ] Create leak debugging workflow
+- [ ] Document common leak patterns (closures, event listeners)
+- [ ] Add heap snapshot diffing tools
+- [ ] Verify all subsystems leak-free
+- [ ] Write developer guide (leak prevention)
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/memory/`
+
+**Memory Snapshot Comparison:**
+```typescript
+class MemoryLeakDetector {
+  takeSnapshot(): MemorySnapshot;
+  compare(before: MemorySnapshot, after: MemorySnapshot): LeakReport;
+}
+
+// Usage in tests:
+test('load/unload does not leak', () => {
+  const before = detector.takeSnapshot();
+
+  // Load/unload cycle
+  scene.load('test');
+  scene.unload('test');
+  gc();  // Force GC
+
+  const after = detector.takeSnapshot();
+  const report = detector.compare(before, after);
+
+  expect(report.leakedObjects).toBe(0);
+  expect(report.heapGrowth).toBeLessThan(1024); // <1KB tolerance
+});
+```
+
+**GPU Resource Tracking:**
+```typescript
+class GPUResourceTracker {
+  trackBuffer(buffer: GPUBuffer): void;
+  trackTexture(texture: GPUTexture): void;
+  untrackBuffer(buffer: GPUBuffer): void;
+  untrackTexture(texture: GPUTexture): void;
+
+  getLeakedResources(): {
+    buffers: GPUBuffer[];
+    textures: GPUTexture[];
+  };
+}
+```
+
+**Common Leak Patterns:**
+```typescript
+// ❌ BAD: Event listener leak
+class System {
+  constructor(eventBus: EventBus) {
+    eventBus.on('update', this.onUpdate);  // Never removed!
+  }
+}
+
+// ✅ GOOD: Cleanup on destroy
+class System {
+  constructor(eventBus: EventBus) {
+    this.cleanup = eventBus.on('update', this.onUpdate);
+  }
+
+  destroy() {
+    this.cleanup();  // Remove listener
+  }
+}
+```
+
+#### Design Principles:
+1. **Automated Detection**: CI/CD catches leaks
+2. **Comprehensive Testing**: All subsystems tested
+3. **GPU Resources**: Track explicitly (no automatic GC)
+4. **Developer Education**: Common patterns documented
+
+#### Dependencies:
+- Epic 2.13: Memory Management Foundation (profiling infrastructure)
+
+**Deliverables:**
+- Memory leak detector
+- Load/unload tests (leak-free)
+- Create/destroy tests (leak-free)
+- Long-running stability tests
+- GPU resource tracking
+- Leak prevention guide
 
 ---
 

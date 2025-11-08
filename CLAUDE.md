@@ -206,15 +206,29 @@ npm run docs             # Generate API documentation with TypeDoc
 # Test a specific package
 npm test --workspace=@miskatonic/physics
 npm test --workspace=@miskatonic/network
+npm test --workspace=@miskatonic/ecs
+npm test --workspace=@miskatonic/events
+npm test --workspace=@miskatonic/resources
 
-# Run specific test files
+# Run specific test files from root
 npm test -- tests/unit/physics/serialization.test.ts
 npm test -- tests/unit/network/DeltaCompression.test.ts
 
-# Test with coverage for specific package
+# Test with coverage for specific package (from package directory)
 cd packages/physics
 npm run test:coverage
+
+# Watch mode for development (from package directory)
+cd packages/network
+npm run test:watch
 ```
+
+**Package Test Status:**
+- `@miskatonic/ecs`: 65/65 tests passing (Epic 2.1)
+- `@miskatonic/events`: 49/49 tests passing (Epic 2.3)
+- `@miskatonic/resources`: 91/91 tests passing (Epic 2.4)
+- `@miskatonic/physics`: Integration tests passing (Epics 4.1-4.5)
+- `@miskatonic/network`: 94.82% coverage (Epic 5.2)
 
 ### Build Commands
 
@@ -231,49 +245,156 @@ npm run build --workspace=@miskatonic/network
 
 ## Current Project Status
 
-**Completed Epics:**
+**Completed Epics (9 of 70+ planned):**
 
-✅ **Epic 1.1: Electron Architecture Setup** - COMPLETE
+✅ **Epic 1.1-1.2: Electron Foundation** - COMPLETE
 - Secure multi-process architecture (main, preload, renderer)
 - Type-safe IPC communication with Zod validation
 - Security-first design (context isolation, sandboxing, CSP)
 - Process monitoring and crash recovery
+- Native OS integration (file dialogs, menus, tray, shortcuts, notifications)
+
+✅ **Epic 2.1: ECS Core** - COMPLETE (65/65 tests) **⚠️ NEEDS REFACTORING**
+- Archetype-based ECS with generation validation
+- Query system with component filtering
+- **KNOWN ISSUE**: Uses object arrays instead of cache-efficient typed arrays (see Epic 2.10-2.11)
+- **PERFORMANCE IMPACT**: Current implementation ~10x slower than optimal
+
+✅ **Epic 2.3: Event System** - COMPLETE (49/49 tests)
+- Production-ready event bus with critical fixes
+
+✅ **Epic 2.4: Resource Management** - COMPLETE (91/91 tests)
+- Async loading, reference counting, hot-reload, memory profiling
 
 ✅ **Epic 4.1-4.5: Physics Engine** - COMPLETE
 - Physics abstraction layer (supports Rapier, Cannon-es, Box2D)
 - Collision detection with continuous collision
-- Rigid body dynamics with 5 joint types
+- Rigid body dynamics with 6 joint types
 - Deterministic simulation with state serialization
 - Replay system for debugging
+- All critical bugs fixed (Epic 4.5)
 
-✅ **Epic 5.2: State Synchronization** - COMPLETE (November 2025)
+✅ **Epic 5.2: State Synchronization** - COMPLETE
 - Delta compression implementation (94.82% test coverage)
 - Interest management (spatial, grid, and always-interested policies)
 - State replication with bandwidth optimization
-- Error handling and input validation
+
+**Critical Next Priorities (P0):**
+
+From recent architecture analyses (November 2025), these are the most critical gaps:
+
+1. **Epic 2.10-2.11: Cache-Efficient ECS Refactoring** (URGENT)
+   - Current ECS uses object arrays (not cache-efficient)
+   - Need SoA (Structure of Arrays) with typed arrays
+   - Expected 10x performance improvement
+   - Blocks rendering and game loop work
+
+2. **Epic 2.7-2.9: Main Engine Class & Game Loop**
+   - No main engine class exists yet
+   - No game loop integration
+   - No command/action system
+   - Required before rendering can be integrated
+
+3. **Epic 3.9-3.12: Rendering Foundation**
+   - Shader system (3.9)
+   - Camera system (3.10)
+   - Transform hierarchy (3.11)
+   - Render queue (3.12)
+   - Required before WebGL2/WebGPU backends
+
+4. **Epic 2.13-2.14: Memory Management**
+   - GC mitigation strategies
+   - Object pooling
+   - Frame allocators
+   - Memory profiling integration
 
 ### Key Documentation Files
-- **[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)**: Detailed epics, user stories, and task breakdowns
-- **[HLD.md](HLD.md)**: High-Level Design with subsystem architectures
+- **[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)**: Detailed epics, user stories, and task breakdowns (split by initiative)
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: System architecture overview with implementation status (November 2025 update)
+- **[HLD.md](HLD.md)**: High-Level Design with subsystem architectures and performance budgets
 - **[ENGINE_DESIGN.md](ENGINE_DESIGN.md)**: Core design principles (batteries included, swappable preferred)
 - **[PRD.md](PRD.md)**: Product Requirements Document
 - **[GAME_DESIGN.md](GAME_DESIGN.md)**: Sample game design demonstrating capabilities
+- **planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md**: Recent architecture analysis identifying critical gaps
+- **planning/CACHE_ARCHITECTURE_ANALYSIS.md**: Deep dive on cache-efficient ECS requirements
 
 ### When Starting Development
 
 1. **Read these docs first** (in order):
    - [ENGINE_DESIGN.md](ENGINE_DESIGN.md) - Understand core design principles
+   - [ARCHITECTURE.md](ARCHITECTURE.md) - Current implementation status and critical priorities
    - [HLD.md](HLD.md) - Review the technical architecture
-   - [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) - See the implementation roadmap
+   - [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) - See the implementation roadmap (organized by initiative)
+   - [planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md](planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md) - Recent analysis of architectural gaps
 
-2. **Initial Setup Priority** (from DEVELOPMENT_PLAN.md):
-   - Initiative 1: Platform Foundation (INIT-001) - Electron setup ✅ DONE
-   - Initiative 2: Core Engine Systems (INIT-002) - ECS architecture is foundational
+2. **Critical Context** (November 2025):
+   - ECS Core (Epic 2.1) is complete but NEEDS REFACTORING for cache efficiency
+   - No main engine class exists yet (Epic 2.7)
+   - No game loop integration yet (Epic 2.8)
+   - Rendering system is partially designed but not implemented
+   - Physics and networking foundations are solid and production-ready
+
+3. **Recommended Next Steps**:
+   - **If working on performance**: Start with Epic 2.10-2.11 (Cache-Efficient ECS)
+   - **If working on integration**: Start with Epic 2.7-2.9 (Main Engine Class & Game Loop)
+   - **If working on rendering**: Start with Epic 3.9-3.12 (Rendering Foundation)
+   - **If working on new features**: Check ARCHITECTURE.md for dependencies first
+
+## Known Architectural Issues
+
+**⚠️ CRITICAL: These issues are documented and planned for resolution**
+
+### 1. ECS Performance (Epic 2.10-2.11)
+**Issue:** Current ECS implementation uses object arrays instead of cache-efficient typed arrays
+- **Impact:** ~10x slower than optimal for component iteration
+- **Status:** Works correctly, all tests pass, but performance is suboptimal
+- **Resolution:** Planned refactoring to SoA (Structure of Arrays) with typed arrays
+- **Timeline:** High priority, blocks optimal rendering performance
+- **Reference:** planning/CACHE_ARCHITECTURE_ANALYSIS.md
+
+### 2. Missing Main Engine Integration (Epic 2.7-2.9)
+**Issue:** No main engine class or game loop exists yet
+- **Impact:** Individual systems (ECS, physics, network) work but aren't integrated
+- **Status:** Systems tested independently, integration layer not built
+- **Resolution:** Build MiskatonicEngine class with integrated game loop
+- **Timeline:** Required before rendering can be properly integrated
+- **Reference:** ARCHITECTURE.md section on integration gaps
+
+### 3. Rendering Foundation Missing (Epic 3.9-3.12)
+**Issue:** Rendering system designed but not implemented
+- **Impact:** Cannot render anything yet despite having ECS and physics
+- **Status:** Architecture documented in HLD.md, implementation not started
+- **Resolution:** Build shader system, camera, transform hierarchy, render queue
+- **Timeline:** Depends on main engine integration (Epic 2.7-2.9)
+- **Reference:** planning/RENDERING_ARCHITECTURE_ANALYSIS.md
+
+### 4. Memory Management Not Optimized (Epic 2.13-2.14)
+**Issue:** No GC mitigation strategies in place
+- **Impact:** Potential frame drops from garbage collection
+- **Status:** Basic implementations work, but not optimized for 60 FPS
+- **Resolution:** Implement object pooling, frame allocators, GC profiling
+- **Timeline:** Medium priority, affects frame stability
+- **Reference:** planning/MEMORY_MANAGEMENT_ANALYSIS.md
+
+**When working on the codebase:** Check ARCHITECTURE.md for the latest status of these issues and their planned resolution.
+
+---
 
 ## Critical Architectural Decisions
 
 ### ECS Architecture
-The engine uses **archetype-based ECS** (not sparse set). Components are stored contiguously by archetype for cache efficiency. See [HLD.md](HLD.md) section 2.1 for implementation details.
+The engine uses **archetype-based ECS** (not sparse set).
+
+**Current Implementation (Epic 2.1):**
+- Completed and tested (65/65 tests passing)
+- Uses object arrays: `Array<{entity, component1, component2}>`
+- Works correctly but is NOT cache-efficient
+
+**Required Refactoring (Epic 2.10-2.11):**
+- Must migrate to SoA (Structure of Arrays) with typed arrays
+- Target format: `{entity: Uint32Array, position: Float32Array, velocity: Float32Array}`
+- Expected 10x performance improvement from cache-friendly sequential iteration
+- See [HLD.md](HLD.md) section 2.1 and planning/CACHE_ARCHITECTURE_ANALYSIS.md for details
 
 ### Physics Determinism
 **All physics must be deterministic** for competitive multiplayer:
@@ -285,18 +406,24 @@ The engine uses **archetype-based ECS** (not sparse set). Components are stored 
 
 ### Physics Package Architecture
 Located in `packages/physics/`:
-- **Abstraction Layer**: IPhysicsEngine interface allows swapping backends
-- **Backends**: RapierPhysicsEngine, CannonPhysicsEngine, Box2DPhysicsEngine
+- **Abstraction Layer**: Physics engine interface for swapping backends
+- **Backends**: Located in `src/engines/` directory
+  - RapierPhysicsEngine (default, production-ready)
+  - CannonPhysicsEngine (alternative)
+  - Box2DPhysicsEngine (2D physics)
 - **World Management**: PhysicsWorld handles simulation loop with fixed timestep
 - **Serialization**: Complete state serialization including bodies, colliders, joints
 - **Replay System**: PhysicsReplayPlayer for deterministic replay debugging
+- **Determinism Verification**: PhysicsDeterminismVerifier for cross-platform testing
 
 Key files:
-- `src/IPhysicsEngine.ts` - Physics abstraction interface
-- `src/PhysicsWorld.ts` - Simulation loop and world management
-- `src/backends/RapierPhysicsEngine.ts` - Default Rapier implementation
-- `src/serialization/` - State serialization and deserialization
-- `src/replay/PhysicsReplayPlayer.ts` - Replay debugging system
+- `src/types.ts` - Core physics types and interfaces
+- `src/PhysicsWorld.ts` - Main simulation loop and world management (16.4KB)
+- `src/PhysicsReplayPlayer.ts` - Replay system for debugging (10.9KB)
+- `src/PhysicsSnapshotManager.ts` - Snapshot management for rollback
+- `src/PhysicsDeterminismVerifier.ts` - Determinism testing utilities
+- `src/engines/` - Physics engine implementations
+- `src/index.ts` - Public API exports
 
 ### Network Package Architecture
 Located in `packages/network/`:

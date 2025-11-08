@@ -124,3 +124,181 @@
 
 ---
 
+### Epic 5.6: Network Memory Optimization
+**Priority:** P1 - IMPORTANT
+**Status:** ⏭️ Not Started
+**Dependencies:** Epic 5.2 (State Synchronization), Epic 2.13 (Memory Management Foundation)
+**Complexity:** Medium
+**Estimated Effort:** 1-2 weeks
+
+**Problem Statement:**
+Network package (Epic 5.2) runs at 60 tick rate, potentially creating excessive allocation pressure. Without buffer pooling and zero-copy deserialization, network updates will cause GC pauses and unpredictable frame times.
+
+**From Memory Analysis:**
+> "Network tick rate: 60Hz - Delta compression every tick, batch construction every tick"
+> "Target: <50 object allocations per tick"
+
+**Acceptance Criteria:**
+- ✅ Network buffer pooling implemented (serialization/deserialization buffers)
+- ✅ Network allocations <50 objects/tick
+- ✅ Delta compression buffer reuse >95%
+- ✅ Zero-copy deserialization working (write directly to component storage)
+- ✅ Network memory profiling integrated
+- ✅ Allocation hotspots identified and optimized
+
+#### User Stories:
+1. **As a network system**, I need buffer pooling to reduce allocations
+2. **As a game**, I need <50 allocations per network tick
+3. **As a developer**, I want to profile network allocation pressure
+4. **As a system**, I need zero-copy deserialization to component storage
+5. **As a network**, I need delta compression buffers reused
+
+#### Tasks Breakdown:
+- [ ] Profile current network package (delta compression, batch creation)
+- [ ] Identify allocation hotspots (profiling report)
+- [ ] Implement NetworkBufferPool (serialization/deserialization buffers)
+- [ ] Add buffer pooling to delta compression
+- [ ] Implement zero-copy deserialization (write to typed arrays directly)
+- [ ] Optimize batch creation (reuse structures)
+- [ ] Add network allocation tracking (per tick)
+- [ ] Integrate with memory profiling infrastructure
+- [ ] Verify <50 allocations/tick target
+- [ ] Write comprehensive unit tests (>80% coverage)
+- [ ] Document network memory optimization patterns
+
+#### Implementation Details:
+**Package:** `/Users/bud/Code/miskatonic/packages/network/` (enhance)
+
+**NetworkBufferPool Design:**
+```typescript
+class NetworkBufferPool {
+  private serializationBuffers: Uint8Array[] = [];
+  private deserializationBuffers: Uint8Array[] = [];
+  private defaultSize = 1200; // MTU
+
+  acquireSerializationBuffer(): Uint8Array {
+    return this.serializationBuffers.pop() ?? new Uint8Array(this.defaultSize);
+  }
+
+  acquireDeserializationBuffer(): Uint8Array {
+    return this.deserializationBuffers.pop() ?? new Uint8Array(this.defaultSize);
+  }
+
+  release(buffer: Uint8Array, type: 'serialization' | 'deserialization'): void {
+    if (type === 'serialization') {
+      this.serializationBuffers.push(buffer);
+    } else {
+      this.deserializationBuffers.push(buffer);
+    }
+  }
+}
+
+// Usage:
+const buffer = bufferPool.acquireSerializationBuffer();
+serialize(state, buffer);
+network.send(buffer);
+bufferPool.release(buffer, 'serialization');
+```
+
+**Zero-Copy Deserialization:**
+```typescript
+// ❌ BAD: Creates objects
+function deserialize(buffer: Uint8Array): StateUpdate {
+  const entities: EntityUpdate[] = [];
+  // ... parse buffer ...
+  entities.push({ id: 1, components: [{ type: 'Transform', data: {...} }] });
+  return { entities };  // New objects created
+}
+
+// ✅ GOOD: Writes directly to storage
+function deserialize(buffer: Uint8Array, world: World): void {
+  const view = new DataView(buffer.buffer);
+  let offset = 0;
+
+  while (offset < buffer.length) {
+    const entityId = view.getUint32(offset);
+    const componentType = view.getUint8(offset + 4);
+
+    // Write directly to component storage (typed arrays)
+    if (componentType === ComponentType.Transform) {
+      const x = view.getFloat32(offset + 5);
+      const y = view.getFloat32(offset + 9);
+      const z = view.getFloat32(offset + 13);
+
+      world.writeComponent(entityId, 'transform', x, y, z);
+      offset += 17;
+    }
+    // ... other component types ...
+  }
+}
+```
+
+**Delta Compression Optimization:**
+```typescript
+// Instead of creating new arrays:
+class DeltaCompressor {
+  private pathBuffer: string[] = new Array(1000);  // Reusable
+  private pathCount = 0;
+
+  computeDelta(old: any, new: any): Delta {
+    this.pathCount = 0;
+    // Reuse pathBuffer, increment pathCount
+    // No new array allocations
+  }
+}
+
+// History as circular buffer:
+class DeltaCompressor {
+  private history: any[] = new Array(10);  // Fixed size
+  private historyIndex = 0;
+
+  addToHistory(state: any): void {
+    this.history[this.historyIndex] = state;
+    this.historyIndex = (this.historyIndex + 1) % this.history.length;
+  }
+}
+```
+
+**Allocation Tracking:**
+```typescript
+// Before network tick:
+const allocsBefore = countHeapObjects();
+
+// Run network tick:
+const batch = replication.createStateBatch(observerId);
+
+// After network tick:
+const allocsAfter = countHeapObjects();
+const allocated = allocsAfter - allocsBefore;
+
+if (allocated > 50) {
+  console.warn(`Network tick allocated ${allocated} objects, budget: 50`);
+}
+```
+
+**Performance Targets:**
+- Network allocations: <50 objects/tick
+- Delta compression buffer reuse: >95%
+- Zero-copy deserialization: enabled
+- Network memory profiling: integrated
+
+#### Design Principles:
+1. **Pool Buffers**: Reuse serialization/deserialization buffers
+2. **Zero-Copy**: Write directly to component storage
+3. **Reuse Structures**: Circular buffers, preallocated arrays
+4. **Monitor Allocations**: Track per tick, enforce budgets
+5. **Validate Performance**: Profile before/after optimization
+
+#### Dependencies:
+- Epic 5.2: State Synchronization (provides network implementation)
+- Epic 2.13: Memory Management Foundation (provides profiling tools)
+
+**Deliverables:**
+- Network profiling report (allocation hotspots)
+- NetworkBufferPool implementation
+- Zero-copy deserialization
+- Optimized delta compression (buffer reuse)
+- Network memory optimization guide
+
+---
+
