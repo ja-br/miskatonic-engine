@@ -4,12 +4,15 @@ import type {
   ShaderType,
   UniformType,
 } from './types';
+import { ShaderLoader, type ShaderFeatures, type LoadedShader } from './ShaderLoader';
 
 /**
  * Shader manager configuration
  */
 export interface ShaderManagerConfig {
   maxPrograms?: number; // Maximum cached programs (default: 1000)
+  basePath?: string; // Base path for shader files (default: 'src/shaders/')
+  enableHotReload?: boolean; // Enable file watching for hot-reload (default: false)
 }
 
 /**
@@ -21,6 +24,8 @@ export interface ShaderManagerConfig {
  * - Attribute and uniform introspection
  * - Error reporting with line numbers
  * - Hot-reload support
+ * - Shader file loading with includes
+ * - Variant generation with feature defines
  */
 export class ShaderManager {
   private gl: WebGL2RenderingContext;
@@ -29,9 +34,31 @@ export class ShaderManager {
   private maxPrograms: number;
   private programAccessOrder: string[] = [];
 
+  // Shader loader for file loading and preprocessing
+  private loader: ShaderLoader;
+
+  // Variant cache: cache key -> LoadedShader
+  private variantCache = new Map<string, LoadedShader>();
+
+  // Track which programs use which variants (for hot-reload)
+  private programToVariant = new Map<string, string>();
+  private variantToPrograms = new Map<string, Set<string>>();
+
   constructor(gl: WebGL2RenderingContext, config: ShaderManagerConfig = {}) {
     this.gl = gl;
     this.maxPrograms = config.maxPrograms ?? 1000;
+
+    // Initialize shader loader
+    this.loader = new ShaderLoader({
+      basePath: config.basePath,
+      watchFiles: config.enableHotReload,
+      cacheEnabled: true,
+    });
+
+    // Setup hot-reload if enabled
+    if (config.enableHotReload) {
+      this.setupHotReload();
+    }
   }
 
   /**
@@ -94,12 +121,9 @@ export class ShaderManager {
   getProgram(id: string): ShaderProgram | null {
     const program = this.programs.get(id);
     if (program) {
-      // Update LRU: move to end
-      const index = this.programAccessOrder.indexOf(id);
-      if (index !== -1) {
-        this.programAccessOrder.splice(index, 1);
-        this.programAccessOrder.push(id);
-      }
+      // Update LRU: move to end (fix memory leak by removing ALL occurrences first)
+      this.programAccessOrder = this.programAccessOrder.filter((item) => item !== id);
+      this.programAccessOrder.push(id);
     }
     return program ?? null;
   }
@@ -119,10 +143,21 @@ export class ShaderManager {
     if (program) {
       this.gl.deleteProgram(program.program);
       this.programs.delete(id);
-      // Remove from LRU order
-      const index = this.programAccessOrder.indexOf(id);
-      if (index !== -1) {
-        this.programAccessOrder.splice(index, 1);
+
+      // Remove from LRU order (fix memory leak - remove ALL occurrences)
+      this.programAccessOrder = this.programAccessOrder.filter((item) => item !== id);
+
+      // Remove from variant tracking
+      const variantKey = this.programToVariant.get(id);
+      if (variantKey) {
+        this.programToVariant.delete(id);
+        const programs = this.variantToPrograms.get(variantKey);
+        if (programs) {
+          programs.delete(id);
+          if (programs.size === 0) {
+            this.variantToPrograms.delete(variantKey);
+          }
+        }
       }
     }
   }
@@ -376,6 +411,132 @@ export class ShaderManager {
   }
 
   /**
+   * Load shader from files with variant generation
+   *
+   * @param id - Unique shader ID
+   * @param vertexPath - Path to vertex shader file
+   * @param fragmentPath - Path to fragment shader file
+   * @param features - Feature defines for variant generation
+   * @returns Compiled shader program
+   */
+  async loadShader(
+    id: string,
+    vertexPath: string,
+    fragmentPath: string,
+    features: ShaderFeatures = {}
+  ): Promise<ShaderProgram> {
+    // Generate cache key for this variant
+    const cacheKey = ShaderLoader.generateCacheKey(vertexPath, fragmentPath, features);
+
+    // Check if variant is cached
+    let loaded = this.variantCache.get(cacheKey);
+
+    if (!loaded) {
+      // Load and preprocess shader
+      loaded = await this.loader.load(vertexPath, fragmentPath, features);
+      this.variantCache.set(cacheKey, loaded);
+    }
+
+    // Create program from preprocessed source
+    const program = this.createProgram(id, {
+      vertex: loaded.vertexSource,
+      fragment: loaded.fragmentSource,
+    });
+
+    // Track which variant this program uses (for hot-reload)
+    this.programToVariant.set(id, cacheKey);
+    if (!this.variantToPrograms.has(cacheKey)) {
+      this.variantToPrograms.set(cacheKey, new Set());
+    }
+    this.variantToPrograms.get(cacheKey)!.add(id);
+
+    return program;
+  }
+
+  /**
+   * Get shader variant (create if doesn't exist)
+   *
+   * Convenience method for loading shader variants with different features.
+   *
+   * @param baseName - Base shader name (e.g., 'pbr')
+   * @param features - Feature defines
+   * @returns Compiled shader program
+   */
+  async getVariant(baseName: string, features: ShaderFeatures = {}): Promise<ShaderProgram> {
+    // Generate variant ID
+    const featureString = Object.keys(features)
+      .filter((key) => features[key])
+      .sort()
+      .join('_');
+    const variantId = featureString ? `${baseName}_${featureString}` : baseName;
+
+    // Check if already compiled
+    const cached = this.getProgram(variantId);
+    if (cached) {
+      return cached;
+    }
+
+    // Load shader variant
+    const vertexPath = `vertex/${baseName}.vert.glsl`;
+    const fragmentPath = `fragment/${baseName}.frag.glsl`;
+
+    return this.loadShader(variantId, vertexPath, fragmentPath, features);
+  }
+
+  /**
+   * Precompile shader variant
+   *
+   * Useful for warming up cache before rendering.
+   *
+   * @param baseName - Base shader name
+   * @param features - Feature defines
+   */
+  async precompile(baseName: string, features: ShaderFeatures = {}): Promise<void> {
+    await this.getVariant(baseName, features);
+  }
+
+  /**
+   * Setup hot-reload file watching
+   */
+  private async setupHotReload(): Promise<void> {
+    await this.loader.enableHotReload((path: string) => {
+      console.log(`[ShaderManager] Shader file changed: ${path}`);
+
+      // Find all variants that depend on this file
+      const affectedVariants = new Set<string>();
+
+      for (const [cacheKey, loaded] of this.variantCache.entries()) {
+        if (loaded.dependencies.includes(path)) {
+          affectedVariants.add(cacheKey);
+        }
+      }
+
+      // For each affected variant, invalidate and reload programs
+      for (const variantKey of affectedVariants) {
+        console.log(`[ShaderManager] Invalidating variant: ${variantKey}`);
+
+        // Get all programs using this variant
+        const affectedPrograms = this.variantToPrograms.get(variantKey);
+
+        if (affectedPrograms) {
+          // Delete affected programs (they'll be recreated on next use)
+          for (const programId of affectedPrograms) {
+            console.log(`[ShaderManager] Reloading program: ${programId}`);
+            this.deleteProgram(programId);
+          }
+        }
+
+        // Clear the variant cache
+        this.variantCache.delete(variantKey);
+        this.variantToPrograms.delete(variantKey);
+      }
+
+      // Clear the shader source cache to force reload
+      this.loader.clearCache();
+    });
+  }
+
+  /**
    * Clean up all shader programs
    */
   dispose(): void {
@@ -384,5 +545,7 @@ export class ShaderManager {
     }
     this.programs.clear();
     this.shaderCache.clear();
+    this.variantCache.clear();
+    this.loader.clearCache();
   }
 }

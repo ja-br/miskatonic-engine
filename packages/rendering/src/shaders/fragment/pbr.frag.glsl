@@ -1,9 +1,9 @@
 #version 300 es
 precision highp float;
 
-// Constants
-const float PI = 3.14159265359;
-const float EPSILON = 0.0001; // Balance between precision and preventing div-by-zero
+// Include common functions
+#include "common/math.glsl"
+#include "common/lighting.glsl"
 
 // Inputs from vertex shader
 in vec3 v_worldPosition;
@@ -44,58 +44,6 @@ uniform vec3 u_ambientLight;
 
 // Output
 out vec4 fragColor;
-
-/**
- * Fresnel-Schlick approximation
- * F0: Base reflectivity at normal incidence
- * cosTheta: Angle between view and halfway vector
- */
-vec3 fresnelSchlick(float cosTheta, vec3 F0) {
-    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
-}
-
-/**
- * GGX/Trowbridge-Reitz normal distribution function
- * Describes distribution of microfacets
- */
-float distributionGGX(vec3 N, vec3 H, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float NdotH = max(dot(N, H), 0.0);
-    float NdotH2 = NdotH * NdotH;
-
-    float num = a2;
-    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-
-    return num / max(denom, EPSILON);
-}
-
-/**
- * Smith's Schlick-GGX geometry function
- * Describes self-shadowing of microfacets
- */
-float geometrySchlickGGX(float NdotV, float roughness) {
-    float r = (roughness + 1.0);
-    float k = (r * r) / 8.0;
-
-    float num = NdotV;
-    float denom = NdotV * (1.0 - k) + k;
-
-    return num / max(denom, EPSILON);
-}
-
-/**
- * Smith's geometry function with height-correlated masking-shadowing
- */
-float geometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    float ggx2 = geometrySchlickGGX(NdotV, roughness);
-    float ggx1 = geometrySchlickGGX(NdotL, roughness);
-
-    return ggx1 * ggx2;
-}
 
 /**
  * Sample normal from normal map
@@ -147,37 +95,9 @@ void main() {
     // Calculate light direction (directional light)
     vec3 L = normalize(-u_lightDirection);
 
-    // Calculate halfway vector
-    vec3 H = normalize(V + L);
-
-    // Calculate reflectance at normal incidence
-    // Dielectrics have F0 of 0.04, metals use albedo as F0
-    vec3 F0 = vec3(0.04);
-    F0 = mix(F0, baseColor.rgb, metallic);
-
-    // Cook-Torrance BRDF
-    float NDF = distributionGGX(N, H, roughness);
-    float G = geometrySmith(N, V, L, roughness);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-
-    vec3 numerator = NDF * G * F;
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0);
-    vec3 specular = numerator / max(denominator, EPSILON);
-
-    // Energy conservation: kS + kD = 1.0
-    vec3 kS = F; // Specular contribution
-    vec3 kD = vec3(1.0) - kS; // Diffuse contribution
-    kD *= 1.0 - metallic; // Metals don't have diffuse
-
-    // Lambertian diffuse
-    vec3 diffuse = kD * baseColor.rgb / PI;
-
-    // Calculate radiance
-    float NdotL = max(dot(N, L), 0.0);
+    // Calculate direct lighting using common function
     vec3 radiance = u_lightColor * u_lightIntensity;
-
-    // Outgoing radiance (Lo)
-    vec3 Lo = (diffuse + specular) * radiance * NdotL;
+    vec3 Lo = calculateDirectLighting(N, V, L, baseColor.rgb, metallic, roughness, radiance);
 
     // Ambient lighting (simplified)
     vec3 ambient = u_ambientLight * baseColor.rgb * ao;

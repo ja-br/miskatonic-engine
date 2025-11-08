@@ -1,5 +1,8 @@
 #version 300 es
 
+// Include common functions
+#include "common/transforms.glsl"
+
 // Vertex attributes
 in vec3 a_position;
 in vec3 a_normal;
@@ -31,9 +34,6 @@ void main() {
     // Pass through texture coordinates
     v_texcoord = a_texcoord;
 
-    // Compute TBN matrix for normal mapping
-    vec3 T = normalize(u_normalMatrix * a_tangent.xyz);
-    vec3 N = v_normal;
-    vec3 B = cross(T, N) * a_tangent.w; // Right-handed: T cross N, then apply handedness
-    v_TBN = mat3(T, B, N);
+    // Compute TBN matrix for normal mapping using common function
+    v_TBN = computeTBN(a_normal, a_tangent, u_normalMatrix);
 }
