@@ -17,6 +17,7 @@ export { FramebufferManager, type FramebufferConfig, type FramebufferDescriptor,
 export { CommandBuffer } from './CommandBuffer';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
 export { MaterialManager, type Material, type MaterialConfig, type PBRMaterialProperties, type MaterialTextures } from './Material';
+export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueStats } from './RenderQueue';
 
 // Types and enums
 export {
