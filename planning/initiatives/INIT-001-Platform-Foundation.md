@@ -2,20 +2,20 @@
 **Dependencies:** None
 **Outcome:** Electron-based foundation with cross-platform support
 
-### Epic 1.1: Electron Architecture Setup ✅ **COMPLETE**
+### Epic 1.1: Electron Architecture Setup  **COMPLETE**
 **Priority:** P0
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Acceptance Criteria:**
-- ✅ Main process architecture implemented
-- ✅ Renderer process isolation configured
-- ✅ IPC communication layer established
-- ✅ Security boundaries enforced
+-  Main process architecture implemented
+-  Renderer process isolation configured
+-  IPC communication layer established
+-  Security boundaries enforced
 
 #### User Stories:
-1. ✅ **As a developer**, I want a secure Electron main process that manages application lifecycle
-2. ✅ **As a developer**, I want typed IPC communication between main and renderer processes
-3. ✅ **As a developer**, I want context isolation and preload scripts for security
-4. ✅ **As a system**, I need process crash recovery and error handling
+1.  **As a developer**, I want a secure Electron main process that manages application lifecycle
+2.  **As a developer**, I want typed IPC communication between main and renderer processes
+3.  **As a developer**, I want context isolation and preload scripts for security
+4.  **As a system**, I need process crash recovery and error handling
 
 #### Tasks Breakdown:
 - [x] Setup Electron project structure with TypeScript
@@ -39,20 +39,20 @@
 - [x] Fixed type safety issues (removed `any` types)
 - [x] Cleaned up dead code and TODOs
 
-### Epic 1.2: Native OS Integration ✅ **COMPLETE**
+### Epic 1.2: Native OS Integration  **COMPLETE**
 **Priority:** P0
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Acceptance Criteria:**
-- ✅ File system access implemented
-- ✅ Native menus and dialogs working
-- ✅ System tray integration complete
-- ✅ Global shortcuts registered
+-  File system access implemented
+-  Native menus and dialogs working
+-  System tray integration complete
+-  Global shortcuts registered
 
 #### User Stories:
-1. ✅ **As a player**, I want native file dialogs for saving/loading games
-2. ✅ **As a player**, I want the game to integrate with OS menus and shortcuts
-3. ✅ **As a developer**, I want access to native file system APIs
-4. ✅ **As a player**, I want the game to minimize to system tray
+1.  **As a player**, I want native file dialogs for saving/loading games
+2.  **As a player**, I want the game to integrate with OS menus and shortcuts
+3.  **As a developer**, I want access to native file system APIs
+4.  **As a player**, I want the game to minimize to system tray
 
 #### Tasks Breakdown:
 - [x] Implement native file system operations wrapper

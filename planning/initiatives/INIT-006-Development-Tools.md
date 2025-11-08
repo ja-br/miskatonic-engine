@@ -4,7 +4,7 @@
 
 ### Epic 6.1: Debug Console
 **Priority:** P0 - CRITICAL
-**Status:** ✅ COMPLETE (November 2025)
+**Status:**  COMPLETE (November 2025)
 **Dependencies:** Epic 2.7 (Main Engine), Epic 2.9 (Commands)
 **Complexity:** Medium
 **Estimated Effort:** 2 weeks
@@ -15,14 +15,14 @@
 No runtime introspection or command execution capability. Debugging requires recompiling for every test, making iteration slow and painful. Need an in-game console (~ key) that allows command execution, logging, autocomplete, and history.
 
 **Acceptance Criteria:**
-- ✅ Console toggles with ~ key
-- ✅ Can execute registered commands
-- ✅ Arrow up/down for history navigation
-- ✅ Tab for autocomplete
-- ✅ Logging appears in console (console.log captured)
-- ✅ Can be hidden/shown at runtime
-- ✅ Command history persisted across sessions
-- ✅ Multi-line command support
+-  Console toggles with ~ key
+-  Can execute registered commands
+-  Arrow up/down for history navigation
+-  Tab for autocomplete
+-  Logging appears in console (console.log captured)
+-  Can be hidden/shown at runtime
+-  Command history persisted across sessions
+-  Multi-line command support
 
 #### User Stories:
 1. **As a developer**, I want in-game console that toggles with ~ key
@@ -131,8 +131,8 @@ clear
 4. **Integration**: Works seamlessly with command system
 
 #### Dependencies:
-- Epic 2.7: Main Engine Class (access to engine) ✅
-- Epic 2.9: Command System (command execution) ✅
+- Epic 2.7: Main Engine Class (access to engine) 
+- Epic 2.9: Command System (command execution) 
 
 #### Deliverables:
 **Package Location:** `/Users/bud/Code/miskatonic/packages/debug-console/`
@@ -145,9 +145,9 @@ clear
 - `src/index.ts` - Public API exports
 
 **Tests:**
-- `tests/CommandHistory.test.ts` - 25 tests ✅
-- `tests/Autocomplete.test.ts` - 27 tests ✅
-- `tests/DebugConsole.simple.test.ts` - 17 tests ✅
+- `tests/CommandHistory.test.ts` - 25 tests 
+- `tests/Autocomplete.test.ts` - 27 tests 
+- `tests/DebugConsole.simple.test.ts` - 17 tests 
 - **Total: 69/69 tests passing**
 
 **Documentation:**
@@ -169,7 +169,7 @@ clear
 
 ### Epic 6.2: Runtime Inspection Tools
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 6.1 (Debug Console), Epic 2.1 (ECS)
 **Complexity:** Medium
 **Estimated Effort:** 2-3 weeks
@@ -178,13 +178,13 @@ clear
 Cannot inspect or modify game state at runtime. Need tools to view entities, edit components, control systems, and monitor performance without recompiling.
 
 **Acceptance Criteria:**
-- ✅ Can list all entities with components
-- ✅ Can click entity to inspect details
-- ✅ Can edit component values at runtime
-- ✅ Can enable/disable systems
-- ✅ Can view performance graph
-- ✅ Can search/filter entities
-- ✅ Can view system execution order
+-  Can list all entities with components
+-  Can click entity to inspect details
+-  Can edit component values at runtime
+-  Can enable/disable systems
+-  Can view performance graph
+-  Can search/filter entities
+-  Can view system execution order
 
 #### User Stories:
 1. **As a developer**, I want to list all entities with their components
@@ -273,7 +273,7 @@ Cannot inspect or modify game state at runtime. Need tools to view entities, edi
 
 ### Epic 6.3: Integrated Profiler
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 2.8 (Game Loop), Epic 10.4 (Frame Budget)
 **Complexity:** Medium
 **Estimated Effort:** 2 weeks
@@ -282,13 +282,13 @@ Cannot inspect or modify game state at runtime. Need tools to view entities, edi
 Cannot easily measure where time is spent in the game loop. Browser DevTools are manual and cumbersome. Need built-in profiling that tracks per-system timing, per-frame markers, and exports to Chrome trace format.
 
 **Acceptance Criteria:**
-- ✅ Can record profiling session
-- ✅ Export to Chrome trace viewer format
-- ✅ Per-system timing accurate (<0.1ms overhead)
-- ✅ GPU timing integrated (WebGL queries)
-- ✅ Memory allocation tracking
-- ✅ Can view profiling results in-engine
-- ✅ Can filter/search profiling data
+-  Can record profiling session
+-  Export to Chrome trace viewer format
+-  Per-system timing accurate (<0.1ms overhead)
+-  GPU timing integrated (WebGL queries)
+-  Memory allocation tracking
+-  Can view profiling results in-engine
+-  Can filter/search profiling data
 
 #### User Stories:
 1. **As a developer**, I want to record profiling sessions
@@ -452,7 +452,7 @@ interface ProfileStatistics {
 1. **As an artist**, I want asset import tools
 2. **As an artist**, I want texture compression
 3. **As an artist**, I want model optimization
-4. **As a developer**, I want asset hot-reload (✅ covered by Epic 2.4)
+4. **As a developer**, I want asset hot-reload ( covered by Epic 2.4)
 
 #### Tasks Breakdown:
 - [ ] Create asset import pipeline

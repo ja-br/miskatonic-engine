@@ -286,14 +286,21 @@ export interface ComponentSchema<T> {
 /**
  * Helper to infer field type from component property
  */
+/**
+ * Infer typed array type from default value
+ *
+ * IMPORTANT: Defaults to Float32Array for safety
+ * Most game engine values are floats (positions, rotations, velocities)
+ * Integer fields must explicitly specify Int32Array or Uint8Array
+ *
+ * @param value - Default value (used for type inference)
+ * @returns Typed array constructor
+ */
 export function inferArrayType(value: any): TypedArrayConstructor {
-  if (Number.isInteger(value)) {
-    // Use Int32Array for integers
-    return Int32Array;
-  } else {
-    // Use Float32Array for floating point
-    return Float32Array;
-  }
+  // Default to Float32Array for all numeric values
+  // This is safer for game engines where most values are floats
+  // Integer fields (IDs, indices, flags) should explicitly specify their array type
+  return Float32Array;
 }
 
 /**

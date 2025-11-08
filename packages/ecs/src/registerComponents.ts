@@ -9,6 +9,7 @@ import { ComponentRegistry } from './ComponentRegistry';
 import { createFieldDescriptor } from './ComponentStorage';
 import { Transform } from './components/Transform';
 import { Velocity } from './components/Velocity';
+import { Camera } from './components/Camera';
 
 // Register Transform component
 // Epic 3.11.5: Cache-efficient storage with ALL data in typed arrays
@@ -49,4 +50,36 @@ ComponentRegistry.register(Velocity, [
   createFieldDescriptor('vx', 0),
   createFieldDescriptor('vy', 0),
   createFieldDescriptor('vz', 0),
+]);
+
+// Register Camera component (Epic 3.10)
+ComponentRegistry.register(Camera, [
+  // Projection type and settings
+  createFieldDescriptor('projectionType', 0, Uint8Array), // 0=perspective, 1=orthographic
+  createFieldDescriptor('fov', Math.PI / 4),
+  createFieldDescriptor('perspectiveNear', 0.1),
+  createFieldDescriptor('perspectiveFar', 100.0),
+
+  // Orthographic bounds
+  createFieldDescriptor('left', -10),
+  createFieldDescriptor('right', 10),
+  createFieldDescriptor('top', 10),
+  createFieldDescriptor('bottom', -10),
+  createFieldDescriptor('orthoNear', 0.1),
+  createFieldDescriptor('orthoFar', 100.0),
+
+  // Viewport
+  createFieldDescriptor('viewportX', 0),
+  createFieldDescriptor('viewportY', 0),
+  createFieldDescriptor('viewportWidth', 1),
+  createFieldDescriptor('viewportHeight', 1),
+
+  // Clear color
+  createFieldDescriptor('clearColorR', 0.1),
+  createFieldDescriptor('clearColorG', 0.1),
+  createFieldDescriptor('clearColorB', 0.1),
+  createFieldDescriptor('clearColorA', 1.0),
+
+  // Active flag
+  createFieldDescriptor('active', 1, Uint8Array),
 ]);

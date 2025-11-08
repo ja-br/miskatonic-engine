@@ -236,6 +236,31 @@ export class World {
   }
 
   /**
+   * Set a component on an entity (write back modified component data)
+   *
+   * Note: getComponent() returns a snapshot object. To persist changes, you must call setComponent().
+   *
+   * @example
+   * const transform = world.getComponent(entity, Transform);
+   * transform.x = 10;
+   * world.setComponent(entity, Transform, transform); // Write back changes
+   */
+  setComponent<T>(entityId: EntityId, type: ComponentType<T>, component: Partial<T>): void {
+    const metadata = this.entityManager.getMetadata(entityId);
+    if (!metadata || !metadata.archetype) {
+      return;
+    }
+
+    // Validate generation to prevent use-after-free
+    if (!this.entityManager.isValid(entityId, metadata.generation)) {
+      console.warn(`Attempted to set component on entity ${entityId} with invalid generation`);
+      return;
+    }
+
+    this.archetypeManager.setComponent(metadata.archetype, type, metadata.archetypeIndex, component);
+  }
+
+  /**
    * Check if entity has a component
    */
   hasComponent<T>(entityId: EntityId, type: ComponentType<T>): boolean {

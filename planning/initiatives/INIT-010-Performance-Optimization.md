@@ -4,7 +4,7 @@
 
 ### Epic 10.1: Threading Architecture
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 2.8 (Game Loop)
 **Complexity:** High
 **Estimated Effort:** 1-2 weeks (design phase)
@@ -13,12 +13,12 @@
 Everything runs on a single thread, using ~12.5% of available compute on an 8-core CPU. Modern games need multi-core utilization for physics, AI, and parallel system execution. Need a threading model that leverages Web Workers while maintaining determinism.
 
 **Acceptance Criteria:**
-- ✅ Thread safety model documented
-- ✅ Systems categorized (parallel-safe vs single-thread)
-- ✅ Dependency graph computed
-- ✅ Web Worker strategy defined
-- ✅ SharedArrayBuffer requirements understood
-- ✅ Synchronization points defined
+-  Thread safety model documented
+-  Systems categorized (parallel-safe vs single-thread)
+-  Dependency graph computed
+-  Web Worker strategy defined
+-  SharedArrayBuffer requirements understood
+-  Synchronization points defined
 
 #### User Stories:
 1. **As a developer**, I want a documented threading model
@@ -80,7 +80,7 @@ Frame N Timeline:
 
 ### Epic 10.2: Parallel System Execution
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 10.1 (Threading Architecture)
 **Complexity:** High
 **Estimated Effort:** 3-4 weeks
@@ -89,11 +89,11 @@ Frame N Timeline:
 Independent systems run sequentially even though they could run in parallel. Need to implement parallel system execution using the dependency graph from Epic 10.1 to utilize multiple CPU cores.
 
 **Acceptance Criteria:**
-- ✅ Independent systems run in parallel
-- ✅ No race conditions detected
-- ✅ Performance improvement measured (>20% speedup target)
-- ✅ Frame timing consistent (no jitter)
-- ✅ Scales with CPU cores (linear up to 4 cores)
+-  Independent systems run in parallel
+-  No race conditions detected
+-  Performance improvement measured (>20% speedup target)
+-  Frame timing consistent (no jitter)
+-  Scales with CPU cores (linear up to 4 cores)
 
 #### User Stories:
 1. **As a game**, I need to utilize multiple CPU cores
@@ -177,7 +177,7 @@ Frame N:
 
 ### Epic 10.3: Web Worker Integration
 **Priority:** P2 - NICE TO HAVE
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 10.2 (Parallel System Execution)
 **Complexity:** High
 **Estimated Effort:** 3-4 weeks
@@ -186,11 +186,11 @@ Frame N:
 Heavy systems (physics, AI) still run on main thread, blocking rendering. Need to move these to Web Workers to free up main thread for smooth UI and rendering.
 
 **Acceptance Criteria:**
-- ✅ Physics runs in separate worker
-- ✅ Communication overhead <0.5ms
-- ✅ Main thread freed up (>30% reduction in main thread time)
-- ✅ Performance improved (overall speedup >10%)
-- ✅ No impact on determinism
+-  Physics runs in separate worker
+-  Communication overhead <0.5ms
+-  Main thread freed up (>30% reduction in main thread time)
+-  Performance improved (overall speedup >10%)
+-  No impact on determinism
 
 #### User Stories:
 1. **As a game**, I need physics off the main thread
@@ -277,7 +277,7 @@ class PhysicsWorker {
 
 ### Epic 10.4: Frame Budget System
 **Priority:** P0 - CRITICAL
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 2.8 (Game Loop)
 **Complexity:** Medium
 **Estimated Effort:** 1-2 weeks
@@ -286,11 +286,11 @@ class PhysicsWorker {
 Performance budgets are documented but not enforced at runtime. Systems can overrun their time budget with no automatic throttling or warnings. Need a FrameTimer that measures each system and enforces budgets.
 
 **Acceptance Criteria:**
-- ✅ Each system measured per frame
-- ✅ Warnings logged when budget exceeded
-- ✅ Performance data available to analytics
-- ✅ Maintains 60 FPS when possible
-- ✅ Graceful degradation under load
+-  Each system measured per frame
+-  Warnings logged when budget exceeded
+-  Performance data available to analytics
+-  Maintains 60 FPS when possible
+-  Graceful degradation under load
 
 #### User Stories:
 1. **As a developer**, I want automatic budget enforcement
@@ -411,7 +411,7 @@ class AdaptiveQualityManager {
 
 ### Epic 10.5: Performance Monitoring
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 10.4 (Frame Budget System)
 **Complexity:** Low-Medium
 **Estimated Effort:** 1 week
@@ -420,11 +420,11 @@ class AdaptiveQualityManager {
 No real-time performance visibility. Developers can't see FPS, frame time, or which systems are slow without opening DevTools. Need an in-game performance overlay and reporting system.
 
 **Acceptance Criteria:**
-- ✅ FPS displayed in corner (dev mode)
-- ✅ Frame time graph visible
-- ✅ Can see which system is slow
-- ✅ Memory usage tracked
-- ✅ Can export CSV report
+-  FPS displayed in corner (dev mode)
+-  Frame time graph visible
+-  Can see which system is slow
+-  Memory usage tracked
+-  Can export CSV report
 
 #### User Stories:
 1. **As a developer**, I want real-time FPS counter

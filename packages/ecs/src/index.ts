@@ -10,6 +10,9 @@
  * - Cache-friendly sequential access
  */
 
+// Auto-register components
+import './registerComponents';
+
 export { World } from './World';
 export { EntityManager } from './Entity';
 export { ArchetypeManager } from './Archetype';
@@ -41,6 +44,7 @@ export { createFieldDescriptor, inferArrayType } from './ComponentStorage';
 // Example components (auto-registered)
 export { Transform } from './components/Transform';
 export { Velocity } from './components/Velocity';
+export { Camera } from './components/Camera';
 
 // Example systems
 export { MovementSystem } from './systems/MovementSystem';

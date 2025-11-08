@@ -8,7 +8,8 @@ export { Renderer } from './Renderer';
 
 // Core rendering classes
 export { RenderContext } from './RenderContext';
-export { Camera, OrbitControls } from './Camera';
+export { Camera, OrbitControls } from './Camera';  // Standalone (legacy)
+export { CameraSystem } from './CameraSystem';      // ECS system (Epic 3.10)
 export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
 export { ShaderManager, type ShaderManagerConfig } from './ShaderManager';
 export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';

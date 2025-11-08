@@ -126,7 +126,7 @@
 
 ### Epic 5.6: Network Memory Optimization
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 5.2 (State Synchronization), Epic 2.13 (Memory Management Foundation)
 **Complexity:** Medium
 **Estimated Effort:** 1-2 weeks
@@ -139,12 +139,12 @@ Network package (Epic 5.2) runs at 60 tick rate, potentially creating excessive 
 > "Target: <50 object allocations per tick"
 
 **Acceptance Criteria:**
-- ✅ Network buffer pooling implemented (serialization/deserialization buffers)
-- ✅ Network allocations <50 objects/tick
-- ✅ Delta compression buffer reuse >95%
-- ✅ Zero-copy deserialization working (write directly to component storage)
-- ✅ Network memory profiling integrated
-- ✅ Allocation hotspots identified and optimized
+-  Network buffer pooling implemented (serialization/deserialization buffers)
+-  Network allocations <50 objects/tick
+-  Delta compression buffer reuse >95%
+-  Zero-copy deserialization working (write directly to component storage)
+-  Network memory profiling integrated
+-  Allocation hotspots identified and optimized
 
 #### User Stories:
 1. **As a network system**, I need buffer pooling to reduce allocations
@@ -210,7 +210,7 @@ function deserialize(buffer: Uint8Array): StateUpdate {
   return { entities };  // New objects created
 }
 
-// ✅ GOOD: Writes directly to storage
+//  GOOD: Writes directly to storage
 function deserialize(buffer: Uint8Array, world: World): void {
   const view = new DataView(buffer.buffer);
   let offset = 0;

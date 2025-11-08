@@ -3,18 +3,18 @@
 **Outcome:** Deterministic physics with swappable backends
 
 ### Epic 4.1: Physics Engine Abstraction
-**Status:** ✅ Complete
+**Status:**  Complete
 **Acceptance Criteria:**
-- ✅ Physics interface defined
-- ✅ Multiple engine support
-- ✅ Hot-swappable backends
+-  Physics interface defined
+-  Multiple engine support
+-  Hot-swappable backends
 - ⏸️ Performance benchmarked (deferred to Epic 2.6)
 
 #### User Stories:
-1. ✅ **As a developer**, I want to choose the physics engine
-2. ✅ **As a developer**, I want consistent API across engines
-3. ✅ **As a developer**, I want to switch engines without code changes
-4. ✅ **As a game**, I need deterministic physics
+1.  **As a developer**, I want to choose the physics engine
+2.  **As a developer**, I want consistent API across engines
+3.  **As a developer**, I want to switch engines without code changes
+4.  **As a game**, I need deterministic physics
 
 #### Tasks Breakdown:
 - [x] Define abstract physics interface
@@ -38,20 +38,20 @@
 - All collision shape primitives (box, sphere, capsule, cylinder, cone)
 - Async initialization pattern for WASM-based engines
 
-### Epic 4.2: Collision System ✅ **COMPLETE**
-**Status:** ✅ Completed November 2025
+### Epic 4.2: Collision System  **COMPLETE**
+**Status:**  Completed November 2025
 **Priority:** P0
 **Acceptance Criteria:**
-- ✅ Collision detection working
-- ✅ Continuous collision implemented
-- ✅ Collision filtering complete
-- ✅ Trigger zones supported
+-  Collision detection working
+-  Continuous collision implemented
+-  Collision filtering complete
+-  Trigger zones supported
 
 #### User Stories:
-1. ✅ **As a developer**, I want accurate collision detection
-2. ✅ **As a developer**, I want collision filtering and layers
-3. ✅ **As a developer**, I want trigger zones for gameplay
-4. ✅ **As a game**, I need no collision tunneling
+1.  **As a developer**, I want accurate collision detection
+2.  **As a developer**, I want collision filtering and layers
+3.  **As a developer**, I want trigger zones for gameplay
+4.  **As a game**, I need no collision tunneling
 
 #### Tasks Breakdown:
 - [x] Implement collision shape primitives (all 9 types)
@@ -67,12 +67,12 @@
 **Package:** `/Users/bud/Code/miskatonic/packages/physics/`
 
 **Collision Shapes Implemented:**
-- ✅ BOX, SPHERE, CAPSULE, CYLINDER, CONE (primitives)
-- ✅ PLANE (infinite ground plane via large cuboid)
-- ✅ MESH (triangle mesh collider - trimesh)
-- ✅ CONVEX_HULL (convex hull from vertices)
-- ✅ HEIGHTFIELD (terrain with configurable scale)
-- ✅ COMPOUND (multiple shapes with relative transforms)
+-  BOX, SPHERE, CAPSULE, CYLINDER, CONE (primitives)
+-  PLANE (infinite ground plane via large cuboid)
+-  MESH (triangle mesh collider - trimesh)
+-  CONVEX_HULL (convex hull from vertices)
+-  HEIGHTFIELD (terrain with configurable scale)
+-  COMPOUND (multiple shapes with relative transforms)
 
 **Key Features:**
 - Compound shapes: Multiple child shapes with positions/rotations
@@ -82,12 +82,12 @@
 - Trigger zones: Sensor colliders (already existed)
 
 **Code Quality Fixes Applied (Code-Critic Review):**
-- ✅ Fixed memory leak in compound shape removal (atomic cleanup)
-- ✅ Added validation for compound child transforms
-- ✅ Made heightfield scale configurable (was hardcoded)
-- ✅ Improved convex hull error handling
-- ✅ Documented collision event data limitations
-- ✅ Prevented recursive compound shapes
+-  Fixed memory leak in compound shape removal (atomic cleanup)
+-  Added validation for compound child transforms
+-  Made heightfield scale configurable (was hardcoded)
+-  Improved convex hull error handling
+-  Documented collision event data limitations
+-  Prevented recursive compound shapes
 
 **Known Limitations:**
 - Collision event contact data (contactPoint, contactNormal, etc.) is NOT implemented
@@ -95,20 +95,20 @@
   - Rationale: Performance overhead of querying Rapier's contact manifold
   - For detailed contact info, query Rapier directly via `getEngine().world.contactsWith()`
 
-### Epic 4.3: Rigid Body Dynamics ✅ COMPLETE
+### Epic 4.3: Rigid Body Dynamics  COMPLETE
 **Priority:** P0
-**Status:** ✅ Complete (2025-11-07)
+**Status:**  Complete (2025-11-07)
 **Acceptance Criteria:**
-- ✅ Rigid body simulation working
-- ✅ Constraints implemented (5 joint types)
-- ✅ Forces and impulses supported
-- ✅ Stability verified
+-  Rigid body simulation working
+-  Constraints implemented (5 joint types)
+-  Forces and impulses supported
+-  Stability verified
 
 #### User Stories:
-1. ✅ **As a developer**, I want realistic rigid body dynamics
-2. ✅ **As a developer**, I want joint constraints
-3. ✅ **As a developer**, I want to apply forces and impulses
-4. ✅ **As a game**, I need stable physics simulation
+1.  **As a developer**, I want realistic rigid body dynamics
+2.  **As a developer**, I want joint constraints
+3.  **As a developer**, I want to apply forces and impulses
+4.  **As a game**, I need stable physics simulation
 
 #### Tasks Breakdown:
 - [x] Implement rigid body component (completed in Epic 4.1/4.2)
@@ -188,20 +188,20 @@ Created comprehensive interactive demo at `/joints.html` showcasing all joint ty
 - Physics material system deferred (materials are per-body properties for now)
 - Physics debugging visualization deferred (no joint/constraint rendering yet)
 
-### Epic 4.4: Deterministic Simulation ✅ **COMPLETE**
+### Epic 4.4: Deterministic Simulation  **COMPLETE**
 **Priority:** P0
-**Status:** ✅ Complete (Critical bugs fixed in Epic 4.5)
+**Status:**  Complete (Critical bugs fixed in Epic 4.5)
 **Acceptance Criteria:**
-- ✅ Fixed timestep implemented (accumulator pattern in PhysicsWorld)
-- ✅ Deterministic math verified (Rapier WASM backend)
-- ✅ State serialization with colliders and joints (fixed in Epic 4.5)
-- ✅ Replay system functional (PhysicsReplayPlayer) - production ready
+-  Fixed timestep implemented (accumulator pattern in PhysicsWorld)
+-  Deterministic math verified (Rapier WASM backend)
+-  State serialization with colliders and joints (fixed in Epic 4.5)
+-  Replay system functional (PhysicsReplayPlayer) - production ready
 
 #### User Stories:
-1. ✅ **As a multiplayer game**, I need deterministic physics
-2. ✅ **As a developer**, I want physics replay capability
-3. ✅ **As a developer**, I want physics state serialization
-4. ✅ **As a game**, I need consistent results across clients
+1.  **As a multiplayer game**, I need deterministic physics
+2.  **As a developer**, I want physics replay capability
+3.  **As a developer**, I want physics state serialization
+4.  **As a game**, I need consistent results across clients
 
 #### Tasks Breakdown:
 - [x] Implement fixed timestep simulation
@@ -260,34 +260,34 @@ Created comprehensive interactive demo at `/joints.html` showcasing all joint ty
 
 #### Production Status
 
-✅ **PRODUCTION READY** (as of 2025-11-07)
+ **PRODUCTION READY** (as of 2025-11-07)
 
 All critical bugs identified by code-critic review have been fixed in Epic 4.5:
-- ✅ Colliders fully serialized with material properties
-- ✅ Joints restored with proper handle remapping
-- ✅ Handle mappings exposed via DeserializationResult
-- ✅ User data migration helper provided (rebuildUserData)
-- ✅ Division by zero bugs fixed in ReplayPlayer
+-  Colliders fully serialized with material properties
+-  Joints restored with proper handle remapping
+-  Handle mappings exposed via DeserializationResult
+-  User data migration helper provided (rebuildUserData)
+-  Division by zero bugs fixed in ReplayPlayer
 
 **Current Status:**
-- ✅ Ready for multiplayer games
-- ✅ Ready for replay systems
-- ✅ Ready for save/load functionality
-- ✅ Comprehensive integration test coverage (7 tests)
+-  Ready for multiplayer games
+-  Ready for replay systems
+-  Ready for save/load functionality
+-  Comprehensive integration test coverage (7 tests)
 
 ---
 
-### Epic 4.5: Fix Deterministic Simulation (Critical Bugs) ✅ **COMPLETE**
+### Epic 4.5: Fix Deterministic Simulation (Critical Bugs)  **COMPLETE**
 **Priority:** P0 - BLOCKS PRODUCTION USE
-**Status:** ✅ Complete (2025-11-07) - All 5 critical bugs fixed
+**Status:**  Complete (2025-11-07) - All 5 critical bugs fixed
 **Actual Effort:** 4.5 hours
-**Acceptance Criteria:** ✅ All Met
-- ✅ Colliders fully serialized and restored with material properties
-- ✅ Joints fully serialized and restored with handle remapping
-- ✅ DeserializationResult returned with handle mapping
-- ✅ PhysicsWorld user data properly handled with rebuildUserData() helper
-- ✅ Division by zero bugs fixed in getProgress() and seekByProgress()
-- ✅ Integration tests passing (7 tests covering all bugs)
+**Acceptance Criteria:**  All Met
+-  Colliders fully serialized and restored with material properties
+-  Joints fully serialized and restored with handle remapping
+-  DeserializationResult returned with handle mapping
+-  PhysicsWorld user data properly handled with rebuildUserData() helper
+-  Division by zero bugs fixed in getProgress() and seekByProgress()
+-  Integration tests passing (7 tests covering all bugs)
 
 #### User Stories:
 1. **As a multiplayer game**, I need bodies to collide correctly after state sync
@@ -297,13 +297,13 @@ All critical bugs identified by code-critic review have been fixed in Epic 4.5:
 
 #### Tasks Breakdown:
 
-**Phase 1: Helper Functions (1 hour)** ✅ Complete
+**Phase 1: Helper Functions (1 hour)**  Complete
 - [x] Implement `serializeCollisionShape(CollisionShape): SerializedCollider[]`
 - [x] Implement `deserializeCollisionShape(SerializedCollider[]): CollisionShape`
 - [x] Handle all shape types: box, sphere, capsule, cylinder, cone, plane, mesh, convex hull, heightfield, compound
 - [x] Handle compound shape recursive structure
 
-**Phase 2: Complete Serialization (1 hour)** ✅ Complete
+**Phase 2: Complete Serialization (1 hour)**  Complete
 - [x] Rewrite `serializeState()` to use stored `bodyDescriptors`
 - [x] Serialize all colliders from descriptors
 - [x] Serialize mass, damping, friction, restitution
@@ -312,7 +312,7 @@ All critical bugs identified by code-critic review have been fixed in Epic 4.5:
 - [x] Use stored `jointDescriptors` for joint serialization
 - [x] Serialize full joint descriptors, not just metadata
 
-**Phase 3: Complete Deserialization (1.5 hours)** ✅ Complete
+**Phase 3: Complete Deserialization (1.5 hours)**  Complete
 - [x] Rewrite `deserializeState()` to reconstruct from full descriptors
 - [x] Create DeserializationResult with handle mappings
 - [x] Restore bodies with all colliders using `createRigidBody()`
@@ -321,25 +321,25 @@ All critical bugs identified by code-critic review have been fixed in Epic 4.5:
 - [x] Verify joint motors restored correctly
 - [x] Return handle mapping to caller
 
-**Phase 4: Update PhysicsWorld (30 minutes)** ✅ Complete
+**Phase 4: Update PhysicsWorld (30 minutes)**  Complete
 - [x] Change `deserializeState()` signature to return `DeserializationResult`
 - [x] Add `rebuildUserData()` helper for user data migration
 - [x] Update JSDoc with migration examples
 - [x] Clear user data map (caller must rebuild using helper)
 
-**Phase 5: Fix Minor Bugs (30 minutes)** ✅ Complete
+**Phase 5: Fix Minor Bugs (30 minutes)**  Complete
 - [x] Fix `ReplayPlayer.getProgress()` division by zero
 - [x] Fix `ReplayPlayer.seekByProgress()` bounds checking
 - [x] Add handle sorting to all serialization paths
 - [x] Removed console.warn for joint restoration (now working)
 
-**Phase 6: Update Callers (30 minutes)** ✅ Complete
+**Phase 6: Update Callers (30 minutes)**  Complete
 - [x] PhysicsSnapshotManager works with new signature (ignores return value)
 - [x] PhysicsReplayPlayer works with new signature (ignores return value)
 - [x] PhysicsDeterminismVerifier not affected (doesn't call deserializeState)
 - [x] API is backward compatible - return value optional
 
-**Phase 7: Integration Testing (1 hour)** ✅ Complete
+**Phase 7: Integration Testing (1 hour)**  Complete
 - [x] Test: Bodies with box/sphere colliders serialize/deserialize correctly
 - [x] Test: Collision properties preserved (friction, restitution, etc.)
 - [x] Test: Joint serialization/deserialization with handle remapping
@@ -423,29 +423,29 @@ for (const [oldHandle, newHandle] of result.bodyHandleMap) {
 
 **All 5 Critical Bugs Fixed:**
 
-1. ✅ **Colliders Not Serialized** (FIXED)
+1.  **Colliders Not Serialized** (FIXED)
    - Implemented `serializeCollisionShape()` and `deserializeCollisionShape()` helpers
    - Complete serialization of all shape types with material properties
    - Compound shapes handled recursively
    - Location: RapierPhysicsEngine.ts:1510-1576
 
-2. ✅ **Joints Not Restored** (FIXED)
+2.  **Joints Not Restored** (FIXED)
    - Full joint descriptors stored in `jointDescriptors` map
    - Joint reconstruction with body handle remapping in `deserializeState()`
    - All joint types (fixed, revolute, prismatic, spherical, spring, generic) supported
    - Location: RapierPhysicsEngine.ts:1535-1563
 
-3. ✅ **Handle Remapping Not Exposed** (FIXED)
+3.  **Handle Remapping Not Exposed** (FIXED)
    - `DeserializationResult` interface added with bodyHandleMap and jointHandleMap
    - Both engine and PhysicsWorld return handle mappings
    - Location: types.ts:572-577, RapierPhysicsEngine.ts:1565-1568
 
-4. ✅ **User Data Lost** (FIXED)
+4.  **User Data Lost** (FIXED)
    - Added `rebuildUserData()` helper method to PhysicsWorld
    - Comprehensive JSDoc examples for migration
    - Location: PhysicsWorld.ts:535-556
 
-5. ✅ **Division by Zero in ReplayPlayer** (FIXED)
+5.  **Division by Zero in ReplayPlayer** (FIXED)
    - `getProgress()`: Fixed edge case with ≤1 snapshots
    - `seekByProgress()`: Fixed single snapshot handling
    - Location: PhysicsReplayPlayer.ts:338-343, 304-313

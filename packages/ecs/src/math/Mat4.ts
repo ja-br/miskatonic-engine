@@ -267,3 +267,176 @@ export function isIdentity(mat: Float32Array, epsilon: number = 0.000001): boole
     Math.abs(mat[15] - 1) < epsilon
   );
 }
+
+//=============================================================================
+// CAMERA MATRICES (Epic 3.10)
+//=============================================================================
+
+/**
+ * Create lookAt view matrix
+ *
+ * @param eye - Camera position
+ * @param target - Point to look at
+ * @param up - Up vector (usually [0, 1, 0])
+ * @returns View matrix
+ */
+export function lookAt(
+  eye: Float32Array,
+  target: Float32Array,
+  up: Float32Array
+): Float32Array {
+  const result = new Float32Array(16);
+
+  // Forward = normalize(eye - target)
+  let fx = eye[0] - target[0];
+  let fy = eye[1] - target[1];
+  let fz = eye[2] - target[2];
+  let flen = Math.sqrt(fx * fx + fy * fy + fz * fz);
+
+  if (flen < 1e-6) {
+    // Eye and target are the same, use default forward
+    fx = 0;
+    fy = 0;
+    fz = 1;
+  } else {
+    fx /= flen;
+    fy /= flen;
+    fz /= flen;
+  }
+
+  // Right = normalize(cross(up, forward))
+  let rx = up[1] * fz - up[2] * fy;
+  let ry = up[2] * fx - up[0] * fz;
+  let rz = up[0] * fy - up[1] * fx;
+  let rlen = Math.sqrt(rx * rx + ry * ry + rz * rz);
+
+  if (rlen < 1e-6) {
+    // Up and forward are parallel, use default right
+    rx = 1;
+    ry = 0;
+    rz = 0;
+  } else {
+    rx /= rlen;
+    ry /= rlen;
+    rz /= rlen;
+  }
+
+  // Recalculate up = cross(forward, right)
+  const ux = fy * rz - fz * ry;
+  const uy = fz * rx - fx * rz;
+  const uz = fx * ry - fy * rx;
+
+  // Build view matrix
+  result[0] = rx;
+  result[1] = ux;
+  result[2] = fx;
+  result[3] = 0;
+
+  result[4] = ry;
+  result[5] = uy;
+  result[6] = fy;
+  result[7] = 0;
+
+  result[8] = rz;
+  result[9] = uz;
+  result[10] = fz;
+  result[11] = 0;
+
+  result[12] = -(rx * eye[0] + ry * eye[1] + rz * eye[2]);
+  result[13] = -(ux * eye[0] + uy * eye[1] + uz * eye[2]);
+  result[14] = -(fx * eye[0] + fy * eye[1] + fz * eye[2]);
+  result[15] = 1;
+
+  return result;
+}
+
+/**
+ * Create perspective projection matrix
+ *
+ * @param fov - Field of view in radians
+ * @param aspect - Aspect ratio (width / height)
+ * @param near - Near clipping plane
+ * @param far - Far clipping plane
+ * @returns Projection matrix
+ */
+export function perspective(
+  fov: number,
+  aspect: number,
+  near: number,
+  far: number
+): Float32Array {
+  const result = new Float32Array(16);
+
+  const f = 1.0 / Math.tan(fov / 2);
+  const nf = 1 / (near - far);
+
+  result[0] = f / aspect;
+  result[1] = 0;
+  result[2] = 0;
+  result[3] = 0;
+
+  result[4] = 0;
+  result[5] = f;
+  result[6] = 0;
+  result[7] = 0;
+
+  result[8] = 0;
+  result[9] = 0;
+  result[10] = (far + near) * nf;
+  result[11] = -1;
+
+  result[12] = 0;
+  result[13] = 0;
+  result[14] = 2 * far * near * nf;
+  result[15] = 0;
+
+  return result;
+}
+
+/**
+ * Create orthographic projection matrix
+ *
+ * @param left - Left clipping plane
+ * @param right - Right clipping plane
+ * @param top - Top clipping plane
+ * @param bottom - Bottom clipping plane
+ * @param near - Near clipping plane
+ * @param far - Far clipping plane
+ * @returns Projection matrix
+ */
+export function orthographic(
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+  near: number,
+  far: number
+): Float32Array {
+  const result = new Float32Array(16);
+
+  const lr = 1 / (left - right);
+  const bt = 1 / (bottom - top);
+  const nf = 1 / (near - far);
+
+  result[0] = -2 * lr;
+  result[1] = 0;
+  result[2] = 0;
+  result[3] = 0;
+
+  result[4] = 0;
+  result[5] = -2 * bt;
+  result[6] = 0;
+  result[7] = 0;
+
+  result[8] = 0;
+  result[9] = 0;
+  result[10] = 2 * nf;
+  result[11] = 0;
+
+  result[12] = (left + right) * lr;
+  result[13] = (top + bottom) * bt;
+  result[14] = (far + near) * nf;
+  result[15] = 1;
+
+  return result;
+}

@@ -7,10 +7,10 @@
 **Status:** ⚠️ Complete but uses suboptimal storage (object arrays instead of typed arrays)
 **Cache Analysis Status:** ❌ **CRITICAL** - Current implementation uses cache-unfriendly object arrays
 **Acceptance Criteria:**
-- ✅ Entity management system complete
+-  Entity management system complete
 - ❌ Component storage NOT optimized (uses object arrays, not typed arrays)
-- ✅ System execution pipeline working
-- ✅ Query engine implemented
+-  System execution pipeline working
+-  Query engine implemented
 - ❌ Cache performance NOT validated
 
 **⚠️ BLOCKING ISSUE:** Cache analysis reveals current storage is "Option A" (object arrays) which is:
@@ -22,10 +22,10 @@
 **Required:** Epic 2.10 (Component Storage Research) and Epic 2.11 (Cache-Efficient Refactoring)
 
 #### User Stories:
-1. ✅ **As a developer**, I want to create entities and attach components dynamically
-2. ✅ **As a developer**, I want efficient queries over entity components
-3. ✅ **As a developer**, I want ordered system execution
-4. ⏭️ **As a developer**, I want component change detection (deferred to Epic 2.5)
+1.  **As a developer**, I want to create entities and attach components dynamically
+2.  **As a developer**, I want efficient queries over entity components
+3.  **As a developer**, I want ordered system execution
+4.  **As a developer**, I want component change detection (deferred to Epic 2.5)
 
 #### Tasks Breakdown:
 - [x] Implement entity ID generation and recycling
@@ -89,20 +89,20 @@
 - [ ] Write plugin examples and templates
 - [ ] Add plugin marketplace infrastructure
 
-### Epic 2.3: Event System ✅ **COMPLETE**
+### Epic 2.3: Event System  **COMPLETE**
 **Priority:** P0
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Acceptance Criteria:**
-- ✅ Event bus implemented
-- ✅ Typed event system working
-- ✅ Event priorities and filtering
-- ✅ Performance optimized
+-  Event bus implemented
+-  Typed event system working
+-  Event priorities and filtering
+-  Performance optimized
 
 #### User Stories:
-1. ✅ **As a developer**, I want type-safe event publishing and subscription
-2. ✅ **As a developer**, I want event priority and ordering control
-3. ✅ **As a developer**, I want event filtering and namespacing
-4. ✅ **As a system**, I need high-performance event dispatch
+1.  **As a developer**, I want type-safe event publishing and subscription
+2.  **As a developer**, I want event priority and ordering control
+3.  **As a developer**, I want event filtering and namespacing
+4.  **As a system**, I need high-performance event dispatch
 
 #### Tasks Breakdown:
 - [x] Implement core event bus architecture
@@ -153,20 +153,20 @@
 7. **Event Validation**: Validates event structure (type and timestamp) before dispatch
 8. **Use-After-Destroy Protection**: `destroyed` flag prevents operations after cleanup
 
-### Epic 2.4: Resource Management ✅ **COMPLETE**
+### Epic 2.4: Resource Management  **COMPLETE**
 **Priority:** P0
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Acceptance Criteria:**
-- ✅ Resource loading system complete
-- ✅ Reference counting implemented
-- ✅ Memory management optimized
-- ✅ Resource hot-reload working
+-  Resource loading system complete
+-  Reference counting implemented
+-  Memory management optimized
+-  Resource hot-reload working
 
 #### User Stories:
-1. ✅ **As a developer**, I want automatic resource lifecycle management
-2. ✅ **As a developer**, I want resource reference counting
-3. ✅ **As a developer**, I want resource hot-reloading
-4. ✅ **As a system**, I need efficient memory usage
+1.  **As a developer**, I want automatic resource lifecycle management
+2.  **As a developer**, I want resource reference counting
+3.  **As a developer**, I want resource hot-reloading
+4.  **As a system**, I need efficient memory usage
 
 #### Tasks Breakdown:
 - [x] Implement resource loader architecture
@@ -222,10 +222,10 @@
 - [ ] Prefabs support composition and inheritance
 
 #### User Stories:
-1. ⏭️ **As a developer**, I want component change detection for reactive systems
-2. ⏭️ **As a developer**, I want entity prefab system for efficient entity creation
-3. ⏭️ **As a developer**, I want change detection to be performant
-4. ⏭️ **As a developer**, I want prefabs to support composition
+1.  **As a developer**, I want component change detection for reactive systems
+2.  **As a developer**, I want entity prefab system for efficient entity creation
+3.  **As a developer**, I want change detection to be performant
+4.  **As a developer**, I want prefabs to support composition
 
 #### Tasks Breakdown:
 - [ ] Add component change detection (deferred from Epic 2.1)
@@ -265,10 +265,10 @@
 - [ ] Tools integrated into dev environment
 
 #### User Stories:
-1. ⏭️ **As a developer**, I want ECS debugging tools to inspect entities and components
-2. ⏭️ **As a developer**, I want performance benchmarks to measure ECS operations
-3. ⏭️ **As a developer**, I want event replay for debugging complex interactions
-4. ⏭️ **As a developer**, I want event profiling to identify bottlenecks
+1.  **As a developer**, I want ECS debugging tools to inspect entities and components
+2.  **As a developer**, I want performance benchmarks to measure ECS operations
+3.  **As a developer**, I want event replay for debugging complex interactions
+4.  **As a developer**, I want event profiling to identify bottlenecks
 
 #### Tasks Breakdown:
 - [ ] Build ECS debugging tools (deferred from Epic 2.1)
@@ -311,9 +311,9 @@
 
 ---
 
-### Epic 2.7: Main Engine Class ✅ **COMPLETE**
+### Epic 2.7: Main Engine Class  **COMPLETE**
 **Priority:** P0 - CRITICAL
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Dependencies:** Epic 2.1 (ECS), Epic 2.3 (Events), Epic 2.4 (Resources)
 **Complexity:** Medium
 **Estimated Effort:** 2-3 weeks
@@ -322,13 +322,13 @@
 We have built excellent individual systems (ECS, Events, Resources, Physics, Network), but there is no integration layer that coordinates them into a functioning game engine. We need a `MiskatonicEngine` main class that manages system lifecycle, configuration, and provides a unified API.
 
 **Acceptance Criteria:**
-- ✅ Can initialize engine with configuration
-- ✅ Can start/stop engine cleanly
-- ✅ All systems registered and accessible via clean API
-- ✅ Clean shutdown with resource cleanup
-- ✅ Example game runs from main engine class
-- ✅ Configuration system with sensible defaults
-- ✅ System lifecycle management (init, update, shutdown)
+-  Can initialize engine with configuration
+-  Can start/stop engine cleanly
+-  All systems registered and accessible via clean API
+-  Clean shutdown with resource cleanup
+-  Example game runs from main engine class
+-  Configuration system with sensible defaults
+-  System lifecycle management (init, update, shutdown)
 
 #### User Stories:
 1. **As a developer**, I want to initialize the engine with a single configuration object
@@ -410,17 +410,17 @@ class MiskatonicEngine {
 4. **Clean API**: Hide complexity, expose only what's needed
 
 #### Dependencies:
-- Epic 2.1: Entity Component System (ECS) Core (✅ complete)
-- Epic 2.3: Event System (✅ complete)
-- Epic 2.4: Resource Management (✅ complete)
-- Physics Engine (✅ complete)
-- Network Sync (✅ complete)
+- Epic 2.1: Entity Component System (ECS) Core ( complete)
+- Epic 2.3: Event System ( complete)
+- Epic 2.4: Resource Management ( complete)
+- Physics Engine ( complete)
+- Network Sync ( complete)
 
 ---
 
-### Epic 2.8: Game Loop Architecture ✅ **COMPLETE**
+### Epic 2.8: Game Loop Architecture  **COMPLETE**
 **Priority:** P0 - CRITICAL
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Dependencies:** Epic 2.7 (Main Engine Class)
 **Complexity:** Medium
 **Estimated Effort:** 1-2 weeks
@@ -429,13 +429,13 @@ class MiskatonicEngine {
 We have no defined execution flow for the game loop. Unclear which systems run when, no fixed vs variable timestep distinction, and no coordination of frame execution phases. Need a robust game loop that handles Input → Update → Simulate → Render with proper timestep management.
 
 **Acceptance Criteria:**
-- ✅ Documented execution order (phase-based)
-- ✅ 60 FPS game loop working
-- ✅ Fixed timestep for physics (16.67ms)
-- ✅ Variable timestep for rendering
-- ✅ Systems execute in correct order
-- ✅ Frame pacing consistent
-- ✅ Handles spiral of death (max delta time)
+-  Documented execution order (phase-based)
+-  60 FPS game loop working
+-  Fixed timestep for physics (16.67ms)
+-  Variable timestep for rendering
+-  Systems execute in correct order
+-  Frame pacing consistent
+-  Handles spiral of death (max delta time)
 
 #### User Stories:
 1. **As a developer**, I want clear documentation of when each system executes
@@ -529,9 +529,9 @@ Frame N:
 
 ---
 
-### Epic 2.9: Command System ✅ **COMPLETE**
+### Epic 2.9: Command System  **COMPLETE**
 **Priority:** P1 - IMPORTANT
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Dependencies:** Epic 2.7 (Main Engine), Epic 2.3 (Events)
 **Complexity:** Low-Medium
 **Estimated Effort:** 1 week
@@ -540,13 +540,13 @@ Frame N:
 Event bus is great for notifications ("something happened"), but we need a command pattern for imperative actions ("do this thing"). Commands should be validated, queued, and executed with guaranteed handlers. This enables debug console, scripting, and UI actions.
 
 **Acceptance Criteria:**
-- ✅ Commands can be registered with handlers
-- ✅ Commands can be sent synchronously or queued
-- ✅ Commands can be validated before execution
-- ✅ Debug console can execute commands
-- ✅ Example commands work (spawn entity, change physics, etc.)
-- ✅ Command history tracking
-- ✅ Undo/redo support (optional)
+-  Commands can be registered with handlers
+-  Commands can be sent synchronously or queued
+-  Commands can be validated before execution
+-  Debug console can execute commands
+-  Example commands work (spawn entity, change physics, etc.)
+-  Command history tracking
+-  Undo/redo support (optional)
 
 #### User Stories:
 1. **As a developer**, I want to register commands with typed handlers
@@ -685,9 +685,9 @@ await commandBus.execute(cmd);
 
 ---
 
-### Epic 2.10: Component Storage Research & Benchmarking ✅ **COMPLETE**
+### Epic 2.10: Component Storage Research & Benchmarking  **COMPLETE**
 **Priority:** P0 - CRITICAL (BLOCKS PERFORMANCE)
-**Status:** ✅ Completed November 2025
+**Status:**  Completed November 2025
 **Dependencies:** None (foundational research)
 **Complexity:** Medium
 **Estimated Effort:** 1-2 weeks
@@ -701,12 +701,12 @@ Current ECS uses object arrays (cache-unfriendly "Option A"). Cache analysis sho
 > "Objects vs typed arrays: ~10x expected"
 
 **Acceptance Criteria:**
-- ✅ All storage options benchmarked (objects, typed arrays SoA, hybrid)
-- ✅ Sequential vs random access measured (1.55x penalty at 100k scale)
-- ✅ Loop ordering impact validated (1.08x penalty at 100k scale)
-- ✅ GC impact measured for each option
-- ✅ Storage decision made with data: **Typed Arrays (SoA)**
-- ✅ Performance validated: **4.16x speedup** at 100k entities
+-  All storage options benchmarked (objects, typed arrays SoA, hybrid)
+-  Sequential vs random access measured (1.55x penalty at 100k scale)
+-  Loop ordering impact validated (1.08x penalty at 100k scale)
+-  GC impact measured for each option
+-  Storage decision made with data: **Typed Arrays (SoA)**
+-  Performance validated: **4.16x speedup** at 100k entities
 
 #### User Stories:
 1. **As an engineer**, I want benchmark data comparing storage options
@@ -795,17 +795,17 @@ class Position {
 - None (foundational research)
 
 **Deliverables:**
-- ✅ Benchmark suite with results (benchmarks/storage/)
-- ✅ Performance comparison report (FINDINGS.md)
-- ✅ Storage decision document (README.md + FINDINGS.md)
-- ✅ Component API specification (in FINDINGS.md)
-- ✅ Migration plan (deferred to Epic 2.11)
+-  Benchmark suite with results (benchmarks/storage/)
+-  Performance comparison report (FINDINGS.md)
+-  Storage decision document (README.md + FINDINGS.md)
+-  Component API specification (in FINDINGS.md)
+-  Migration plan (deferred to Epic 2.11)
 
 #### Results Summary:
 
 **Performance (100,000 entities, 1000 iterations):**
 - Object Arrays (baseline): 0.611 ms/iteration
-- Typed Arrays (SoA): 0.147 ms/iteration - **4.16x faster** ✅
+- Typed Arrays (SoA): 0.147 ms/iteration - **4.16x faster** 
 - Hybrid: 0.330 ms/iteration - 1.85x faster
 
 **Cache Effects:**
@@ -818,7 +818,7 @@ class Position {
 - Hybrid: 200,000 allocations (wrapper objects) - **REJECTED**
 
 **Decision:**
-✅ **Typed Arrays (SoA)** - Proceed to Epic 2.11 for refactoring
+ **Typed Arrays (SoA)** - Proceed to Epic 2.11 for refactoring
 - 4.16x performance improvement validated
 - Zero GC pressure
 - Cache-friendly sequential layout
@@ -840,7 +840,7 @@ class Position {
 ### Epic 2.11: Cache-Efficient ECS Refactoring
 **Priority:** P0 - CRITICAL
 **Status:** 🔨 IN PROGRESS - Core refactoring complete, tests in progress
-**Dependencies:** Epic 2.10 (Storage Research) ✅ COMPLETE
+**Dependencies:** Epic 2.10 (Storage Research)  COMPLETE
 **Complexity:** High
 **Estimated Effort:** 3-4 weeks
 **Actual Effort:** ~1 week core implementation + code-critic review fixes
@@ -849,11 +849,11 @@ class Position {
 Current ECS implementation uses cache-unfriendly object arrays. Epic 2.10 benchmarks validate that SoA typed arrays provide **4.16x performance improvement** at 100k entity scale on Apple Silicon, with zero GC pressure. Need to refactor Archetype storage to realize these validated gains. Note: x86 platforms with smaller L1 caches may show even higher speedups (est. 5-10x) as object arrays suffer more on constrained cache hierarchies.
 
 **Implementation Summary (November 2025):**
-- ✅ Created ComponentStorage class (SoA pattern with typed arrays)
-- ✅ Created ComponentRegistry for schema management
-- ✅ Refactored Archetype & ArchetypeManager to use ComponentStorage
-- ✅ Updated World and Query systems for new storage
-- ✅ Fixed 6 CRITICAL/HIGH issues identified by code-critic:
+-  Created ComponentStorage class (SoA pattern with typed arrays)
+-  Created ComponentRegistry for schema management
+-  Refactored Archetype & ArchetypeManager to use ComponentStorage
+-  Updated World and Query systems for new storage
+-  Fixed 6 CRITICAL/HIGH issues identified by code-critic:
   1. Removed count management from ComponentStorage (Archetype is single source of truth)
   2. Fixed count synchronization bugs
   3. Hidden typed arrays behind accessor methods
@@ -861,19 +861,19 @@ Current ECS implementation uses cache-unfriendly object arrays. Epic 2.10 benchm
   5. Added integer overflow protection (max 2^30 entities)
   6. Added type validation for component values
 - 🔨 Tests partially updated (Entity: 18/18 passing, Archetype: partial, World: partial)
-- ⏭️ Performance validation pending
-- ⏭️ x86 cross-platform validation pending
+-  Performance validation pending
+-  x86 cross-platform validation pending
 
 **Acceptance Criteria:**
-- ✅ Archetype storage refactored to use SoA typed arrays (validated in Epic 2.10: 4.16x speedup)
-- ⏭️ Component iteration >100k components/ms (Epic 2.10 achieved: 680k components/ms on Apple Silicon) - validation pending
-- ✅ Sequential access implemented (Epic 2.10: 1.55x at 100k scale)
-- ⏭️ Higher penalties expected on x86 platforms (validation required - smaller L1 caches)
-- ✅ GC pressure <100 objects/frame (Epic 2.10 validated: 0 allocations per iteration)
-- ⏭️ All 65 tests still passing (IN PROGRESS: 18/65 passing, others need API updates)
-- ✅ Migration guide provided (packages/ecs/MIGRATION.md)
-- ⏭️ Cache performance benchmarks validation pending
-- ⏭️ Cross-platform validation on x86 hardware pending
+-  Archetype storage refactored to use SoA typed arrays (validated in Epic 2.10: 4.16x speedup)
+-  Component iteration >100k components/ms (Epic 2.10 achieved: 680k components/ms on Apple Silicon) - validation pending
+-  Sequential access implemented (Epic 2.10: 1.55x at 100k scale)
+-  Higher penalties expected on x86 platforms (validation required - smaller L1 caches)
+-  GC pressure <100 objects/frame (Epic 2.10 validated: 0 allocations per iteration)
+-  All 65 tests still passing (IN PROGRESS: 18/65 passing, others need API updates)
+-  Migration guide provided (packages/ecs/MIGRATION.md)
+-  Cache performance benchmarks validation pending
+-  Cross-platform validation on x86 hardware pending
 
 #### User Stories:
 1. **As a game**, I need 4x+ faster component iteration (Epic 2.10 validated: 4.16x on Apple Silicon)
@@ -990,7 +990,7 @@ class MovementSystem {
 
 ### Epic 2.12: Cache-Aware System Design Guidelines
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 2.11 (Cache-Efficient Refactoring)
 **Complexity:** Low
 **Estimated Effort:** 1 week
@@ -1006,12 +1006,12 @@ Developers need clear guidelines for writing cache-efficient systems. Without pa
 - x86 platforms with smaller caches expected to show higher penalties (3-10x)
 
 **Acceptance Criteria:**
-- ✅ System design patterns documented
-- ✅ Code examples (good vs bad patterns)
-- ✅ Component size guidelines (<64 bytes)
-- ✅ Loop ordering rules defined
-- ✅ Code review checklist created
-- ✅ All examples benchmarked to show difference
+-  System design patterns documented
+-  Code examples (good vs bad patterns)
+-  Component size guidelines (<64 bytes)
+-  Loop ordering rules defined
+-  Code review checklist created
+-  All examples benchmarked to show difference
 
 #### User Stories:
 1. **As a developer**, I want clear patterns for cache-efficient systems
@@ -1037,7 +1037,7 @@ Developers need clear guidelines for writing cache-efficient systems. Without pa
 
 **Mandatory Pattern: Sequential Archetype Iteration**
 ```typescript
-// ✅ GOOD: Cache-friendly
+//  GOOD: Cache-friendly
 class MovementSystem {
   update(dt: number) {
     for (const archetype of this.archetypes) {
@@ -1093,7 +1093,7 @@ Epic 2.10 benchmarks revealed that **theoretical cache penalties are less extrem
 
 **Component Size Guidelines:**
 ```typescript
-// ✅ GOOD: Small, focused (<64 bytes target)
+//  GOOD: Small, focused (<64 bytes target)
 // Rationale: 64 bytes = typical x86 cache line size
 // Note: Apple Silicon uses 128-byte cache lines, but target 64 bytes for x86 compatibility
 interface Position { x: number; y: number; z: number; } // 12 bytes (Float32Array in SoA)
@@ -1178,7 +1178,7 @@ interface Character {
 
 ### Epic 2.13: Memory Management Foundation
 **Priority:** P0 - CRITICAL
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** None (foundational)
 **Complexity:** Medium
 **Estimated Effort:** 3-4 weeks
@@ -1191,13 +1191,13 @@ Memory management is not treated as a first-class concern despite being critical
 > "GC pause >5ms leaves only 11.67ms for actual work"
 
 **Acceptance Criteria:**
-- ✅ Object pool infrastructure implemented (generic, reusable)
-- ✅ Frame allocator implemented (ArrayBuffer-based)
-- ✅ GC monitoring integrated (pause tracking, heap stats)
-- ✅ GC pause budget enforced (<5ms)
-- ✅ Per-frame allocation tracking working
-- ✅ Memory profiling available in dev mode
-- ✅ V8 tuning strategy documented
+-  Object pool infrastructure implemented (generic, reusable)
+-  Frame allocator implemented (ArrayBuffer-based)
+-  GC monitoring integrated (pause tracking, heap stats)
+-  GC pause budget enforced (<5ms)
+-  Per-frame allocation tracking working
+-  Memory profiling available in dev mode
+-  V8 tuning strategy documented
 
 #### User Stories:
 1. **As a developer**, I want to pool reusable objects to reduce GC pressure
@@ -1331,7 +1331,7 @@ None (foundational infrastructure)
 
 ### Epic 2.14: GC Mitigation and V8 Tuning
 **Priority:** P0 - CRITICAL
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 2.13 (Memory Management Foundation)
 **Complexity:** Medium
 **Estimated Effort:** 2 weeks
@@ -1344,12 +1344,12 @@ JavaScript GC is non-deterministic and can break frame budget. Without GC mitiga
 > "16.67ms total budget - 5.00ms GC pause budget = 11.67ms available for work"
 
 **Acceptance Criteria:**
-- ✅ GC pause budget <5ms achieved
-- ✅ Per-frame allocations <1000 objects (steady state)
-- ✅ V8 heap tuning strategy documented
-- ✅ GC profiling integrated (--trace-gc analysis)
-- ✅ Allocation hotspots identified and optimized
-- ✅ Long-running stability verified (no memory leaks)
+-  GC pause budget <5ms achieved
+-  Per-frame allocations <1000 objects (steady state)
+-  V8 heap tuning strategy documented
+-  GC profiling integrated (--trace-gc analysis)
+-  Allocation hotspots identified and optimized
+-  Long-running stability verified (no memory leaks)
 
 #### User Stories:
 1. **As a game**, I need predictable frame times without GC spikes
@@ -1457,7 +1457,7 @@ if (allocated > ALLOCATION_BUDGET) {
 
 ### Epic 2.15: Memory Leak Detection and Prevention
 **Priority:** P1 - IMPORTANT
-**Status:** ⏭️ Not Started
+**Status:**  Not Started
 **Dependencies:** Epic 2.13 (Memory Management Foundation)
 **Complexity:** Medium
 **Estimated Effort:** 1-2 weeks
@@ -1466,12 +1466,12 @@ if (allocated > ALLOCATION_BUDGET) {
 Without automated memory leak detection, leaks accumulate and cause crashes. Need infrastructure to detect leaks in load/unload cycles, create/destroy patterns, and long-running sessions.
 
 **Acceptance Criteria:**
-- ✅ Memory snapshot comparison working
-- ✅ Load/unload cycles verified leak-free
-- ✅ Create/destroy cycles verified leak-free
-- ✅ Long-running sessions stable (no heap growth)
-- ✅ Leak detection integrated in CI/CD
-- ✅ GPU resource leaks detected (texture, buffer cleanup)
+-  Memory snapshot comparison working
+-  Load/unload cycles verified leak-free
+-  Create/destroy cycles verified leak-free
+-  Long-running sessions stable (no heap growth)
+-  Leak detection integrated in CI/CD
+-  GPU resource leaks detected (texture, buffer cleanup)
 
 #### User Stories:
 1. **As a developer**, I want automated leak detection
@@ -1544,7 +1544,7 @@ class System {
   }
 }
 
-// ✅ GOOD: Cleanup on destroy
+//  GOOD: Cleanup on destroy
 class System {
   constructor(eventBus: EventBus) {
     this.cleanup = eventBus.on('update', this.onUpdate);

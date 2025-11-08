@@ -24,15 +24,15 @@ Initiative (Domain) → Epic (Major Deliverable) → User Stories (Features) →
 
 | Epic | Status | Test Coverage | Key Achievement |
 |------|--------|---------------|-----------------|
-| 1.1 - Electron Architecture | ✅ Complete | Full | Secure multi-process architecture with IPC |
-| 1.2 - Native OS Integration | ✅ Complete | Full | File dialogs, menus, tray, shortcuts, notifications |
-| 2.1 - ECS Core | ✅ Complete | 65/65 tests | Archetype-based ECS with generation validation |
-| 2.3 - Event System | ✅ Complete | 49/49 tests | Production-ready event bus with critical fixes |
-| 2.4 - Resource Management | ✅ Complete | 91/91 tests | Async loading, ref counting, hot-reload, memory profiling |
-| 4.2 - Collision System | ✅ Complete | Manual validation | All shape types, compound shapes, CCD, callbacks |
-| 4.3 - Rigid Body Dynamics | ✅ Complete | Manual validation | 6 joint types, motors, spring joints, joint breaking |
-| 4.4 - Deterministic Simulation | ✅ Complete | Integration tests | Serialization, replay, rollback, determinism verification |
-| 4.5 - Fix Deterministic Simulation | ✅ Complete | 7 integration tests | All 5 critical bugs fixed, production-ready |
+| 1.1 - Electron Architecture |  Complete | Full | Secure multi-process architecture with IPC |
+| 1.2 - Native OS Integration |  Complete | Full | File dialogs, menus, tray, shortcuts, notifications |
+| 2.1 - ECS Core |  Complete | 65/65 tests | Archetype-based ECS with generation validation |
+| 2.3 - Event System |  Complete | 49/49 tests | Production-ready event bus with critical fixes |
+| 2.4 - Resource Management |  Complete | 91/91 tests | Async loading, ref counting, hot-reload, memory profiling |
+| 4.2 - Collision System |  Complete | Manual validation | All shape types, compound shapes, CCD, callbacks |
+| 4.3 - Rigid Body Dynamics |  Complete | Manual validation | 6 joint types, motors, spring joints, joint breaking |
+| 4.4 - Deterministic Simulation |  Complete | Integration tests | Serialization, replay, rollback, determinism verification |
+| 4.5 - Fix Deterministic Simulation |  Complete | 7 integration tests | All 5 critical bugs fixed, production-ready |
 
 **Current Focus:** Next epic TBD (physics foundation complete)
 
@@ -48,8 +48,8 @@ Initiative (Domain) → Epic (Major Deliverable) → User Stories (Features) →
 Desktop platform foundation using Electron with cross-platform support.
 
 **Epics:**
-- ✅ 1.1 - Electron Architecture Setup (Complete)
-- ✅ 1.2 - Native OS Integration (Complete)
+-  1.1 - Electron Architecture Setup (Complete)
+-  1.2 - Native OS Integration (Complete)
 - 🔲 1.3 - Auto-Update System (Planned)
 - 🔲 1.4 - Build & Distribution Pipeline (Planned)
 
@@ -63,10 +63,10 @@ Desktop platform foundation using Electron with cross-platform support.
 Entity Component System (ECS), event bus, resource management, and scheduling.
 
 **Epics:**
-- ✅ 2.1 - Archetype-Based ECS Implementation (Complete)
+-  2.1 - Archetype-Based ECS Implementation (Complete)
 - 🔲 2.2 - Plugin System (Planned)
-- ✅ 2.3 - Event System (Complete)
-- ✅ 2.4 - Resource Management (Complete)
+-  2.3 - Event System (Complete)
+-  2.4 - Resource Management (Complete)
 - 🔲 2.5 - System Scheduler (Planned)
 
 ---
@@ -96,10 +96,10 @@ Deterministic physics simulation with multiple backend support (Rapier, Cannon-e
 
 **Epics:**
 - 🔲 4.1 - Physics Abstraction Layer (Planned)
-- ✅ 4.2 - Collision Detection System (Complete)
-- ✅ 4.3 - Rigid Body Dynamics (Complete)
-- ✅ 4.4 - Deterministic Simulation (Complete)
-- ✅ 4.5 - Fix Deterministic Simulation (Complete)
+-  4.2 - Collision Detection System (Complete)
+-  4.3 - Rigid Body Dynamics (Complete)
+-  4.4 - Deterministic Simulation (Complete)
+-  4.5 - Fix Deterministic Simulation (Complete)
 
 ---
 
@@ -112,7 +112,7 @@ Server-authoritative multiplayer with client prediction and lag compensation.
 
 **Epics:**
 - 🔲 5.1 - Connection Management (Planned)
-- ✅ 5.2 - State Synchronization (Complete - 94.82% coverage)
+-  5.2 - State Synchronization (Complete - 94.82% coverage)
 - 🔲 5.3 - Client Prediction & Reconciliation (Planned)
 - 🔲 5.4 - Server-Authoritative System (Planned)
 
@@ -190,7 +190,7 @@ Performance optimization, profiling, and benchmarking across all systems.
 
 ## Status Legend
 
-- ✅ **Complete** - Epic fully implemented with tests
+-  **Complete** - Epic fully implemented with tests
 - 🔲 **Planned** - Epic defined but not started
 - 🚧 **In Progress** - Epic currently being worked on
 - ⏸️ **Blocked** - Epic blocked by dependencies

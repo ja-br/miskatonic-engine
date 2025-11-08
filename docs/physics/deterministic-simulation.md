@@ -10,11 +10,11 @@ A physics simulation is **deterministic** if:
 - It produces **exactly** the same output every time
 
 This means:
-- ✅ Same position, rotation, and velocity for every body
-- ✅ Same collision events in the same order
-- ✅ Same joint forces and constraints
-- ✅ Bit-identical results across platforms (Windows, macOS, Linux)
-- ✅ Reproducible results in replays and rollback
+-  Same position, rotation, and velocity for every body
+-  Same collision events in the same order
+-  Same joint forces and constraints
+-  Bit-identical results across platforms (Windows, macOS, Linux)
+-  Reproducible results in replays and rollback
 
 ## Why Determinism Matters
 
@@ -63,7 +63,7 @@ for (const [entityId, input] of inputMap) {
   applyInput(entityId, input);
 }
 
-// ✅ GOOD: Sort by entity ID for deterministic order
+//  GOOD: Sort by entity ID for deterministic order
 const sortedInputs = Array.from(inputMap.entries()).sort((a, b) => a[0] - b[0]);
 for (const [entityId, input] of sortedInputs) {
   applyInput(entityId, input);
@@ -79,7 +79,7 @@ Avoid these operations in physics simulation code:
 // ❌ BAD: Math.random() is non-deterministic
 const force = Math.random() * 100;
 
-// ✅ GOOD: Use seeded RNG
+//  GOOD: Use seeded RNG
 import { SeededRNG } from '@miskatonic/core';
 const rng = new SeededRNG(1234); // Deterministic seed
 const force = rng.next() * 100;
@@ -90,7 +90,7 @@ const force = rng.next() * 100;
 // ❌ BAD: Date.now() is non-deterministic
 const spawnTime = Date.now();
 
-// ✅ GOOD: Use simulation time
+//  GOOD: Use simulation time
 const spawnTime = physicsWorld.serializeState().time;
 ```
 
@@ -100,7 +100,7 @@ const spawnTime = physicsWorld.serializeState().time;
 const data = await fetch('/api/config');
 applyPhysicsConfig(data);
 
-// ✅ GOOD: Fetch before simulation starts, then use deterministically
+//  GOOD: Fetch before simulation starts, then use deterministically
 const config = await fetch('/api/config');
 const physicsWorld = await PhysicsWorld.create(engine, config);
 ```
@@ -111,8 +111,8 @@ JavaScript uses IEEE 754 double-precision floats, which are **mostly** determini
 
 #### Math Functions
 Most Math functions are deterministic:
-- ✅ `Math.sqrt()`, `Math.sin()`, `Math.cos()`, `Math.atan2()`
-- ✅ `+`, `-`, `*`, `/`, `Math.abs()`
+-  `Math.sqrt()`, `Math.sin()`, `Math.cos()`, `Math.atan2()`
+-  `+`, `-`, `*`, `/`, `Math.abs()`
 - ⚠️ `Math.pow()` - May have tiny differences on some platforms
 - ⚠️ `Math.exp()`, `Math.log()` - May have tiny differences
 
@@ -126,7 +126,7 @@ Very small numbers near zero can behave differently across platforms. Rapier phy
 Create rigid bodies in **deterministic order** to ensure handle assignment is consistent:
 
 ```typescript
-// ✅ GOOD: Deterministic creation order
+//  GOOD: Deterministic creation order
 const bodies = [
   { name: 'ground', type: RigidBodyType.STATIC, ... },
   { name: 'player', type: RigidBodyType.DYNAMIC, ... },
@@ -242,7 +242,7 @@ const state2 = physicsWorld.serializeState();
 const result = verifier.verify(state1, state2);
 
 if (result.isDeterministic) {
-  console.log('✅ Physics is deterministic!');
+  console.log(' Physics is deterministic!');
 } else {
   console.error('❌ Physics is NOT deterministic!');
   console.error(`Body mismatches: ${result.mismatchedBodies}`);
@@ -305,7 +305,7 @@ if (physicsWorld.isSleeping(bodyHandle)) {
   // Don't apply force
 }
 
-// ✅ GOOD: Always apply forces regardless of sleep state
+//  GOOD: Always apply forces regardless of sleep state
 // The physics engine will wake the body automatically
 physicsWorld.applyForce(bodyHandle, force);
 ```
@@ -409,7 +409,7 @@ function spawnParticles(position: Vector3) {
 Keep rendering logic separate from physics:
 
 ```typescript
-// ✅ GOOD: Separate concerns
+//  GOOD: Separate concerns
 function physicsStep(deltaTime: number) {
   physicsWorld.step(deltaTime);  // Deterministic
 }
@@ -426,10 +426,10 @@ function render() {
 
 ### Tested Platforms
 The Miskatonic Engine physics is deterministic across:
-- ✅ Windows x64
-- ✅ macOS x64 (Intel)
-- ✅ macOS ARM64 (Apple Silicon)
-- ✅ Linux x64
+-  Windows x64
+-  macOS x64 (Intel)
+-  macOS ARM64 (Apple Silicon)
+-  Linux x64
 
 ### WASM Determinism
 Rapier uses **WebAssembly** which provides consistent floating-point behavior across all platforms. This is a key reason for choosing Rapier over native JavaScript physics engines.
@@ -526,15 +526,15 @@ replayPlayer.stepForward();
 ## Troubleshooting
 
 ### "Physics desync between clients"
-- ✅ Check: Are you using fixed timestep?
-- ✅ Check: Are inputs processed in same order?
-- ✅ Check: Are initial states identical?
-- ✅ Check: Do all clients use same physics config?
+-  Check: Are you using fixed timestep?
+-  Check: Are inputs processed in same order?
+-  Check: Are initial states identical?
+-  Check: Do all clients use same physics config?
 
 ### "Replay doesn't match original game"
-- ✅ Check: Are you using Math.random() in simulation?
-- ✅ Check: Are you using Date.now() or performance.now()?
-- ✅ Check: Are you creating bodies in deterministic order?
+-  Check: Are you using Math.random() in simulation?
+-  Check: Are you using Date.now() or performance.now()?
+-  Check: Are you creating bodies in deterministic order?
 
 ### "Determinism test fails with tiny differences"
 - Increase tolerance: `new PhysicsDeterminismVerifier({ tolerance: 1e-5 })`
@@ -544,10 +544,10 @@ replayPlayer.stepForward();
 ## Conclusion
 
 Deterministic physics simulation enables:
-- ✅ Competitive multiplayer with minimal bandwidth
-- ✅ Perfect replay systems
-- ✅ Save/load functionality
-- ✅ Rollback netcode
-- ✅ Reproducible testing
+-  Competitive multiplayer with minimal bandwidth
+-  Perfect replay systems
+-  Save/load functionality
+-  Rollback netcode
+-  Reproducible testing
 
 By following the guidelines in this document, your game will have **100% deterministic physics** across all platforms and network conditions.
