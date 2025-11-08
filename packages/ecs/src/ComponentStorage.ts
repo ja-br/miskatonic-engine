@@ -56,13 +56,14 @@ export type TypedArray =
 /**
  * Component storage using Structure of Arrays (SoA) pattern
  *
+ * This is a stateless data container. The Archetype manages indices and count.
+ *
  * @template T - Component type
  */
 export class ComponentStorage<T> {
   private fields: Map<string, TypedArray> = new Map();
   private fieldDescriptors: FieldDescriptor[];
   private capacity: number;
-  private count: number = 0;
 
   /**
    * Create component storage
@@ -82,28 +83,34 @@ export class ComponentStorage<T> {
 
   /**
    * Get component field value at index
+   * Note: No bounds checking - caller (Archetype) is responsible for valid indices
    */
   get(index: number, fieldName: string): number {
     const array = this.fields.get(fieldName);
     if (!array) {
       throw new Error(`Field ${fieldName} not found in component storage`);
     }
-    if (index < 0 || index >= this.count) {
-      throw new Error(`Index ${index} out of bounds (count: ${this.count})`);
+    if (index < 0 || index >= this.capacity) {
+      throw new Error(`Index ${index} out of bounds (capacity: ${this.capacity})`);
     }
     return array[index];
   }
 
   /**
    * Set component field value at index
+   * Note: No bounds checking against count - caller manages valid range
    */
   set(index: number, fieldName: string, value: number): void {
     const array = this.fields.get(fieldName);
     if (!array) {
       throw new Error(`Field ${fieldName} not found in component storage`);
     }
-    if (index < 0 || index >= this.count) {
-      throw new Error(`Index ${index} out of bounds (count: ${this.count})`);
+    if (index < 0 || index >= this.capacity) {
+      throw new Error(`Index ${index} out of bounds (capacity: ${this.capacity})`);
+    }
+    // Type validation
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new TypeError(`Expected finite number, got ${typeof value}: ${value}`);
     }
     array[index] = value;
   }
@@ -116,58 +123,57 @@ export class ComponentStorage<T> {
   }
 
   /**
-   * Add a component to storage
+   * Set component data at a specific index
+   * Caller (Archetype) is responsible for ensuring index is valid and < count
    *
+   * @param index - Index to write to
    * @param component - Component data as object
-   * @returns Index where component was added
    */
-  add(component: Partial<T>): number {
-    // Grow if needed
-    if (this.count >= this.capacity) {
-      this.grow();
+  setComponentData(index: number, component: Partial<T>): void {
+    if (index < 0 || index >= this.capacity) {
+      throw new Error(`Index ${index} out of bounds (capacity: ${this.capacity})`);
     }
-
-    const index = this.count++;
 
     // Set field values from component
     for (const descriptor of this.fieldDescriptors) {
       const value = (component as any)[descriptor.name] ?? descriptor.defaultValue ?? 0;
       this.set(index, descriptor.name, value);
     }
-
-    return index;
   }
 
   /**
-   * Remove component at index using swap-and-pop
+   * Swap component data from lastIndex to targetIndex (for swap-and-pop removal)
+   * Caller is responsible for managing count
    *
-   * @param index - Index to remove
-   * @returns True if an element was swapped
+   * @param targetIndex - Index to write to
+   * @param sourceIndex - Index to copy from
    */
-  remove(index: number): boolean {
-    if (index < 0 || index >= this.count) {
-      throw new Error(`Index ${index} out of bounds (count: ${this.count})`);
+  swap(targetIndex: number, sourceIndex: number): void {
+    if (targetIndex < 0 || targetIndex >= this.capacity) {
+      throw new Error(`Target index ${targetIndex} out of bounds (capacity: ${this.capacity})`);
+    }
+    if (sourceIndex < 0 || sourceIndex >= this.capacity) {
+      throw new Error(`Source index ${sourceIndex} out of bounds (capacity: ${this.capacity})`);
     }
 
-    const lastIndex = this.count - 1;
-
-    // Swap with last element if not already last
-    if (index !== lastIndex) {
-      for (const [fieldName, array] of this.fields) {
-        array[index] = array[lastIndex];
-      }
+    // Swap all field values
+    for (const [fieldName, array] of this.fields) {
+      array[targetIndex] = array[sourceIndex];
     }
-
-    this.count--;
-    return index !== lastIndex;
   }
 
   /**
    * Get component as object at index
+   *
+   * NOTE: Returns a plain object, NOT an instance of the component class.
+   * This is intentional for the SoA pattern - typed arrays store primitives only.
+   *
+   * @param index - Index to read from (caller must ensure < archetype.count)
+   * @returns Plain object with component data
    */
   getComponent(index: number): Partial<T> {
-    if (index < 0 || index >= this.count) {
-      throw new Error(`Index ${index} out of bounds (count: ${this.count})`);
+    if (index < 0 || index >= this.capacity) {
+      throw new Error(`Index ${index} out of bounds (capacity: ${this.capacity})`);
     }
 
     const component: any = {};
@@ -179,10 +185,14 @@ export class ComponentStorage<T> {
 
   /**
    * Set component from object at index
+   * Equivalent to setComponentData but keeps existing method name for compatibility
+   *
+   * @param index - Index to write to
+   * @param component - Component data to write
    */
   setComponent(index: number, component: Partial<T>): void {
-    if (index < 0 || index >= this.count) {
-      throw new Error(`Index ${index} out of bounds (count: ${this.count})`);
+    if (index < 0 || index >= this.capacity) {
+      throw new Error(`Index ${index} out of bounds (capacity: ${this.capacity})`);
     }
 
     for (const descriptor of this.fieldDescriptors) {
@@ -194,13 +204,6 @@ export class ComponentStorage<T> {
   }
 
   /**
-   * Get current count of components
-   */
-  getCount(): number {
-    return this.count;
-  }
-
-  /**
    * Get current capacity
    */
   getCapacity(): number {
@@ -208,17 +211,22 @@ export class ComponentStorage<T> {
   }
 
   /**
-   * Clear all components
+   * Grow storage capacity to specified size
+   * Called by Archetype when it needs to grow
+   *
+   * @param newCapacity - New capacity (must be > current capacity)
    */
-  clear(): void {
-    this.count = 0;
-  }
+  growTo(newCapacity: number): void {
+    if (newCapacity <= this.capacity) {
+      throw new Error(`New capacity ${newCapacity} must be > current capacity ${this.capacity}`);
+    }
 
-  /**
-   * Grow storage capacity (doubles current capacity)
-   */
-  private grow(): void {
-    const newCapacity = this.capacity * 2;
+    // Integer overflow protection
+    if (newCapacity > 1073741824) {
+      throw new Error(
+        `Capacity overflow: requested ${newCapacity}, max allowed is 1073741824 (2^30)`
+      );
+    }
 
     for (const [fieldName, oldArray] of this.fields) {
       const descriptor = this.fieldDescriptors.find((d) => d.name === fieldName);
@@ -239,8 +247,10 @@ export class ComponentStorage<T> {
 
   /**
    * Get memory usage statistics
+   *
+   * @param count - Current entity count (provided by caller/Archetype)
    */
-  getMemoryStats(): {
+  getMemoryStats(count: number): {
     capacity: number;
     count: number;
     utilizationPercent: number;
@@ -254,8 +264,8 @@ export class ComponentStorage<T> {
 
     return {
       capacity: this.capacity,
-      count: this.count,
-      utilizationPercent: (this.count / this.capacity) * 100,
+      count,
+      utilizationPercent: (count / this.capacity) * 100,
       bytesPerComponent,
       totalBytes: bytesPerComponent * this.capacity,
     };

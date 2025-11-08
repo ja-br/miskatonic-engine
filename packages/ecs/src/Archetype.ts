@@ -106,12 +106,11 @@ export class ArchetypeManager {
     // Add entity ID
     archetype.entities[index] = entityId;
 
-    // Add components to typed array storage
+    // Add components to typed array storage at the specific index
     for (const [type, component] of components) {
       const storage = archetype.components.get(type);
       if (storage) {
-        // ComponentStorage handles adding at correct index
-        storage.add(component);
+        storage.setComponentData(index, component);
       }
     }
 
@@ -136,18 +135,45 @@ export class ArchetypeManager {
 
     // Swap with last entity (or just decrement if removing last)
     if (index !== lastIndex) {
+      // Swap entity ID
       archetype.entities[index] = movedEntityId;
+
+      // Swap component data in all storages
+      for (const storage of archetype.components.values()) {
+        storage.swap(index, lastIndex);
+      }
     }
 
-    // Swap/remove components in all storages
-    for (const storage of archetype.components.values()) {
-      storage.remove(index);
-    }
-
+    // Decrement count (effectively removes last element)
     archetype.count--;
 
     // Return the entity that was moved (if any)
     return index !== lastIndex ? movedEntityId : undefined;
+  }
+
+  /**
+   * Get entities in archetype as array
+   * Returns a copy to prevent external modification
+   *
+   * @param archetype - Target archetype
+   * @returns Array of entity IDs (not the underlying typed array)
+   */
+  getEntities(archetype: Archetype): EntityId[] {
+    return Array.from(archetype.entities.slice(0, archetype.count));
+  }
+
+  /**
+   * Get entity ID at specific index
+   *
+   * @param archetype - Target archetype
+   * @param index - Index to retrieve
+   * @returns Entity ID or undefined if out of bounds
+   */
+  getEntityAt(archetype: Archetype, index: number): EntityId | undefined {
+    if (index < 0 || index >= archetype.count) {
+      return undefined;
+    }
+    return archetype.entities[index];
   }
 
   /**
@@ -225,7 +251,7 @@ export class ArchetypeManager {
       let archetypeMemory = archetype.capacity * 4; // Uint32Array for entities
 
       for (const storage of archetype.components.values()) {
-        archetypeMemory += storage.getMemoryStats().totalBytes;
+        archetypeMemory += storage.getMemoryStats(archetype.count).totalBytes;
       }
 
       stats.memoryUsageBytes += archetypeMemory;
@@ -253,18 +279,27 @@ export class ArchetypeManager {
 
   /**
    * Grow archetype capacity (doubles current capacity)
+   * Includes overflow protection
    */
   private growArchetype(archetype: Archetype): void {
     const newCapacity = archetype.capacity * 2;
+
+    // Integer overflow protection
+    if (newCapacity > 1073741824 || archetype.capacity > 536870912) {
+      throw new Error(
+        `Archetype capacity overflow: cannot grow beyond 1073741824 (2^30) entities`
+      );
+    }
 
     // Grow entity ID array
     const newEntities = new Uint32Array(newCapacity);
     newEntities.set(archetype.entities);
     archetype.entities = newEntities;
 
-    // Component storage will grow automatically when adding
-    // But we need to pre-grow to maintain capacity alignment
-    // This is handled by ComponentStorage.grow() internally
+    // Grow all component storages to maintain alignment
+    for (const storage of archetype.components.values()) {
+      storage.growTo(newCapacity);
+    }
 
     archetype.capacity = newCapacity;
   }
