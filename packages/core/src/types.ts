@@ -45,8 +45,8 @@ export interface PhysicsConfig {
  * Rendering configuration
  */
 export interface RenderingConfig {
-  /** Rendering backend (default: 'webgpu' with webgl2 fallback) */
-  backend?: 'webgpu' | 'webgl2';
+  /** Rendering backend (WebGPU only) */
+  backend?: 'webgpu';
   /** Target frames per second (default: 60) */
   targetFPS?: number;
   /** Enable vertical sync (default: true) */

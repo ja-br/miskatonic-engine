@@ -16,7 +16,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 - **Electron-native**: Desktop power with web technology flexibility
 - **Full-stack solution**: Integrated client and server architecture
 - **Enterprise-grade scalability**: Support for thousands of concurrent players
-- **Modern technologies**: WebGPU/WebGL2, WebAssembly, WebRTC, Native Node.js modules
+- **Modern technologies**: WebGPU, WebAssembly, WebRTC, Native Node.js modules
 - **Native OS integration**: File system, menus, auto-updates, deep system access
 - **Built-in metagame systems**: Progression, economy, and social features out-of-the-box
 - **NoSQL-first architecture**: Flexible data models for rapid iteration
@@ -62,7 +62,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 
 | Feature | Description | Success Criteria |
 |---------|-------------|------------------|
-| WebGL2/WebGPU Support | Automatic fallback between rendering APIs | 99% browser coverage |
+| WebGPU Support | Modern graphics API for high-performance 3D rendering | Chrome/Edge 113+, Firefox 133+, Safari 18+ |
 | PBR Materials | Physically based rendering pipeline | Industry-standard quality |
 | Instanced Rendering | Efficient rendering of repeated objects | 10,000+ instances at 60 FPS |
 | Post-processing | Customizable effects pipeline | 20+ built-in effects |
@@ -97,7 +97,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 | Feature | Description | Success Criteria |
 |---------|-------------|------------------|
 | Node-based Editor | Visual shader creation | No coding required |
-| Custom GLSL | Direct shader code support | Full GLSL ES 3.0 |
+| Custom WGSL | Direct shader code support | Full WGSL support |
 | Shader Hot-reload | Live shader editing | < 100ms reload time |
 | Compute Shaders | WebGPU compute support | GPU particle systems |
 | Shader Libraries | Reusable shader functions | 50+ built-in functions |
@@ -262,7 +262,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
 | Desktop Framework | Electron | Cross-platform, web + native |
-| Frontend | TypeScript, WebGL2/WebGPU | Type safety, modern graphics |
+| Frontend | TypeScript, WebGPU | Type safety, modern graphics |
 | Build Tools | Vite, Webpack 5, electron-builder | Fast development, optimized builds |
 | Main Process | Node.js, Native Modules | System integration, native APIs |
 | Backend | Node.js, NestJS | Scalable, enterprise-ready |
@@ -327,7 +327,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| WebGPU adoption delay | High | Medium | Maintain WebGL2 fallback |
+| WebGPU adoption delay | Low | Low | WebGPU now widely supported (removed WebGL2 December 2024) |
 | Performance on mobile | High | High | Aggressive optimization, quality tiers |
 | Network reliability | High | Medium | Multiple transport protocols |
 | Database scaling | Medium | Low | Horizontal sharding strategy |
@@ -429,7 +429,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 **Minimum Requirements:**
 - CPU: Dual-core 2.0 GHz
 - RAM: 4 GB
-- GPU: WebGL 2.0 support
+- GPU: WebGPU support (Chrome/Edge 113+, Firefox 133+, Safari 18+)
 - Network: 10 Mbps broadband
 
 **Recommended Requirements:**

@@ -1,10 +1,10 @@
 # @miskatonic/rendering
 
-WebGL2/WebGPU rendering engine for Miskatonic.
+WebGPU rendering engine for Miskatonic.
 
 ## Features
 
-- **WebGL2 Backend**: High-performance rendering with state caching
+- **WebGPU Backend**: Modern high-performance rendering with state caching
 - **Command Buffer**: Batched rendering with automatic state optimization
 - **Shader Management**: Compilation, linking, and LRU caching with error reporting
 - **Buffer Management**: Vertex and index buffers with memory tracking
@@ -115,7 +115,7 @@ const renderer = new Renderer({
 ```
 
 ### RenderContext
-WebGL2 context wrapper with state caching and lazy updates.
+WebGPU context wrapper with state caching and lazy updates.
 
 ```typescript
 const context = renderer.getContext();
@@ -196,7 +196,7 @@ const stats = renderer.endFrame();
 ## Performance Features
 
 ### State Caching
-All WebGL state changes are cached to minimize redundant calls:
+All GPU state changes are cached to minimize redundant calls:
 - Program binding
 - Texture binding
 - Buffer binding
@@ -232,7 +232,7 @@ console.log({
 
 ## Context Loss Handling
 
-The renderer automatically handles WebGL context loss:
+The renderer automatically handles GPU context loss:
 
 ```typescript
 if (renderer.isContextLost()) {

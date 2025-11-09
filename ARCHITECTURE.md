@@ -383,7 +383,7 @@ for (const entity of query.iter()) {
 │  │  • Texture Loader (images, mipmaps)                       │  │
 │  │  • Model Loader (GLTF, FBX)                               │  │
 │  │  • Audio Loader (MP3, WAV, OGG)                            │  │
-│  │  • Shader Loader (GLSL, WGSL)                              │  │
+│  │  • Shader Loader (WGSL)                                     │  │
 │  │  • Custom loaders (plugin system)                         │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              ↓                                   │
@@ -633,14 +633,14 @@ replication.applyStateBatch(receivedBatch);
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                 Renderer Abstraction                      │  │
 │  │  • IRenderer interface                                    │  │
-│  │  • Backend switching (WebGL2 ↔ WebGPU)                   │  │
+│  │  • WebGPU backend                                          │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                              ↓                                   │
-│  ┌─────────────────────┐  ┌─────────────────────────────────┐  │
-│  │  WebGPU Renderer    │  │    WebGL2 Renderer              │  │
-│  │  • Primary backend  │  │    • Fallback backend           │  │
-│  │  • Compute shaders  │  │    • Wide compatibility         │  │
-│  └─────────────────────┘  └─────────────────────────────────┘  │
+│  ┌─────────────────────────────────────────────────────────┐  │
+│  │  WebGPU Renderer                                        │  │
+│  │  • Modern graphics API                                  │  │
+│  │  • Compute shaders                                      │  │
+│  └─────────────────────────────────────────────────────────┘  │
 │                              ↓                                   │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │                   Material System                         │  │
@@ -685,7 +685,7 @@ replication.applyStateBatch(receivedBatch);
 #### Critical Rendering Gaps Identified
 
 **Shader Management (Epic 3.9):**
-- WGSL (WebGPU) and GLSL ES 3.0 (WebGL2) support
+- WGSL (WebGPU) shader support
 - Shader variant management (lit, skinned, textured, instanced)
 - Hot-reload during development (<100ms)
 - Include system for shared functions
@@ -723,7 +723,7 @@ replication.applyStateBatch(receivedBatch);
 #### Key Requirements
 
 - **WebGPU Primary**: Next-gen graphics with compute shaders
-- **WebGL2 Fallback**: Compatibility for older systems
+- **WebGPU-only**: Modern graphics API (WebGL2 removed December 2024)
 - **PBR Materials**: Industry-standard physically-based rendering ✅ Complete (Epic 3.3)
 - **Performance**: 60 FPS with 1000+ objects (requires all 10 epics)
 - **Hot-Reload**: Shader editing during development
@@ -1851,8 +1851,7 @@ class ComponentStorage<T> {
 **Tick Rate** - Server update frequency (e.g., 60Hz = 60 updates/sec)
 
 ### Rendering
-**WebGPU** - Next-gen graphics API for web
-**WebGL2** - Current graphics API for web
+**WebGPU** - Modern graphics API for web
 **PBR** - Physically Based Rendering: Realistic material lighting model
 **LOD** - Level of Detail: Reduce detail based on distance
 **Draw Call** - Command to GPU to render objects
@@ -1860,7 +1859,6 @@ class ComponentStorage<T> {
 **Instancing** - Rendering N copies of object in single draw call
 **Shader** - GPU program (vertex shader, fragment shader)
 **WGSL** - WebGPU Shading Language
-**GLSL** - OpenGL Shading Language (WebGL2)
 
 ### Physics
 **CCD** - Continuous Collision Detection: Prevent tunneling at high speeds

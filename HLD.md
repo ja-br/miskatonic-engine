@@ -94,8 +94,8 @@ This document serves as the primary technical reference for:
 │  │  ECS Core    │  │  Rendering   │  │   Physics    │       │
 │  │              │  │   Engine     │  │   Engine     │       │
 │  ├──────────────┤  ├──────────────┤  ├──────────────┤       │
-│  │ • Entities   │  │ • WebGL2     │  │ • Rapier     │       │
-│  │ • Components │  │ • WebGPU     │  │ • Cannon-es  │       │
+│  │ • Entities   │  │ • WebGPU     │  │ • Rapier     │       │
+│  │ • Components │  │ • PBR        │  │ • Cannon-es  │       │
 │  │ • Systems    │  │ • PBR        │  │ • Box2D      │       │
 │  │ • Queries    │  │ • LOD        │  │ • Collision  │       │
 │  └──────────────┘  └──────────────┘  └──────────────┘       │
@@ -129,7 +129,7 @@ This document serves as the primary technical reference for:
 |-------|------------|---------|
 | **Desktop Framework** | Electron 25+ | Cross-platform desktop application |
 | **Language** | TypeScript 5.0+ | Type-safe development |
-| **Graphics** | WebGL2, WebGPU | 3D rendering |
+| **Graphics** | WebGPU | 3D rendering |
 | **Build System** | Vite, Webpack 5 | Module bundling and HMR |
 | **Process Management** | Node.js 18+ | Main process runtime |
 | **Server Framework** | NestJS | Backend services |
@@ -675,7 +675,7 @@ Example: Interactive objects
 │                         │                               │
 │  GPU Execution          ▼                               │
 │  ┌────────────────────────────────────────────────┐    │
-│  │  WebGL2 / WebGPU Backend                       │    │
+│  │  WebGPU Backend                                 │    │
 │  │  ├─ State Management                           │    │
 │  │  ├─ Buffer Management                          │    │
 │  │  ├─ Shader Programs                            │    │
@@ -713,7 +713,7 @@ Example: Interactive objects
 │             ▼                             │
 │  Shader Compiler                          │
 │  ┌─────────────────────────────────┐     │
-│  │  GLSL ES 3.0 / WGSL            │     │
+│  │  WGSL                           │     │
 │  │  Optimization passes            │     │
 │  │  Cross-compilation              │     │
 │  └──────────┬──────────────────────┘     │
@@ -891,7 +891,7 @@ Server → Client:
 │  │  • Textures (.png, .jpg, .exr)      │    │
 │  │  • Models (.fbx, .obj, .gltf)       │    │
 │  │  • Audio (.wav, .mp3, .ogg)         │    │
-│  │  • Shaders (.glsl, .wgsl)           │    │
+│  │  • Shaders (.wgsl)                  │    │
 │  └──────────┬──────────────────────────┘    │
 │             │                                 │
 │             ▼                                 │
@@ -1003,7 +1003,7 @@ interface EngineConfig {
   };
 
   rendering: {
-    backend: 'webgpu' | 'webgl2';
+    backend: 'webgpu';
     antialiasing: boolean;
     shadows: boolean;
   };

@@ -16,11 +16,7 @@ export class AppLifecycle {
     // Set app name
     app.setName('Miskatonic Engine');
 
-    // Enable WebGL2 compute context for advanced graphics
-    app.commandLine.appendSwitch('enable-webgl2-compute-context');
-
     // WebGPU is enabled by default in modern Electron versions
-    // No need for unsafe flags - use feature detection and fallback to WebGL2
 
     // Enable hardware acceleration by default
     // Can be disabled later if needed

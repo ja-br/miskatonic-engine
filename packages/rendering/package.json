@@ -1,7 +1,7 @@
 {
   "name": "@miskatonic/rendering",
   "version": "0.1.0",
-  "description": "WebGL2/WebGPU rendering engine for Miskatonic",
+  "description": "WebGPU rendering engine for Miskatonic",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,7 +13,7 @@
     "clean": "rm -rf dist"
   },
   "keywords": [
-    "webgl2",
+    "webgpu",
     "rendering",
     "graphics",
     "game-engine"

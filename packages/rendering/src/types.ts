@@ -1,15 +1,14 @@
 /**
  * Core rendering types for Miskatonic Engine
  *
- * Designed for WebGL2 with future WebGPU support
+ * WebGPU rendering engine
  */
 
 /**
  * Rendering backend type
  */
 export enum RenderBackend {
-  WEBGL2 = 'webgl2',
-  WEBGPU = 'webgpu', // Future support
+  WEBGPU = 'webgpu',
 }
 
 /**

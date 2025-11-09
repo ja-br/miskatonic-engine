@@ -5,7 +5,6 @@
  * Provides a unified API for command buffer execution and resource management.
  *
  * Design Philosophy:
- * - Lowest common denominator between WebGL2 and WebGPU
  * - Command-based rendering (not immediate mode)
  * - Resource handles are backend-specific
  * - No WebGL/WebGPU types in interface (use opaque handles)

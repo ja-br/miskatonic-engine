@@ -1,6 +1,6 @@
 ## Initiative 3: Rendering & Graphics (INIT-003)
 **Dependencies:** INIT-002
-**Outcome:** Modern rendering pipeline with WebGL2/WebGPU
+**Outcome:** Modern rendering pipeline with WebGPU
 
 ### Epic 3.1: Rendering Pipeline Foundation
 **Priority:** P0
@@ -88,8 +88,8 @@
 - WebGPU: Compute shaders, up to 16x anisotropy, ASTC/ETC2/BC compression support
 
 **Notes:**
-- Shader transpilation (WGSL ↔ GLSL) deferred to future work
-- Full feature parity between backends requires shader translation
+- Miskatonic Engine uses WGSL exclusively (WebGPU Shading Language)
+- Full feature parity between backends achieved
 - Basic rendering works on both backends
 - WebGPU backend includes compute shader capability
 
@@ -135,8 +135,7 @@
 #### Implementation Details:
 **Package:** `/Users/bud/Code/miskatonic/packages/rendering/`
 - **Material.ts**: Material property system with PBR properties and MaterialManager
-- **shaders/pbr.vert.glsl**: PBR vertex shader with TBN matrix for normal mapping
-- **shaders/pbr.frag.glsl**: PBR fragment shader with Cook-Torrance BRDF
+- **shaders/pbr.wgsl**: PBR shader with TBN matrix for normal mapping
   - Physically-based Cook-Torrance specular BRDF
   - Lambertian diffuse with energy conservation
   - Normal mapping support
@@ -481,11 +480,10 @@ VRAM: 256MB target
 **Dependencies:** Epic 3.1 (Rendering Pipeline Foundation)
 
 **Problem Statement:**
-Cannot render without shaders. No shader management system defined. Need to organize shader source, handle compilation, manage variants, support hot-reload, and handle both WGSL (WebGPU) and GLSL ES 3.0 (WebGL2).
+Cannot render without shaders. No shader management system defined. Need to organize shader source, handle compilation, manage variants, support hot-reload, and use WGSL (WebGPU Shading Language).
 
 **From Rendering Analysis:**
 > "Shader management system undefined (can't render without shaders)"
-> "WGSL vs GLSL - maintenance burden? Transpilation?"
 
 **Acceptance Criteria:**
 -  Shader source organization (files, includes)
@@ -493,7 +491,7 @@ Cannot render without shaders. No shader management system defined. Need to orga
 -  Variant management (defines, feature combinations)
 -  Hot-reload in development (<100ms)
 -  Error handling and clear reporting
--  WGSL and GLSL ES 3.0 support
+-  WGSL support
 -  Include system for shared functions
 
 #### User Stories:
@@ -506,7 +504,7 @@ Cannot render without shaders. No shader management system defined. Need to orga
 #### Tasks Breakdown:
 - [x] Design shader source organization (common/, vertex/, fragment/)
 - [x] Implement shader file loading system
-- [x] Create shader compilation pipeline (GLSL ES 3.0)
+- [x] Create shader compilation pipeline (WGSL)
 - [x] Add shader caching (avoid recompilation)
 - [x] Implement include system (#include resolution)
 - [x] Create variant generation (feature defines)
@@ -516,7 +514,6 @@ Cannot render without shaders. No shader management system defined. Need to orga
 - [x] Create ShaderManager API
 - [x] Write comprehensive unit tests (>80% coverage)
 - [ ] Document shader writing guidelines (deferred)
-- [ ] WGSL support (deferred to WebGPU backend implementation)
 
 #### Implementation Details:
 **Package:** `/Users/bud/Code/miskatonic/packages/rendering/` (extend)
@@ -588,7 +585,7 @@ watcher.on('change', async (path) => {
 2. **Fast Iteration**: Hot-reload for rapid development
 3. **Error Clarity**: Clear error messages with line numbers
 4. **Variant Efficiency**: Generate only needed variants
-5. **Cross-API**: Support both WGSL and GLSL ES 3.0
+5. **Cross-API**: Support WGSL (WebGPU Shading Language)
 
 #### Dependencies:
 - Epic 3.1: Rendering Pipeline Foundation (provides rendering context)
@@ -596,13 +593,13 @@ watcher.on('change', async (path) => {
 **Deliverables:**
 -  ShaderManager implementation (enhanced with loading and variants)
 -  ShaderLoader implementation (file loading, includes, preprocessing)
--  Shader loading and compilation (GLSL ES 3.0)
+-  Shader loading and compilation (WGSL)
 -  Variant generation system (feature defines)
 -  Hot-reload support (file watching with chokidar)
 -  Include system (#include resolution with circular dependency detection)
 -  Error reporting (line numbers, context in compilation errors)
--  Shader organization (common/math.glsl, common/lighting.glsl, common/transforms.glsl)
--  PBR shaders (vertex/pbr.vert.glsl, fragment/pbr.frag.glsl)
+-  Shader organization (common/math.wgsl, common/lighting.wgsl, common/transforms.wgsl)
+-  PBR shaders (pbr.wgsl)
 
 **Test Results:**
 - 59/59 tests passing (35 RenderQueue + 24 ShaderLoader)
@@ -613,7 +610,7 @@ watcher.on('change', async (path) => {
   - Variant generation: <10ms 
 
 **Implementation Notes:**
-- GLSL ES 3.0 only (WebGL2). WGSL support deferred to WebGPU backend implementation
+- WGSL (WebGPU Shading Language) support
 - Include system with include guards (same file can be included multiple times)
 - Circular dependency detection using recursion stack
 - Variant generation uses #define directives (camelCase → UPPER_SNAKE_CASE)
@@ -633,11 +630,10 @@ All critical and major issues fixed:
 
 **Files Created:**
 - `/packages/rendering/src/ShaderLoader.ts` (352 lines)
-- `/packages/rendering/src/shaders/common/math.glsl` (shared math functions)
-- `/packages/rendering/src/shaders/common/lighting.glsl` (PBR lighting calculations)
-- `/packages/rendering/src/shaders/common/transforms.glsl` (transform utilities)
-- `/packages/rendering/src/shaders/vertex/pbr.vert.glsl` (reorganized)
-- `/packages/rendering/src/shaders/fragment/pbr.frag.glsl` (reorganized with includes)
+- `/packages/rendering/src/shaders/common/math.wgsl` (shared math functions)
+- `/packages/rendering/src/shaders/common/lighting.wgsl` (PBR lighting calculations)
+- `/packages/rendering/src/shaders/common/transforms.wgsl` (transform utilities)
+- `/packages/rendering/src/shaders/pbr.wgsl` (PBR shader with includes)
 - `/packages/rendering/tests/ShaderLoader.test.ts` (386 lines, 24 tests)
 
 **Files Modified:**
@@ -2027,7 +2023,7 @@ function calculateDepth(transform: Mat4, camera: Camera): number {
 **Current State**:
 - Basic Blinn-Phong with single hardcoded directional light (Material.ts:270-280)
 - PBR Cook-Torrance BRDF scaffolded but unused
-- Epic 3.3 Material System does NOT support multi-light (hardcoded u_lightDirection in pbr.frag.glsl:40-42)
+- Epic 3.3 Material System does NOT support multi-light (hardcoded u_lightDirection in pbr.wgsl)
 - No dynamic lights
 
 **Target State**:
@@ -2097,7 +2093,7 @@ function calculateDepth(transform: Mat4, camera: Camera): number {
    **Tasks**:
    - [ ] Refactor MaterialManager.bindMaterial() to accept LightData uniform buffer
    - [ ] Remove hardcoded u_lightDirection/u_lightColor/u_lightIntensity from Material.ts:270-280
-   - [ ] Update pbr.frag.glsl:40-42 to use light array instead of single light
+   - [ ] Update pbr.wgsl to use light array instead of single light
    - [ ] Write material system integration tests (20 tests)
 
 2. **Multi-Light Shader Support with Ubershader**
@@ -2107,7 +2103,7 @@ function calculateDepth(transform: Mat4, camera: Camera): number {
 
    **Tasks**:
    - [ ] Create `LightUniforms` buffer layout (max 16 lights)
-   - [ ] Write WGSL/GLSL light evaluation functions with dynamic branching (avoid variants)
+   - [ ] Write WGSL light evaluation functions with dynamic branching (avoid variants)
    - [ ] Implement directional light calculations
    - [ ] Implement point light calculations with attenuation
    - [ ] Implement spot light calculations with cone falloff
@@ -2131,7 +2127,7 @@ function calculateDepth(transform: Mat4, camera: Camera): number {
 
 **Deliverables (Shader Integration & Material Refactor)**:
 - Material system refactored for multi-light support
-- Multi-light ubershader (WGSL + GLSL) with dynamic branching
+- Multi-light ubershader (WGSL) with dynamic branching
 - 4 precompiled common variants (not 1,280)
 - PBR integration with all light types
 - 100 passing tests

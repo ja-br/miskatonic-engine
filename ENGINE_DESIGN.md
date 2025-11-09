@@ -13,7 +13,7 @@ This document outlines the core design principles for **building the Miskatonic 
 
 **Implementation Guidelines**:
 - Include default physics engine (Rapier)
-- Include default renderer (WebGPU with WebGL2 fallback), but expose low-level rendering API
+- Include default renderer (WebGPU), but expose low-level rendering API
 - Include default networking (Socket.io), but support custom transports
 - Abstract major systems behind interfaces
 - Document how to implement custom backends

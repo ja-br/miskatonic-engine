@@ -18,7 +18,7 @@ This development plan has been **split by initiative** for better maintainabilit
 
 1. **[INIT-001: Platform Foundation](./planning/initiatives/INIT-001-Platform-Foundation.md)** - Electron, OS integration, updates, builds
 2. **[INIT-002: Core Engine Systems](./planning/initiatives/INIT-002-Core-Engine-Systems.md)** - ECS, events, resources, plugins
-3. **[INIT-003: Rendering & Graphics](./planning/initiatives/INIT-003-Rendering-Graphics.md)** - WebGL2/WebGPU, PBR, post-processing
+3. **[INIT-003: Rendering & Graphics](./planning/initiatives/INIT-003-Rendering-Graphics.md)** - WebGPU, PBR, post-processing
 4. **[INIT-004: Physics & Simulation](./planning/initiatives/INIT-004-Physics-Simulation.md)** - Rapier/Cannon/Box2D, determinism, replay
 5. **[INIT-005: Networking & Multiplayer](./planning/initiatives/INIT-005-Networking-Multiplayer.md)** - State sync, prediction, server-authoritative
 6. **[INIT-006: Development Tools](./planning/initiatives/INIT-006-Development-Tools.md)** - Debug console, inspector, profiler
@@ -123,7 +123,7 @@ See [HLD.md - Architecture Decision Records](./HLD.md#architecture-decision-reco
 ### Frontend (Electron Renderer)
 - **Platform:** Electron (Chromium + Node.js)
 - **Language:** TypeScript 5.0+
-- **Graphics:** WebGL2/WebGPU (automatic fallback)
+- **Graphics:** WebGPU
 - **Build:** Vite, Webpack 5
 - **Target:** 60 FPS on mid-range hardware
 
@@ -160,7 +160,7 @@ See [HLD.md - Architecture Decision Records](./HLD.md#architecture-decision-reco
 When creating new epics, ensure:
 - Clear acceptance criteria
 - User stories in format: "As a [role], I want [feature] so that [benefit]"
-- Tasks with estimates
+- Refined Tasks
 - Dependencies identified
 - Performance targets defined
 

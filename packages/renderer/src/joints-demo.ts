@@ -10,7 +10,6 @@
  */
 
 import {
-  Renderer,
   RenderBackend,
   Camera as LegacyCamera,
   OrbitControls as LegacyOrbitControls,
@@ -18,7 +17,6 @@ import {
   OrbitCameraController,
   createCube,
   createSphere,
-  type RendererConfig,
   BackendFactory,
   type IRendererBackend,
   RenderQueue,
@@ -43,7 +41,6 @@ import './components/registerDemoComponents';
 export class JointsDemo {
   private canvas: HTMLCanvasElement;
   private backend: IRendererBackend | null = null;
-  private renderer: Renderer | null = null;
   private renderQueue: RenderQueue;
   private instanceManager: InstanceBufferManager | null = null;
   private animationId: number | null = null;
@@ -171,7 +168,7 @@ export class JointsDemo {
   private async createShaders(): Promise<void> {
     if (!this.backend) return;
 
-    // WebGPU-only (WebGL2 support removed December 2024)
+    // WebGPU-only
     console.log('Loading WGSL shaders for WebGPU backend');
     const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
     await this.backend.createShader(this.shaderProgramId, {
@@ -804,17 +801,12 @@ export class JointsDemo {
     }, false);
 
     this.canvas.addEventListener('webglcontextrestored', async () => {
-      console.log('WebGL context restored. Re-initializing...');
+      console.log('WebGPU context restored. Re-initializing...');
       try {
-        const config: RendererConfig = {
-          backend: RenderBackend.WEBGL2,
-          canvas: this.canvas,
-          width: this.canvas.width,
-          height: this.canvas.height,
+        this.backend = await BackendFactory.create(this.canvas, {
           antialias: true,
-          alpha: false,
-        };
-        this.renderer = new Renderer(config);
+          alpha: false
+        });
         await this.createShaders();
         this.createGeometry();
         this.start();
@@ -1211,205 +1203,6 @@ export class JointsDemo {
     return out;
   }
 
-  /**
-   * Render debug visualization lines for joints
-   * Shows constraint connections (yellow) and axes (cyan)
-   */
-  private renderJointDebugLines(gl: WebGL2RenderingContext, viewProjMatrix: Float32Array): void {
-    if (!this.physicsWorld) return;
-
-    // Save current WebGL state
-    const prevDepthTest = gl.getParameter(gl.DEPTH_TEST);
-    const prevBlend = gl.getParameter(gl.BLEND);
-
-    // Enable additive blending for bright debug lines
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE);
-    gl.disable(gl.DEPTH_TEST); // Always show debug lines on top
-
-    // Collect all line vertices and colors
-    const lineVertices: number[] = [];
-    const lineColors: number[] = [];
-
-    for (const jointHandle of this.joints) {
-      const debugInfo = this.physicsWorld.getJointDebugInfo(jointHandle);
-      if (!debugInfo) continue;
-
-      // Draw constraint line (yellow) from anchorA to anchorB
-      lineVertices.push(
-        debugInfo.anchorA.x, debugInfo.anchorA.y, debugInfo.anchorA.z,
-        debugInfo.anchorB.x, debugInfo.anchorB.y, debugInfo.anchorB.z
-      );
-      lineColors.push(
-        1.0, 1.0, 0.0, 1.0, // Yellow
-        1.0, 1.0, 0.0, 1.0
-      );
-
-      // Draw axis line (cyan) if available (revolute/prismatic)
-      if (debugInfo.axis) {
-        const axisLength = 0.5; // Half meter axis visualization
-        const axisEnd = {
-          x: debugInfo.anchorA.x + debugInfo.axis.x * axisLength,
-          y: debugInfo.anchorA.y + debugInfo.axis.y * axisLength,
-          z: debugInfo.anchorA.z + debugInfo.axis.z * axisLength
-        };
-
-        lineVertices.push(
-          debugInfo.anchorA.x, debugInfo.anchorA.y, debugInfo.anchorA.z,
-          axisEnd.x, axisEnd.y, axisEnd.z
-        );
-        lineColors.push(
-          0.0, 1.0, 1.0, 1.0, // Cyan
-          0.0, 1.0, 1.0, 1.0
-        );
-      }
-    }
-
-    if (lineVertices.length === 0) {
-      // Restore WebGL state
-      if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
-      if (!prevBlend) gl.disable(gl.BLEND);
-      return;
-    }
-
-    // Create simple line shader inline (no need for shader manager)
-    const lineProgram = this.getOrCreateLineShader(gl);
-    if (!lineProgram) {
-      if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
-      if (!prevBlend) gl.disable(gl.BLEND);
-      return;
-    }
-
-    gl.useProgram(lineProgram);
-
-    // Set MVP matrix
-    const mvpLoc = gl.getUniformLocation(lineProgram, 'uMVP');
-    gl.uniformMatrix4fv(mvpLoc, false, viewProjMatrix);
-
-    // Reuse or create buffers
-    const vertexCount = lineVertices.length / 3;
-
-    // Initialize buffers if not created
-    if (!this.debugLineBuffers.vertex) {
-      this.debugLineBuffers.vertex = gl.createBuffer();
-      this.debugLineBuffers.color = gl.createBuffer();
-      this.debugLineBuffers.maxVertices = 0;
-    }
-
-    // Reallocate if we need more space (with 50% growth for amortization)
-    const vertexData = new Float32Array(lineVertices);
-    const colorData = new Float32Array(lineColors);
-
-    if (vertexCount > this.debugLineBuffers.maxVertices) {
-      this.debugLineBuffers.maxVertices = Math.ceil(vertexCount * 1.5);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.vertex);
-      gl.bufferData(gl.ARRAY_BUFFER, this.debugLineBuffers.maxVertices * 3 * 4, gl.DYNAMIC_DRAW);
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.color);
-      gl.bufferData(gl.ARRAY_BUFFER, this.debugLineBuffers.maxVertices * 4 * 4, gl.DYNAMIC_DRAW);
-    }
-
-    // Upload vertex data using bufferSubData (faster than bufferData)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.vertex);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, vertexData);
-    const posLoc = gl.getAttribLocation(lineProgram, 'aPosition');
-    gl.enableVertexAttribArray(posLoc);
-    gl.vertexAttribPointer(posLoc, 3, gl.FLOAT, false, 0, 0);
-
-    // Upload color data using bufferSubData
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.debugLineBuffers.color);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, colorData);
-    const colorLoc = gl.getAttribLocation(lineProgram, 'aColor');
-    gl.enableVertexAttribArray(colorLoc);
-    gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
-
-    // Draw lines
-    gl.lineWidth(2.0); // May not work on all platforms, but worth trying
-    gl.drawArrays(gl.LINES, 0, vertexCount);
-
-    // Cleanup attribute arrays (but keep buffers)
-    gl.disableVertexAttribArray(posLoc);
-    gl.disableVertexAttribArray(colorLoc);
-
-    // Restore WebGL state
-    if (!prevDepthTest) gl.disable(gl.DEPTH_TEST);
-    if (!prevBlend) gl.disable(gl.BLEND);
-  }
-
-  private lineShader: WebGLProgram | null = null;
-  private debugLineBuffers: {
-    vertex: WebGLBuffer | null;
-    color: WebGLBuffer | null;
-    maxVertices: number;
-  } = {
-    vertex: null,
-    color: null,
-    maxVertices: 0
-  };
-
-  /**
-   * Get or create a simple line shader for debug visualization
-   */
-  private getOrCreateLineShader(gl: WebGL2RenderingContext): WebGLProgram | null {
-    if (this.lineShader) return this.lineShader;
-
-    const vertexShaderSource = `#version 300 es
-      in vec3 aPosition;
-      in vec4 aColor;
-      uniform mat4 uMVP;
-      out vec4 vColor;
-
-      void main() {
-        gl_Position = uMVP * vec4(aPosition, 1.0);
-        vColor = aColor;
-      }
-    `;
-
-    const fragmentShaderSource = `#version 300 es
-      precision mediump float;
-      in vec4 vColor;
-      out vec4 fragColor;
-
-      void main() {
-        fragColor = vColor;
-      }
-    `;
-
-    // Compile vertex shader
-    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
-    if (!vertexShader) return null;
-    gl.shaderSource(vertexShader, vertexShaderSource);
-    gl.compileShader(vertexShader);
-    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
-      console.error('Line vertex shader compile error:', gl.getShaderInfoLog(vertexShader));
-      return null;
-    }
-
-    // Compile fragment shader
-    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
-    if (!fragmentShader) return null;
-    gl.shaderSource(fragmentShader, fragmentShaderSource);
-    gl.compileShader(fragmentShader);
-    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
-      console.error('Line fragment shader compile error:', gl.getShaderInfoLog(fragmentShader));
-      return null;
-    }
-
-    // Link program
-    const program = gl.createProgram();
-    if (!program) return null;
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      console.error('Line shader link error:', gl.getProgramInfoLog(program));
-      return null;
-    }
-
-    this.lineShader = program;
-    return program;
-  }
 
   private updateStats(
     fps: number,

@@ -69,7 +69,7 @@ Miskatonic Engine is a comprehensive game engine built on Electron, designed for
 ### Frontend (Electron Renderer)
 - **Platform**: Electron (Chromium + Node.js)
 - **Language**: TypeScript
-- **Graphics**: WebGPU (with automatic fallback to WebGL2)
+- **Graphics**: WebGPU
 - **Build Tools**: Vite, Webpack 5
 - **Target**: 60 FPS on mid-range devices with 1000+ rendered objects
 - **Native Integration**: Access to filesystem, native menus, system tray, hardware APIs
@@ -105,7 +105,7 @@ Electron Main Process (Native APIs, Window Management, IPC)
     ↓
 Renderer Process (Game Client)
     ├─ Game Logic (ECS, State Management)
-    ├─ Rendering (WebGL2/WebGPU)
+    ├─ Rendering (WebGPU)
     ├─ Physics (Rapier/Cannon-es/Box2D)
     ├─ Input (Keyboard, Mouse, Gamepad)
     └─ Audio (Web Audio API)
@@ -142,7 +142,7 @@ miskatonic-engine/
 │   ├── core/          # Core engine integration (✅ complete)
 │   ├── ecs/           # Entity Component System core (✅ complete)
 │   ├── physics/       # Physics abstraction (Rapier/Cannon/Box2D) (✅ complete)
-│   ├── rendering/     # Rendering pipeline (WebGL2/WebGPU) (✅ complete)
+│   ├── rendering/     # Rendering pipeline (WebGPU) (✅ complete)
 │   ├── network/       # State synchronization and networking (✅ complete)
 │   ├── events/        # Event bus system (✅ complete)
 │   ├── resources/     # Asset management (✅ complete)
@@ -316,14 +316,13 @@ node --expose-gc packages/ecs/benchmark-runner.js
 **Rendering Foundation Complete! (Epics 3.1-3.3, 3.9-3.13)**
 
 ✅ **Epic 3.1: Rendering Pipeline** - COMPLETE
-- WebGL2 renderer with command buffers
+- WebGPU renderer with command buffers
 - Draw call batching and multi-pass rendering
 - Render state caching and statistics
 
 ✅ **Epic 3.2: WebGPU Backend** - COMPLETE
-- WebGPU + WebGL2 backend abstraction
-- Automatic capability detection and fallback
-- Compute shader support (WebGPU only)
+- WebGPU backend implementation
+- Compute shader support
 
 ✅ **Epic 3.3: PBR Material System** - COMPLETE
 - Cook-Torrance BRDF with physically-based shading
@@ -333,7 +332,7 @@ node --expose-gc packages/ecs/benchmark-runner.js
 ✅ **Epic 3.9: Shader Management** - COMPLETE (59 tests)
 - Hot-reload with file watching (<100ms)
 - Include system with circular dependency detection
-- GLSL ES 3.0 support (WGSL deferred)
+- WGSL shader support
 
 ✅ **Epic 3.10: Camera System** - COMPLETE (52 tests)
 - ECS Camera component with perspective/orthographic projection
@@ -356,7 +355,6 @@ node --expose-gc packages/ecs/benchmark-runner.js
 - Instance buffer management with GPU instancing
 - Automatic instance detection and grouping
 - 96.7% draw call reduction achieved (60 objects → 2 draw calls)
-- WebGL2 and WebGPU backend support
 - Material state hashing (shader + textures + render state only)
 
 **Critical Next Priorities (P0):**
@@ -415,7 +413,7 @@ node --expose-gc packages/ecs/benchmark-runner.js
 ### 1. ✅ RESOLVED: Rendering Foundation (Epic 3.9-3.12)
 **Was:** No rendering foundation (shader system, camera, transforms, render queue)
 **Now:** ✅ All foundation epics complete and production-ready
-- ✅ Epic 3.9: Shader Management (hot-reload, includes, GLSL ES 3.0)
+- ✅ Epic 3.9: Shader Management (hot-reload, includes, WGSL)
 - ✅ Epic 3.10: Camera System (ECS component, orbit/FPS controllers)
 - ✅ Epic 3.11: Transform System (cache-efficient SoA, zero allocations)
 - ✅ Epic 3.12: Render Queue (sorting, batching, state minimization)

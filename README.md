@@ -85,7 +85,7 @@ npm run dist
 | Build Tools | Vite + Webpack 5 | Module bundling |
 | Validation | Zod | Runtime type checking |
 | Testing | Vitest | Unit and integration tests |
-| Graphics | WebGL2/WebGPU | 3D rendering (future) |
+| Graphics | WebGPU | 3D rendering |
 | Physics | Rapier/Cannon/Box2D | Physics simulation (future) |
 
 ## 🗂️ Project Structure
@@ -182,4 +182,4 @@ See [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) for the project roadmap and contr
 
 ---
 
-**Miskatonic Engine** - Built with Electron, TypeScript, and WebGL2/WebGPU
+**Miskatonic Engine** - Built with Electron, TypeScript, and WebGPU

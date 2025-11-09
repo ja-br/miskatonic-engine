@@ -3,24 +3,14 @@
  * WebGPU rendering engine for Miskatonic
  */
 
-// Main renderer
-export { Renderer } from './Renderer';
-
 // Core rendering classes
-export { RenderContext } from './RenderContext';
 export { Camera, OrbitControls } from './Camera';  // Standalone (legacy)
 export { CameraSystem } from './CameraSystem';      // ECS system (Epic 3.10)
 export { OrbitCameraController, FirstPersonCameraController } from './CameraControllers';
 export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
-export { ShaderManager, type ShaderManagerConfig } from './ShaderManager';
 // ShaderLoader is Node.js-only (uses fs/promises), not for browser use
 // export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
-export { BufferManager, type BufferDescriptor } from './BufferManager';
-export { TextureManager, type TextureConfig, type TextureDescriptor } from './TextureManager';
-export { FramebufferManager, type FramebufferConfig, type FramebufferDescriptor, type FramebufferAttachment, type TextureMetadata } from './FramebufferManager';
-export { CommandBuffer } from './CommandBuffer';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
-export { MaterialManager, type Material, type MaterialConfig, type PBRMaterialProperties, type MaterialTextures } from './Material';
 export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueStats } from './RenderQueue';
 
 // Epic 3.8: GPU Memory Management

@@ -31,8 +31,8 @@ Initiative (Domain) → Epic (Major Deliverable) → User Stories (Features) →
 | 2.4 - Resource Management |  Complete | 91/91 tests | Async loading, ref counting, hot-reload, memory profiling |
 | 2.7-2.9 - Main Engine & Game Loop |  Complete | 62 tests | MiskatonicEngine, GameLoop, CommandSystem |
 | 2.10-2.11 - Cache-Efficient ECS |  Complete | Benchmarks | 4.16x faster iteration with SoA storage |
-| 3.2 - WebGPU Backend |  Complete | Integration | WebGPU + WebGL2 with automatic fallback |
-| 3.9 - Shader Management |  Complete | 59 tests | Hot-reload, includes, GLSL ES 3.0 |
+| 3.2 - WebGPU Backend |  Complete | Integration | WebGPU backend implementation |
+| 3.9 - Shader Management |  Complete | 59 tests | Hot-reload, includes, WGSL |
 | 3.10 - Camera System |  Complete | 52 tests | ECS camera, orbit/FPS controls |
 | 3.11 - Transform System |  Complete | Production-ready | Cache-efficient SoA, zero allocations |
 | 3.12 - Render Queue |  Complete | 35 tests | Sorting, batching, state minimization |
@@ -83,7 +83,7 @@ Entity Component System (ECS), event bus, resource management, and scheduling.
 **Dependencies:** INIT-002
 **Status:** 8 of 15+ epics complete (53%) 🚀
 
-WebGL2/WebGPU rendering pipeline with PBR materials, instancing, and post-processing.
+WebGPU rendering pipeline with PBR materials, instancing, and post-processing.
 
 **Completed Epics:**
 - ✅ 3.1 - Rendering Pipeline (Complete)

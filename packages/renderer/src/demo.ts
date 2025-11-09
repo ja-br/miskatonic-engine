@@ -191,43 +191,6 @@ export class Demo {
       });
 
       console.log('WGSL shaders compiled successfully (standard + instanced)');
-    } else {
-      // WebGL2 backend - requires legacy Renderer
-      if (!this.renderer) {
-        throw new Error('WebGL2 backend requires Renderer for shader management');
-      }
-
-      console.log('Loading GLSL shaders for WebGL2 backend');
-      const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
-      const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
-      const vertexInstancedShaderSource = await import('./shaders/basic-lighting_instanced.vert?raw').then(m => m.default);
-      const fragmentInstancedShaderSource = await import('./shaders/basic-lighting_instanced.frag?raw').then(m => m.default);
-
-      const shaderManager = this.renderer.getShaderManager();
-      try {
-        // Create standard shader
-        shaderManager.createProgram(this.shaderProgramId, {
-          vertex: vertexShaderSource,
-          fragment: fragmentShaderSource,
-        });
-
-        // Epic 3.13: Create instanced shader variant
-        shaderManager.createProgram(`${this.shaderProgramId}_instanced`, {
-          vertex: vertexInstancedShaderSource,
-          fragment: fragmentInstancedShaderSource,
-        });
-
-        // Verify shader program was created successfully
-        const program = shaderManager.getProgram(this.shaderProgramId);
-        if (!program) {
-          throw new Error('Shader program creation failed - program not found after creation');
-        }
-
-        console.log('GLSL shaders compiled and linked successfully (standard + instanced)');
-      } catch (error) {
-        console.error('Shader compilation failed:', error);
-        throw new Error(`Failed to create shader program: ${error instanceof Error ? error.message : String(error)}`);
-      }
     }
   }
 
@@ -507,15 +470,14 @@ export class Demo {
       this.stop(); // Stop render loop
     }, false);
 
-    // Handle WebGL context restoration
+    // Handle WebGPU context restoration
     this.canvas.addEventListener('webglcontextrestored', async () => {
-      console.log('WebGL context restored. Re-initializing renderer...');
+      console.log('WebGPU context restored. Re-initializing renderer...');
       try {
-        // Re-initialize the backend (this is what actually renders)
+        // Re-initialize the backend (WebGPU-only)
         this.backend = await BackendFactory.create(this.canvas, {
           antialias: true,
-          alpha: false,
-          preferredBackend: 'webgl2'
+          alpha: false
         });
 
         // Recreate shaders and geometry
