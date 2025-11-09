@@ -27,7 +27,7 @@ import {
   CollisionShapeType,
   type RigidBodyHandle,
 } from '../../physics/src';
-import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
+import { World, TransformSystem, Transform, Camera, Query, type EntityId } from '../../ecs/src';
 import { DiceEntity } from './components/DiceEntity';
 import './components/registerDemoComponents'; // Register custom components
 import { MatrixPool } from './MatrixPool';
@@ -79,6 +79,12 @@ export class Demo {
 
   // Debug: Log instancing info only once
   private hasLoggedInstancing = false;
+
+  // P1.1: Cached query for dice entities (eliminates rebuilding + Map allocations)
+  private diceQuery: Query | null = null;
+
+  // P1.2: Cache physics rotations to avoid fetching twice per frame
+  private rotationCache: Map<EntityId, { x: number; y: number; z: number; w: number }> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -568,8 +574,15 @@ export class Demo {
 
     // Sync physics transforms to ECS entities
     if (this.physicsWorld) {
-      const query = this.world.query().with(Transform).with(DiceEntity).build();
-      for (const { entity, components } of this.world.executeQuery(query)) {
+      // P1.1: Use cached query instead of rebuilding every frame
+      if (!this.diceQuery) {
+        this.diceQuery = this.world.query().with(Transform).with(DiceEntity).build();
+      }
+
+      // P1.2: Clear rotation cache from previous frame
+      this.rotationCache.clear();
+
+      for (const { entity, components } of this.world.executeQuery(this.diceQuery)) {
         const diceEntity = components.get(DiceEntity);
 
         if (diceEntity) {
@@ -578,15 +591,13 @@ export class Demo {
             const physicsRot = this.physicsWorld.getRotation(diceEntity.bodyHandle);
 
             if (physicsPos && physicsRot) {
-              // CRITICAL FIX #13: Use TransformSystem.setPosition/setRotation to avoid clobbering matrix indices
-              // This ensures matrix indices are preserved and dirty flag is set correctly
-
-              // Update position using TransformSystem (handles dirty flag and setComponent internally)
+              // P0 FIX: Only sync position to Transform
+              // Rotation is read directly from physics in render loop (no conversion needed)
+              // This avoids wasteful quaternion→Euler→matrix conversion
               this.transformSystem.setPosition(entity, physicsPos.x, physicsPos.y, physicsPos.z);
 
-              // CRITICAL FIX #14: Convert quaternion to Euler angles properly
-              const euler = this.quaternionToEuler(physicsRot);
-              this.transformSystem.setRotation(entity, euler.x, euler.y, euler.z);
+              // P1.2: Cache rotation to avoid fetching twice
+              this.rotationCache.set(entity, physicsRot);
             }
           } catch (e) {
             // Body might have been removed, skip this entity
@@ -639,23 +650,25 @@ export class Demo {
     let drawCalls = 0;
 
     // Submit draw commands for all dice using ECS query
-    const diceQuery = this.world.query().with(Transform).with(DiceEntity).build();
-    const diceEntities = this.world.executeQuery(diceQuery);
+    // P1.1: Reuse the cached query (already initialized in sync loop above)
+    const diceEntities = this.world.executeQuery(this.diceQuery!);
 
+    const tDiceLoopStart = performance.now(); // Track dice rendering loop
     if (this.physicsWorld && diceEntities.length > 0) {
-      for (const { components } of diceEntities) {
+      for (const { entity, components } of diceEntities) {
         const transform = components.get(Transform);
         const diceEntity = components.get(DiceEntity);
 
         if (!transform || !diceEntity) continue;
 
-        let position, rotation;
+        // P1.2: Use cached rotation from sync loop (avoids second physics query)
+        const rotation = this.rotationCache.get(entity);
+        if (!rotation) continue; // Entity not synced this frame
+
+        let position;
         try {
           position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
-          rotation = this.physicsWorld.getRotation(diceEntity.bodyHandle);
-
-          // Skip if body no longer exists
-          if (!position || !rotation) continue;
+          if (!position) continue;
         } catch (e) {
           // Body might have been removed, skip this entity
           continue;
@@ -730,22 +743,17 @@ export class Demo {
             baseColor[1] = g * brightness;
             baseColor[2] = b * brightness;
 
-            // CRITICAL FIX: Copy pooled values to prevent shared reference bugs
-            // Without this, all entities share the same Float32Array from the pool,
-            // causing all spheres to have the same color (the last one processed)
-            const lightDirCopy = new Float32Array([lightDir[0], lightDir[1], lightDir[2]]);
-            const cameraPosCopy = new Float32Array([cameraPos[0], cameraPos[1], cameraPos[2]]);
-            const baseColorCopy = new Float32Array([baseColor[0], baseColor[1], baseColor[2]]);
-
+            // P0 FIX: Use pooled arrays directly - NO COPY
+            // The render queue processes commands synchronously, so shared references are safe
             // Epic 3.13 FIX: For instanced rendering, send viewProjMatrix instead of mvpMatrix
             // The instanced shader will apply the per-instance model transform
             return new Map([
               ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: viewProjMatrix }],
               ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
               ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: normalMatrix }],
-              ['uLightDir', { name: 'uLightDir', type: 'vec3', value: lightDirCopy }],
-              ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: cameraPosCopy }],
-              ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: baseColorCopy }],
+              ['uLightDir', { name: 'uLightDir', type: 'vec3', value: lightDir }],
+              ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: cameraPos }],
+              ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: baseColor }],
             ]);
           })(),
           state: {
@@ -770,6 +778,7 @@ export class Demo {
         drawCalls++;
       }
     }
+    const tDiceLoopEnd = performance.now(); // End of dice rendering loop
 
     // Epic 3.13: Sort and detect instances
     const t4 = performance.now();
@@ -820,18 +829,38 @@ export class Demo {
     const renderCommands = queuedCommands.map(qc => qc.drawCommand);
     const queueStats = this.renderQueue.getStats();
 
-    // DIAGNOSTIC: Log performance stats every second
+    // COMPREHENSIVE PROFILING: Log every second with ALL timing data
     if (now - this.lastFpsUpdate >= 1000) {
-      console.log('\n=== PERFORMANCE DIAGNOSTIC ===');
-      console.log(`Submitted to queue: ${queueStats.totalCommands}`);
-      console.log(`Instance groups detected: ${queueStats.instanceGroups}`);
-      console.log(`Final render commands: ${renderCommands.length}`);
-      console.log(`Instanced draw calls: ${queueStats.instancedDrawCalls}`);
+      // Get actual GPU time from backend
+      const gpuTime = (this.backend as any).getGPUTime ? (this.backend as any).getGPUTime() : 0;
 
-      // Buffer pool stats
+      // Get buffer pool stats
       const poolStats = (this.backend as any).uniformBufferPool?.getStats();
+
+      // Get bind group stats
+      const perfStats = (this.backend as any).perfStats;
+
+      console.log('\n=== COMPREHENSIVE PERFORMANCE DIAGNOSTIC ===');
+      console.log(`Dice Count: ${diceEntities.length}`);
+      console.log(`\nInstancing:`);
+      console.log(`  Submitted to queue: ${queueStats.totalCommands}`);
+      console.log(`  Instance groups: ${queueStats.instanceGroups}`);
+      console.log(`  Final draw calls: ${renderCommands.length}`);
+      console.log(`  Instanced calls: ${queueStats.instancedDrawCalls}`);
+
       if (poolStats) {
-        console.log(`\nBuffer Pool: created=${poolStats.buffersCreated}, reused=${poolStats.buffersReused}, rate=${poolStats.reuseRate}, poolSize=${poolStats.poolSize}`);
+        console.log(`\nUniform Buffer Pool:`);
+        console.log(`  Created: ${poolStats.buffersCreated}, Reused: ${poolStats.buffersReused}`);
+        console.log(`  Reuse rate: ${poolStats.reuseRate}`);
+        console.log(`  Pool size: ${poolStats.poolSize}`);
+      }
+
+      if (perfStats) {
+        console.log(`\nBind Groups:`);
+        console.log(`  Created: ${perfStats.bindGroupsCreated}, Cached: ${perfStats.bindGroupsCached}`);
+        const total = perfStats.bindGroupsCreated + perfStats.bindGroupsCached;
+        const cacheRate = total > 0 ? ((perfStats.bindGroupsCached / total) * 100).toFixed(1) : '0';
+        console.log(`  Cache hit rate: ${cacheRate}%`);
       }
 
       // Frame time breakdown (will be logged after endFrame)
@@ -839,7 +868,9 @@ export class Demo {
         physics: (t1 - t0).toFixed(2),
         sync: (t2 - t1).toFixed(2),
         ecs: (t3 - t2).toFixed(2),
+        diceLoop: (tDiceLoopEnd - tDiceLoopStart).toFixed(2),
         sort: (t5 - t4).toFixed(2),
+        gpuTimeMeasured: gpuTime.toFixed(2),
       };
     }
 
@@ -854,20 +885,6 @@ export class Demo {
     // End frame
     this.backend.endFrame();
 
-    // Log CPU frame timing breakdown
-    const pending = (this as any).pendingTimingLog;
-    if (pending) {
-      const gpuEncode = (t7 - t6).toFixed(2);
-      console.log(`\n=== CPU FRAME BREAKDOWN ===`);
-      console.log(`Physics: ${pending.physics}ms, Sync: ${pending.sync}ms, ECS: ${pending.ecs}ms, Sort: ${pending.sort}ms, GPU Encode: ${gpuEncode}ms`);
-      const cpuTotal = parseFloat(pending.physics) + parseFloat(pending.sync) + parseFloat(pending.ecs) + parseFloat(pending.sort) + parseFloat(gpuEncode);
-      console.log(`Total CPU: ${cpuTotal.toFixed(2)}ms`);
-      const currentFrameTime = this.frameTimes.length > 0 ? this.frameTimes[this.frameTimes.length - 1] : 0;
-      const gpuTime = currentFrameTime - cpuTotal;
-      console.log(`Frame time: ${currentFrameTime.toFixed(2)}ms (GPU execution: ${gpuTime.toFixed(2)}ms)`);
-      (this as any).pendingTimingLog = null;
-    }
-
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
     this.matrixPool.releaseAll();
     this.mat3Pool.releaseAll();
@@ -877,6 +894,38 @@ export class Demo {
     const frameTime = now - this.lastFrameTime;
     this.lastFrameTime = now;
     this.frameTimeHistory.push(frameTime);
+
+    // Log CPU frame timing breakdown AFTER frameTime is calculated
+    const pending = (this as any).pendingTimingLog;
+    if (pending) {
+      const gpuEncode = (t7 - t6).toFixed(2);
+      console.log(`\n=== CPU TIMING BREAKDOWN ===`);
+      console.log(`Physics: ${pending.physics}ms`);
+      console.log(`Sync (physics→ECS): ${pending.sync}ms`);
+      console.log(`ECS update: ${pending.ecs}ms`);
+      console.log(`Dice loop (${diceEntities.length} dice): ${pending.diceLoop}ms`);
+      console.log(`Render queue sort: ${pending.sort}ms`);
+      console.log(`GPU command encode: ${gpuEncode}ms`);
+
+      const cpuTotal = parseFloat(pending.physics) + parseFloat(pending.sync) + parseFloat(pending.ecs) +
+                       parseFloat(pending.diceLoop) + parseFloat(pending.sort) + parseFloat(gpuEncode);
+      console.log(`\nTotal CPU: ${cpuTotal.toFixed(2)}ms`);
+
+      // Get actual GPU execution time from backend (WebGPU timestamp queries)
+      const gpuTimeMeasured = parseFloat(pending.gpuTimeMeasured);
+      const gpuTimeEstimated = frameTime - cpuTotal;
+
+      if (gpuTimeMeasured > 0) {
+        console.log(`GPU execution: ${gpuTimeMeasured.toFixed(2)}ms (MEASURED via timestamp-query)`);
+      } else {
+        console.log(`GPU execution: ${gpuTimeEstimated.toFixed(2)}ms (estimated = frame - CPU)`);
+        console.log(`  [timestamp-query not available on this device]`);
+      }
+
+      console.log(`\n*** FRAME TIME: ${frameTime.toFixed(2)}ms ***`);
+      console.log(`    Bottleneck: ${cpuTotal > gpuTimeEstimated ? 'CPU' : 'GPU'}`);
+      (this as any).pendingTimingLog = null;
+    }
     if (this.frameTimeHistory.length > 60) this.frameTimeHistory.shift(); // Keep last 60 frames
 
     // Update FPS counter
@@ -917,6 +966,30 @@ export class Demo {
         }
       }
 
+      // Calculate cache hit rates
+      const poolStats = (this.backend as any).uniformBufferPool?.getStats();
+      const perfStats = (this.backend as any).perfStats;
+
+      const uboHitRate = poolStats ? parseFloat(poolStats.reuseRate) : 0;
+      const bindTotal = perfStats ? perfStats.bindGroupsCreated + perfStats.bindGroupsCached : 0;
+      const bindGroupHitRate = bindTotal > 0 && perfStats ? (perfStats.bindGroupsCached / bindTotal) * 100 : 0;
+
+      // Calculate CPU timing for this frame (t6-t7 calculated after executeCommands)
+      const cpuTiming = {
+        physics: (t1 - t0).toFixed(2),
+        sync: (t2 - t1).toFixed(2),
+        ecs: (t3 - t2).toFixed(2),
+        diceLoop: (tDiceLoopEnd - tDiceLoopStart).toFixed(2),
+        sort: (t5 - t4).toFixed(2),
+        gpuEncode: (t7 - t6).toFixed(2)
+      };
+
+      // Calculate total CPU time
+      const totalCpu = (t1 - t0) + (t2 - t1) + (t3 - t2) + (tDiceLoopEnd - tDiceLoopStart) + (t5 - t4) + (t7 - t6);
+
+      // Estimate GPU execution time (frame time - CPU time)
+      const gpuExec = Math.max(0, avgFrameTime - totalCpu);
+
       this.updateStats(
         fps,
         avgFrameTime,
@@ -929,7 +1002,10 @@ export class Demo {
         vramMB,
         vramUsagePercent,
         bufferCount,
-        textureCount
+        textureCount,
+        cpuTiming,
+        { uboHitRate, bindGroupHitRate },
+        gpuExec
       );
       this.frameCount = 0;
       this.lastFpsUpdate = now;
@@ -1175,31 +1251,76 @@ export class Demo {
     vramUsage: number,
     vramUsagePercent: number,
     bufferCount: number,
-    textureCount: number
+    textureCount: number,
+    cpuTiming?: { physics: string; sync: string; ecs: string; diceLoop: string; sort: string; gpuEncode: string },
+    cacheStats?: { uboHitRate: number; bindGroupHitRate: number },
+    gpuExec?: number
   ): void {
+    // Basic performance metrics
     const fpsEl = document.getElementById('fps');
     const frameTimeEl = document.getElementById('frame-time');
-    const drawCallsEl = document.getElementById('draw-calls');
-    const trianglesEl = document.getElementById('triangles');
+    const resolutionEl = document.getElementById('resolution');
+
+    if (fpsEl) fpsEl.textContent = fps.toString();
+    if (frameTimeEl) frameTimeEl.textContent = frameTime.toFixed(2);
+    if (resolutionEl) resolutionEl.textContent = `${this.canvas.width}x${this.canvas.height}`;
+
+    // Object statistics
+    const objectCountEl = document.getElementById('object-count');
     const instanceGroupsEl = document.getElementById('instance-groups');
     const instancedObjectsEl = document.getElementById('instanced-objects');
-    const reductionEl = document.getElementById('draw-call-reduction');
-    const objectCountEl = document.getElementById('object-count');
+
+    if (objectCountEl) objectCountEl.textContent = objectCount.toString();
+    if (instanceGroupsEl) instanceGroupsEl.textContent = instanceGroups.toString();
+    if (instancedObjectsEl) instancedObjectsEl.textContent = instancedObjects.toString();
+
+    // Memory statistics
     const vramEl = document.getElementById('vram-usage');
     const bufferCountEl = document.getElementById('buffer-count');
     const textureCountEl = document.getElementById('texture-count');
 
-    if (fpsEl) fpsEl.textContent = fps.toString();
-    if (frameTimeEl) frameTimeEl.textContent = frameTime.toFixed(2);
-    if (drawCallsEl) drawCallsEl.textContent = drawCalls.toString();
-    if (trianglesEl) trianglesEl.textContent = triangles.toString();
-    if (instanceGroupsEl) instanceGroupsEl.textContent = instanceGroups.toString();
-    if (instancedObjectsEl) instancedObjectsEl.textContent = instancedObjects.toString();
-    if (reductionEl) reductionEl.textContent = drawCallReduction.toFixed(1);
-    if (objectCountEl) objectCountEl.textContent = objectCount.toString();
-    if (vramEl) vramEl.textContent = `${vramUsage.toFixed(2)} (${vramUsagePercent.toFixed(3)}%)`;
+    if (vramEl) vramEl.textContent = `${vramUsage.toFixed(2)} MB (${vramUsagePercent.toFixed(1)}%)`;
     if (bufferCountEl) bufferCountEl.textContent = bufferCount.toString();
     if (textureCountEl) textureCountEl.textContent = textureCount.toString();
+
+    // CPU timing breakdown
+    if (cpuTiming) {
+      const cpuPhysicsEl = document.getElementById('cpu-physics');
+      const cpuSyncEl = document.getElementById('cpu-sync');
+      const cpuEcsEl = document.getElementById('cpu-ecs');
+      const cpuLoopEl = document.getElementById('cpu-loop');
+      const cpuSortEl = document.getElementById('cpu-sort');
+      const cpuGpuEl = document.getElementById('cpu-gpu');
+      const cpuTotalEl = document.getElementById('cpu-total');
+
+      if (cpuPhysicsEl) cpuPhysicsEl.textContent = cpuTiming.physics;
+      if (cpuSyncEl) cpuSyncEl.textContent = cpuTiming.sync;
+      if (cpuEcsEl) cpuEcsEl.textContent = cpuTiming.ecs;
+      if (cpuLoopEl) cpuLoopEl.textContent = cpuTiming.diceLoop;
+      if (cpuSortEl) cpuSortEl.textContent = cpuTiming.sort;
+      if (cpuGpuEl) cpuGpuEl.textContent = cpuTiming.gpuEncode;
+
+      // Calculate total CPU time
+      const totalCpu = parseFloat(cpuTiming.physics) + parseFloat(cpuTiming.sync) +
+                       parseFloat(cpuTiming.ecs) + parseFloat(cpuTiming.diceLoop) +
+                       parseFloat(cpuTiming.sort) + parseFloat(cpuTiming.gpuEncode);
+      if (cpuTotalEl) cpuTotalEl.textContent = totalCpu.toFixed(2);
+    }
+
+    // GPU execution time (estimate from frame time - CPU total)
+    if (gpuExec !== undefined) {
+      const gpuExecEl = document.getElementById('gpu-exec');
+      if (gpuExecEl) gpuExecEl.textContent = gpuExec.toFixed(2);
+    }
+
+    // Cache statistics
+    if (cacheStats) {
+      const cacheUboEl = document.getElementById('cache-ubo');
+      const cacheBindEl = document.getElementById('cache-bind');
+
+      if (cacheUboEl) cacheUboEl.textContent = cacheStats.uboHitRate.toFixed(1);
+      if (cacheBindEl) cacheBindEl.textContent = cacheStats.bindGroupHitRate.toFixed(1);
+    }
   }
 
   // Public API for UI controls

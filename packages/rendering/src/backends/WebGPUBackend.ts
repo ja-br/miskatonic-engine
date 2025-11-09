@@ -202,6 +202,13 @@ export class WebGPUBackend implements IRendererBackend {
     bindGroupsCached: 0,
   };
 
+  // GPU timestamp queries for measuring actual GPU execution time
+  private timestampQuerySet: GPUQuerySet | null = null;
+  private timestampBuffer: GPUBuffer | null = null;
+  private timestampReadBuffer: GPUBuffer | null = null;
+  private gpuTimeMs: number = 0; // Last measured GPU time in milliseconds
+  private hasTimestampQuery: boolean = false;
+
   // Render state
   private currentRenderPass: GPURenderPassEncoder | null = null;
   private currentCommandEncoder: GPUCommandEncoder | null = null;
@@ -233,8 +240,20 @@ export class WebGPUBackend implements IRendererBackend {
         return false;
       }
 
+      // Check for timestamp-query support
+      const requiredFeatures: GPUFeatureName[] = [];
+      if (this.adapter.features.has('timestamp-query')) {
+        requiredFeatures.push('timestamp-query');
+        this.hasTimestampQuery = true;
+        console.log('WebGPU: timestamp-query feature available');
+      } else {
+        console.warn('WebGPU: timestamp-query not available, GPU timing will not be measured');
+      }
+
       // Request device
-      this.device = await this.adapter.requestDevice();
+      this.device = await this.adapter.requestDevice({
+        requiredFeatures,
+      });
 
       // Configure canvas context
       this.context = this.canvas.getContext('webgpu');
@@ -260,6 +279,24 @@ export class WebGPUBackend implements IRendererBackend {
         format: 'depth24plus',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       });
+
+      // Create timestamp query resources if supported
+      if (this.hasTimestampQuery) {
+        this.timestampQuerySet = this.device.createQuerySet({
+          type: 'timestamp',
+          count: 2, // Start and end of render pass
+        });
+
+        this.timestampBuffer = this.device.createBuffer({
+          size: 16, // 2 timestamps × 8 bytes each
+          usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+        });
+
+        this.timestampReadBuffer = this.device.createBuffer({
+          size: 16,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+        });
+      }
 
       // Set up device lost handler
       this.device.lost.then((info) => {
@@ -332,6 +369,11 @@ export class WebGPUBackend implements IRendererBackend {
           depthLoadOp: 'clear',
           depthStoreOp: 'store',
         } : undefined,
+        timestampWrites: this.hasTimestampQuery && this.timestampQuerySet ? {
+          querySet: this.timestampQuerySet,
+          beginningOfPassWriteIndex: 0,
+          endOfPassWriteIndex: 1,
+        } : undefined,
       });
     }
 
@@ -341,17 +383,70 @@ export class WebGPUBackend implements IRendererBackend {
       this.currentRenderPass = null;
     }
 
+    // Resolve timestamp queries if available
+    if (this.hasTimestampQuery && this.timestampQuerySet && this.timestampBuffer && this.timestampReadBuffer) {
+      this.currentCommandEncoder.resolveQuerySet(
+        this.timestampQuerySet,
+        0, // first query
+        2, // query count
+        this.timestampBuffer,
+        0  // destination offset
+      );
+
+      // Copy to read buffer
+      this.currentCommandEncoder.copyBufferToBuffer(
+        this.timestampBuffer,
+        0,
+        this.timestampReadBuffer,
+        0,
+        16
+      );
+    }
+
     // Submit commands
     const commandBuffer = this.currentCommandEncoder.finish();
     this.device.queue.submit([commandBuffer]);
 
     this.currentCommandEncoder = null;
 
+    // Read back timestamp queries asynchronously
+    if (this.hasTimestampQuery && this.timestampReadBuffer) {
+      this.readTimestamps();
+    }
+
     // Epic 2.13: Release uniform buffers back to pool
     for (const buffer of this.frameUniformBuffers) {
       this.uniformBufferPool.release(buffer);
     }
     this.frameUniformBuffers = [];
+  }
+
+  /**
+   * Read timestamp query results asynchronously
+   */
+  private async readTimestamps(): Promise<void> {
+    if (!this.timestampReadBuffer) return;
+
+    try {
+      await this.timestampReadBuffer.mapAsync(GPUMapMode.READ);
+      const arrayBuffer = this.timestampReadBuffer.getMappedRange();
+      const timestamps = new BigUint64Array(arrayBuffer);
+
+      // Calculate GPU time in nanoseconds, then convert to milliseconds
+      const gpuTimeNs = Number(timestamps[1] - timestamps[0]);
+      this.gpuTimeMs = gpuTimeNs / 1_000_000;
+
+      this.timestampReadBuffer.unmap();
+    } catch (error) {
+      console.warn('Failed to read timestamp queries:', error);
+    }
+  }
+
+  /**
+   * Get last measured GPU execution time in milliseconds
+   */
+  getGPUTime(): number {
+    return this.gpuTimeMs;
   }
 
   executeCommands(commands: RenderCommand[]): void {
@@ -957,6 +1052,11 @@ export class WebGPUBackend implements IRendererBackend {
           depthClearValue: 1.0,
           depthLoadOp: 'clear',
           depthStoreOp: 'store',
+        } : undefined,
+        timestampWrites: this.hasTimestampQuery && this.timestampQuerySet ? {
+          querySet: this.timestampQuerySet,
+          beginningOfPassWriteIndex: 0,
+          endOfPassWriteIndex: 1,
         } : undefined,
       });
     }

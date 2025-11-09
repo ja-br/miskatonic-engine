@@ -200,18 +200,33 @@
         <div style="font-weight: bold; margin-bottom: 8px; color: #0f0;">Performance</div>
         <div>FPS: <span id="fps">0</span></div>
         <div>Frame Time: <span id="frame-time">0.0</span> ms</div>
-        <div>Draw Calls: <span id="draw-calls">0</span></div>
-        <div>Triangles: <span id="triangles">0</span></div>
-        <div style="margin-top: 8px; font-weight: bold; color: #0ff;">Instancing</div>
+        <div>Resolution: <span id="resolution">0x0</span></div>
+
+        <div style="margin-top: 8px; font-weight: bold; color: #ff0;">Objects</div>
+        <div>Count: <span id="object-count">0</span></div>
         <div>Groups: <span id="instance-groups">0</span></div>
         <div>Instanced: <span id="instanced-objects">0</span></div>
-        <div>Reduction: <span id="draw-call-reduction">0.0</span>%</div>
+
         <div style="margin-top: 8px; font-weight: bold; color: #f0f;">Memory</div>
-        <div>VRAM: <span id="vram-usage">0.0</span> MB</div>
+        <div>VRAM: <span id="vram-usage">0.0</span></div>
         <div>Buffers: <span id="buffer-count">0</span></div>
         <div>Textures: <span id="texture-count">0</span></div>
-        <div style="margin-top: 8px; font-weight: bold; color: #ff0;">Objects</div>
-        <div>Dice: <span id="object-count">0</span></div>
+
+        <div style="margin-top: 8px; font-weight: bold; color: #0ff;">CPU Timing</div>
+        <div style="font-size: 11px;">Physics: <span id="cpu-physics">0.0</span> ms</div>
+        <div style="font-size: 11px;">Sync: <span id="cpu-sync">0.0</span> ms</div>
+        <div style="font-size: 11px;">ECS: <span id="cpu-ecs">0.0</span> ms</div>
+        <div style="font-size: 11px;">Loop: <span id="cpu-loop">0.0</span> ms</div>
+        <div style="font-size: 11px;">Sort: <span id="cpu-sort">0.0</span> ms</div>
+        <div style="font-size: 11px;">Encode: <span id="cpu-gpu">0.0</span> ms</div>
+        <div style="font-size: 11px; font-weight: bold; color: #0ff;">Total: <span id="cpu-total">0.0</span> ms</div>
+
+        <div style="margin-top: 8px; font-weight: bold; color: #f80;">GPU</div>
+        <div style="font-size: 11px;">Exec: <span id="gpu-exec">0.0</span> ms</div>
+
+        <div style="margin-top: 8px; font-weight: bold; color: #fa0;">Cache</div>
+        <div style="font-size: 11px;">UBO: <span id="cache-ubo">0.0</span>%</div>
+        <div style="font-size: 11px;">Bind: <span id="cache-bind">0.0</span>%</div>
       </div>
       <div id="info">
         Miskatonic Engine - 3D Demo<br>
