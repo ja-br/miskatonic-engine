@@ -1046,7 +1046,8 @@ export class JointsDemo {
     const renderCommands = queuedCommands.map(qc => qc.drawCommand);
 
     // Begin frame
-    this.backend.beginFrame({ clearColor: [0.1, 0.15, 0.2, 1.0], clearDepth: 1.0 });
+    this.backend.beginFrame();
+    this.backend.clear([0.1, 0.15, 0.2, 1.0], 1.0);
 
     // Execute all render commands
     this.backend.executeCommands(renderCommands);

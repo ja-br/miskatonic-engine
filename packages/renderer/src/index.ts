@@ -38,14 +38,17 @@ window.addEventListener('DOMContentLoaded', async () => {
     // Wire up UI controls
     const diceSlider = document.getElementById('dice-slider') as HTMLInputElement;
     const rollBtn = document.getElementById('roll-btn');
+    const resetBtn = document.getElementById('reset-btn');
     const diceSetsEl = document.getElementById('dice-sets');
 
     if (diceSlider) {
       diceSlider.addEventListener('input', () => {
-        const value = parseInt(diceSlider.value, 10);
-        demo.setDiceSets(value);
+        const sliderValue = parseInt(diceSlider.value, 10);
+        // Convert to exponential: 0→1, 1→2, 2→4, 3→8, 4→16, 5→32, 6→64, 7→128
+        const diceSets = Math.pow(2, sliderValue);
+        demo.setDiceSets(diceSets);
         if (diceSetsEl) {
-          diceSetsEl.textContent = demo.getDiceSets().toString();
+          diceSetsEl.textContent = diceSets.toString();
         }
       });
     }
@@ -53,6 +56,12 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (rollBtn) {
       rollBtn.addEventListener('click', () => {
         demo.manualRoll();
+      });
+    }
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', () => {
+        demo.reset();
       });
     }
 

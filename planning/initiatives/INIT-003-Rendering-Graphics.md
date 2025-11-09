@@ -1715,3 +1715,538 @@ function calculateDepth(transform: Mat4, camera: Camera): number {
 
 ---
 
+### Epic 3.15: Light Component & Multi-Light Rendering
+
+**Priority**: P1 - IMPORTANT (VISUAL QUALITY)
+**Status**: Not Started
+
+**Description**: Implement basic multi-light support with unified Light component system, material system refactor, and PBR shader integration. Replaces hardcoded single-light Blinn-Phong with production-ready multi-light PBR rendering.
+
+**Current State**:
+- Basic Blinn-Phong with single hardcoded directional light (Material.ts:270-280)
+- PBR Cook-Torrance BRDF scaffolded but unused
+- Epic 3.3 Material System does NOT support multi-light (hardcoded u_lightDirection in pbr.frag.glsl:40-42)
+- No dynamic lights
+
+**Target State**:
+- Dynamic multi-light system with unified ECS Light component
+- Directional, point, spot, and ambient light support (single component with type discriminator)
+- Light prioritization (top 16 lights by contribution)
+- Material system refactored for multi-light uniform buffers
+- Full PBR integration with Cook-Torrance BRDF
+
+**CRITICAL DEPENDENCIES**:
+- **BLOCKING**: Epic 3.3 Material System must be retrofitted FIRST
+  - MaterialManager.bindMaterial() must support LightData uniform buffer array
+  - PBR shaders must accept light arrays, not single hardcoded light
+  - Material system refactor required before starting Epic 3.15
+- Epic 3.9: Shader System (shader management, variant compilation)
+- Epic 3.10: Camera System (view/projection matrices)
+- Epic 3.11: Transform System (world transforms for light positions)
+- Epic 3.12: Render Queue Organization (opaque rendering pipeline)
+
+---
+
+#### User Stories (Light Component System):
+
+1. **Unified Light Component** (CRITICAL FIX: Single component avoids archetype migration)
+   - **As a** game developer
+   - **I want** a single Light component with type discriminator
+   - **So that** I can change light types without expensive archetype migrations
+
+   **Tasks**:
+   - [ ] Create unified `Light` component with type discriminator ('directional' | 'point' | 'spot' | 'ambient')
+   - [ ] Add common properties: color, intensity
+   - [ ] Add optional directional properties: direction
+   - [ ] Add optional point/spot properties: position, radius
+   - [ ] Add optional spot properties: spotAngle, spotPenumbra
+   - [ ] Add light property validation (intensity > 0, normalized directions, NaN/Infinity checks)
+   - [ ] Write component tests (60 tests including edge cases: zero radius, infinite radius, negative intensity)
+
+2. **Light Collection & Prioritization System**
+   - **As a** rendering system
+   - **I want** efficient queries for active lights with prioritization
+   - **So that** I can select top 16 lights by contribution when >16 lights exist
+
+   **Tasks**:
+   - [ ] Create `LightCollectorSystem` with ECS queries
+   - [ ] Implement per-frame light gathering
+   - [ ] Add light type filtering
+   - [ ] Implement light prioritization (sort by intensity / distance²)
+   - [ ] Add warning when light count exceeds 16
+   - [ ] Create `LightData` uniform buffer structure
+   - [ ] Write collection tests (40 tests including priority edge cases)
+
+**Deliverables (Light Component System)**:
+- Single unified Light component (avoids 4 separate types)
+- Light collection system with prioritization
+- 100 passing tests (including edge cases)
+- Component documentation with type discriminator patterns
+
+---
+
+#### User Stories (Shader Integration & Material Refactor):
+
+1. **Material System Multi-Light Support** (PREREQUISITE: Fix Epic 3.3)
+   - **As a** rendering backend
+   - **I want** MaterialManager to support light arrays
+   - **So that** I can bind multi-light uniforms instead of hardcoded single light
+
+   **Tasks**:
+   - [ ] Refactor MaterialManager.bindMaterial() to accept LightData uniform buffer
+   - [ ] Remove hardcoded u_lightDirection/u_lightColor/u_lightIntensity from Material.ts:270-280
+   - [ ] Update pbr.frag.glsl:40-42 to use light array instead of single light
+   - [ ] Write material system integration tests (20 tests)
+
+2. **Multi-Light Shader Support with Ubershader**
+   - **As a** rendering backend
+   - **I want** shaders that support multiple lights with dynamic branching
+   - **So that** I avoid 1,280 shader variant explosion
+
+   **Tasks**:
+   - [ ] Create `LightUniforms` buffer layout (max 16 lights)
+   - [ ] Write WGSL/GLSL light evaluation functions with dynamic branching (avoid variants)
+   - [ ] Implement directional light calculations
+   - [ ] Implement point light calculations with attenuation
+   - [ ] Implement spot light calculations with cone falloff
+   - [ ] Add ambient light accumulation
+   - [ ] Precompile ONLY 4 common variants (1 dir no shadow, 1 dir shadow, 4 point, 8 mixed)
+   - [ ] Add 200ms stall warning for rare variant on-demand compilation
+   - [ ] Write shader tests (50 tests)
+
+3. **PBR Integration**
+   - **As a** material system
+   - **I want** PBR materials to respond to lights correctly
+   - **So that** surfaces look physically accurate
+
+   **Tasks**:
+   - [ ] Integrate Cook-Torrance BRDF with light loop
+   - [ ] Implement Fresnel-Schlick approximation per-light
+   - [ ] Implement GGX normal distribution per-light
+   - [ ] Implement Smith's geometry function per-light
+   - [ ] Add energy conservation validation
+   - [ ] Write PBR integration tests (30 tests)
+
+**Deliverables (Shader Integration & Material Refactor)**:
+- Material system refactored for multi-light support
+- Multi-light ubershader (WGSL + GLSL) with dynamic branching
+- 4 precompiled common variants (not 1,280)
+- PBR integration with all light types
+- 100 passing tests
+- Shader variant documentation
+
+---
+
+#### Acceptance Criteria (Epic 3.15):
+- Games can add/remove lights dynamically without performance hitches
+- Scenes support 16+ lights with automatic prioritization
+- PBR materials respond correctly to multiple light sources
+- Material system no longer has hardcoded single-light limitation
+- >85% test coverage
+- All 200+ tests passing
+
+---
+
+### Epic 3.16: Light Culling & Optimization
+
+**Priority**: P1 - IMPORTANT (PERFORMANCE)
+**Status**: Not Started
+
+**Description**: GPU-efficient light culling system for scalable multi-light rendering. Implements frustum culling for all backends and tile-based Forward+ culling for WebGPU compute shaders.
+
+**Dependencies**:
+- **BLOCKING**: Epic 3.15 (Light Component & Multi-Light Rendering)
+- Epic 3.10: Camera System (frustum for culling)
+- Epic 3.2: WebGPU Implementation (compute shader support)
+
+---
+
+#### User Stories:
+
+1. **Frustum-Based Culling (All Backends)**
+   - **As a** rendering system
+   - **I want** lights culled against camera frustum
+   - **So that** off-screen lights don't waste GPU time
+
+   **Tasks**:
+   - [ ] Create `LightCuller` class
+   - [ ] Implement frustum-sphere intersection (point lights)
+   - [ ] Implement frustum-cone intersection (spot lights)
+   - [ ] Add per-frame culling pass (<1ms CPU target)
+   - [ ] Write culling tests (60 tests including degenerate cases)
+   - [ ] Edge case tests: light at camera position, light behind camera, zero/infinite radius, NaN/Infinity
+
+2. **Tile-Based Culling (Forward+) - WebGPU ONLY**
+   - **As a** rendering system
+   - **I want** tile-based light assignment via compute shader
+   - **So that** WebGPU can handle 16+ lights at 60 FPS
+
+   **Tasks**:
+   - [ ] Create screen-space tile grid (16x16 tiles)
+   - [ ] Implement compute shader for light-tile intersection tests
+   - [ ] Create per-tile light index buffer
+   - [ ] Upload light indices to GPU
+   - [ ] Modify WGSL shaders to use tile-based lookup
+   - [ ] Write tile culling tests (50 tests)
+   - [ ] Add stress test: 1000 lights culled to 16 per tile in <1ms
+
+3. **WebGL2 Fallback Strategy**
+   - **As a** WebGL2 backend
+   - **I want** simple frustum culling without compute shaders
+   - **So that** I avoid 2-3ms CPU overhead of CPU-side tile culling
+
+   **Tasks**:
+   - [ ] Detect backend type (WebGPU vs WebGL2)
+   - [ ] WebGL2: Use frustum culling only (limit to 8 lights for performance)
+   - [ ] WebGPU: Use compute-based Forward+ (supports 16+ lights)
+   - [ ] Add backend capability detection
+   - [ ] Write backend-specific tests (20 tests)
+
+**Deliverables (Epic 3.16)**:
+- Frustum culling system (all backends)
+- Tile-based Forward+ culling (WebGPU compute shader)
+- WebGL2 fallback (frustum only, 8-light limit)
+- Backend capability documentation
+- Performance documentation (WebGPU 16+ lights, WebGL2 8 lights @ 60 FPS)
+
+**Acceptance Criteria (Epic 3.16)**:
+- Off-screen lights culled correctly (no false negatives)
+- WebGPU handles 16+ lights at 60 FPS via Forward+
+- WebGL2 maintains 60 FPS with 8-light limit
+- Culling completes in <1ms CPU time
+- Stress test: 1000 lights culled to 16 per tile in <1ms
+- >85% test coverage
+- All 130+ tests passing (including edge cases: NaN, infinity, zero radius)
+
+---
+
+### Epic 3.17: Shadow Mapping System
+
+**Priority**: P1 - IMPORTANT (VISUAL QUALITY)
+**Status**: Not Started
+
+**Description**: Production-ready shadow system with atlas optimization. Implements cascaded shadow maps for directional lights, cubemap shadows for point lights, and spot light shadows with configurable quality tiers.
+
+**Dependencies**:
+- **BLOCKING**: Epic 3.15 (Light Component & Multi-Light Rendering)
+- Epic 3.10: Camera System (view matrices for shadow cameras)
+- Epic 3.12: Render Queue Organization (depth-only render pass)
+
+---
+
+#### User Stories:
+
+1. **Shadow Map Atlas** (CRITICAL: Avoid texture unit exhaustion)
+   - **As a** rendering system
+   - **I want** single shadow atlas texture for all shadow maps
+   - **So that** I use 2 texture bindings instead of 12 (WebGL2 has 16-unit limit)
+
+   **Tasks**:
+   - [ ] Create shadow map atlas (4096x4096 R32F texture)
+   - [ ] Allocate atlas regions: directional CSM (3 cascades @ 1024x1024 = 3MB)
+   - [ ] Allocate atlas regions: point cubemaps (4 lights @ 256x256x6 = 1.5MB)
+   - [ ] Allocate atlas regions: spot shadows (4 lights @ 512x512 = 1MB)
+   - [ ] Total atlas memory: 5.5MB (vs 27MB in original plan - 80% reduction)
+   - [ ] Implement atlas UV mapping and region management
+   - [ ] Write atlas tests (30 tests)
+
+2. **Directional Shadows with CSM**
+   - **As a** game developer
+   - **I want** directional lights to cast shadows
+   - **So that** outdoor scenes have realistic sunlight shadows
+
+   **Tasks**:
+   - [ ] Create `ShadowMapRenderer` class
+   - [ ] Implement depth-only render pass
+   - [ ] Implement light-space matrix calculation
+   - [ ] Add shadow map sampling in fragment shader
+   - [ ] Implement PCF 2x2 filtering (4 samples, not 16 - 75% reduction)
+   - [ ] Implement shadow bias configuration (depth bias, normal offset, slope-scaled)
+   - [ ] Add bias visualization debug mode
+   - [ ] Write shadow map tests (50 tests including bias edge cases)
+
+3. **Cascaded Shadow Maps (CSM) - 3 Cascades**
+   - **As a** rendering system
+   - **I want** multiple shadow cascades
+   - **So that** shadows are detailed near camera and cover large distances
+
+   **Tasks**:
+   - [ ] Create cascade split calculation (3 cascades @ 1024x1024 - optimized for mid-range GPU)
+   - [ ] Implement per-cascade view-projection matrices
+   - [ ] Create shadow map array in atlas (3x 1024x1024 = 4.1MB vs 16.7MB - 75% reduction)
+   - [ ] Implement cascade selection in fragment shader (50+ lines, not 1 line)
+   - [ ] Implement cascade blending at boundaries (10% soft overlap to prevent seams)
+   - [ ] Implement cascade jitter stabilization (snap to texel grid to prevent swimming)
+   - [ ] Add cascade debug visualization (color overlay showing splits)
+   - [ ] Write CSM tests (60 tests including blend and stabilization)
+
+4. **Point Light Shadows (Cubemap) - Atlas Packed**
+   - **As a** game developer
+   - **I want** point lights to cast shadows
+   - **So that** indoor scenes with lamps have realistic shadows
+
+   **Tasks**:
+   - [ ] Create cubemap shadow regions in atlas (256x256x6 per light, max 4 lights)
+   - [ ] Implement 6-face depth rendering
+   - [ ] Add omnidirectional shadow sampling
+   - [ ] Implement PCF 2x2 for cubemaps (4 samples)
+   - [ ] Add shadow bias for point lights (default: 0.1)
+   - [ ] Write cubemap shadow tests (40 tests)
+
+5. **Spot Light Shadows - Atlas Packed**
+   - **As a** game developer
+   - **I want** spot lights to cast shadows
+   - **So that** flashlights and focused lights have realistic shadows
+
+   **Tasks**:
+   - [ ] Create spot shadow regions in atlas (512x512 per light, max 4 lights)
+   - [ ] Implement spot light-space matrix
+   - [ ] Add spot shadow sampling
+   - [ ] Implement PCF 2x2 for spot lights
+   - [ ] Add shadow bias for spot lights (default: 0.005)
+   - [ ] Write spot shadow tests (30 tests)
+
+6. **Shadow Quality Tiers** (Mid-range & Integrated GPU Support)
+   - **As a** game developer
+   - **I want** configurable shadow quality levels
+   - **So that** integrated GPUs can run at 60 FPS
+
+   **Tasks**:
+   - [ ] Implement HIGH quality (current spec: 5.5MB atlas, 4 shadowed lights)
+   - [ ] Implement MEDIUM quality (default: 3 cascades @ 512x512, 2 shadowed point lights = 2MB)
+   - [ ] Implement LOW quality (integrated GPU: single 512x512 directional shadow = 0.5MB)
+   - [ ] Add runtime quality switching
+   - [ ] Write quality tier tests (20 tests)
+
+**Deliverables (Epic 3.17)**:
+- Shadow map atlas system (2 texture bindings, not 12)
+- Directional CSM (3 cascades @ 1024x1024 = 4.1MB)
+- Point cubemap shadows (4 lights @ 256x256x6 = 1.5MB)
+- Spot shadows (4 lights @ 512x512 = 1MB)
+- PCF 2x2 filtering (4 samples, not 16)
+- Shadow bias configuration (depth, normal offset, slope-scaled)
+- CSM cascade blending and stabilization
+- Shadow quality tiers (HIGH/MEDIUM/LOW)
+- Shadow quality and atlas documentation
+
+**Acceptance Criteria (Epic 3.17)**:
+- Directional lights cast CSM shadows (3 cascades, no swimming artifacts)
+- Point lights cast omnidirectional shadows (4 shadowed lights max)
+- Spot lights cast cone shadows (4 shadowed lights max)
+- Shadow atlas uses only 2 texture bindings (not 12)
+- Total atlas memory ≤ 5.5MB (HIGH quality)
+- Cascade blending prevents visible seams
+- Jitter stabilization prevents shadow swimming
+- Shadow bias prevents acne on grazing angles
+- Mid-range GPU (RTX 3060) maintains 60 FPS with 4 shadowed lights
+- Integrated GPU (Intel Iris Xe) maintains 60 FPS with LOW quality tier
+- >85% test coverage
+- All 230+ tests passing
+
+---
+
+### Epic 3.18: Lighting System Polish & Integration
+
+**Priority**: P2 - NICE TO HAVE (DEVELOPER EXPERIENCE)
+**Status**: Not Started
+
+**Description**: Performance validation, utilities, and demo integration for the complete lighting system. Provides animation components, debug visualization tools, and comprehensive benchmarking across hardware tiers.
+
+**Dependencies**:
+- **BLOCKING**: Epic 3.15 (Light Component)
+- **BLOCKING**: Epic 3.16 (Light Culling)
+- **BLOCKING**: Epic 3.17 (Shadow Mapping)
+- Epic 3.7: Renderer Integration & Demo Scene (demo updates)
+
+---
+
+#### User Stories:
+
+1. **Comprehensive Performance Validation** (5 Configurations)
+   - **As a** developer
+   - **I want** lighting to meet performance budgets across real-world scenarios
+   - **So that** games maintain 60 FPS with complex lighting
+
+   **Tasks**:
+   - [ ] Benchmark configuration 1: Best case (1 directional, no shadows) - target 60 FPS
+   - [ ] Benchmark configuration 2: Typical (1 directional + 8 point + 2 spot, all shadowed) - target 60 FPS
+   - [ ] Benchmark configuration 3: Heavy (16 point lights, 4 shadowed) - target 60 FPS WebGPU
+   - [ ] Benchmark configuration 4: Pathological (1 directional + 100 point, culled to 16 visible) - target 60 FPS
+   - [ ] Benchmark configuration 5: Stress test (1000 point lights with tile culling) - measure culling perf
+   - [ ] Validate on mid-range GPU (RTX 3060 / RX 6600)
+   - [ ] Validate on integrated GPU (Intel Iris Xe) with LOW quality tier
+   - [ ] Profile GPU time for lighting pass (<4ms target)
+   - [ ] Profile CPU time for culling (<1ms target)
+   - [ ] Optimize hot paths if needed
+   - [ ] Write performance tests (30 tests covering all 5 configurations)
+
+2. **Light Animation Utilities**
+   - **As a** game developer
+   - **I want** pre-built light animation components
+   - **So that** I can easily create dynamic lighting effects
+
+   **Tasks**:
+   - [ ] Create `FlickeringLight` component (for torches/campfires)
+   - [ ] Create `PulsingLight` component (for alarms/warnings)
+   - [ ] Create `OrbitingLight` component (for rotating lights)
+   - [ ] Write animation component tests (15 tests)
+
+3. **Debug Visualization**
+   - **As a** developer
+   - **I want** visual debugging tools for lighting
+   - **So that** I can diagnose performance and quality issues
+
+   **Tasks**:
+   - [ ] Add light bounding volume rendering (spheres for point, cones for spot)
+   - [ ] Add shadow frustum visualization
+   - [ ] Add light intensity heatmaps
+   - [ ] Add tile culling debug view (show which tiles have which lights)
+   - [ ] Add cascade split visualization (color overlay)
+   - [ ] Write debug visualization tests (10 tests)
+
+4. **Demo Integration**
+   - **As a** demo user
+   - **I want** lighting showcase in demos
+   - **So that** I can see the lighting system capabilities
+
+   **Tasks**:
+   - [ ] Update dice demo with 8 dynamic lights (4 point, 2 spot, 1 directional, 1 ambient)
+   - [ ] Add light movement/animation using animation components
+   - [ ] Add shadow visualization
+   - [ ] Create dedicated lighting demo scene
+   - [ ] Add quality tier UI toggle (HIGH/MEDIUM/LOW)
+   - [ ] Write demo documentation
+
+**Deliverables (Epic 3.18)**:
+- Performance benchmarks (5 configurations: best/typical/heavy/pathological/stress)
+- Validated on mid-range GPU (RTX 3060 / RX 6600) AND integrated GPU (Intel Iris Xe)
+- Light animation components (FlickeringLight, PulsingLight, OrbitingLight)
+- Debug visualization tools (volumes, frustums, heatmaps, tile culling, cascades)
+- Updated demos with 8+ dynamic lights
+- Quality tier UI toggle (HIGH/MEDIUM/LOW)
+- Final performance analysis documentation
+
+**Acceptance Criteria (Epic 3.18)**:
+- All 5 benchmark configurations meet 60 FPS target on mid-range GPU
+- Integrated GPU (Intel Iris Xe) achieves 60 FPS with LOW quality tier
+- Lighting pass GPU time <4ms
+- Culling CPU time <1ms
+- Dice demo showcases 8 dynamic lights with shadows
+- Debug tools visualize light volumes, shadow frustums, tile assignments, cascades
+- >80% test coverage
+- All 55+ tests passing
+
+---
+
+## Technical Specifications (Epics 3.15-3.18)
+
+### Light Component (Unified Design):
+```typescript
+type LightType = 'directional' | 'point' | 'spot' | 'ambient';
+
+interface Light {
+  type: LightType;
+  color: [number, number, number];
+  intensity: number;
+
+  // Directional only
+  direction?: [number, number, number];
+
+  // Point/Spot only
+  position?: [number, number, number];
+  radius?: number;
+
+  // Spot only
+  spotAngle?: number;      // Inner cone angle (radians)
+  spotPenumbra?: number;   // Outer cone angle (radians)
+
+  // Shadow configuration
+  castsShadows?: boolean;
+  shadowBias?: number;
+}
+```
+
+**Light Uniform Buffer Layout**:
+```rust
+struct Light {
+    type: u32,           // 0=directional, 1=point, 2=spot, 3=ambient
+    position: vec3<f32>, // point/spot
+    direction: vec3<f32>, // directional/spot
+    color: vec3<f32>,
+    intensity: f32,
+    radius: f32,         // point/spot
+    spotAngle: f32,      // spot inner angle
+    spotPenumbra: f32,   // spot outer angle
+    shadowMapIndex: i32, // -1 if no shadows, else atlas region index
+    shadowBias: f32,
+    padding: vec2<f32>
+}
+
+struct LightData {
+    lights: array<Light, 16>,
+    lightCount: u32,
+    ambientColor: vec3<f32>
+}
+```
+
+**Shadow Map Atlas Configuration** (CRITICAL: 2 bindings, not 12):
+- **Atlas Size**: 4096x4096 R32F (single texture)
+- **Total Memory**: 5.5MB (vs 27MB in naive approach - 80% reduction)
+
+**Atlas Regions**:
+- **Directional CSM**: 3 cascades @ 1024x1024 = 3.1MB (75% reduction from 4x2048x2048)
+- **Point Cubemaps**: 4 lights @ 256x256x6 = 1.5MB (75% reduction from 512x512x6)
+- **Spot Shadows**: 4 lights @ 512x512 = 1MB (75% reduction from 1024x1024)
+
+**Shadow Quality Tiers**:
+- **HIGH** (desktop): 5.5MB atlas, 4 shadowed lights, PCF 2x2
+- **MEDIUM** (default): 2MB atlas, 2 shadowed lights, CSM @ 512x512, PCF 2x2
+- **LOW** (integrated GPU): 0.5MB, single 512x512 directional shadow, no PCF
+
+**Shadow Filtering**:
+- **PCF 2x2**: 4 texture samples (not 16 - 75% reduction)
+- **Rotated Poisson disk**: 2x2 kernel with rotation for temporal AA
+- **Optional PCSS**: Percentage-closer soft shadows (HIGH quality only)
+
+**Shadow Bias Configuration**:
+- **Depth bias**: 0.005 (directional), 0.1 (point), 0.005 (spot)
+- **Normal offset**: 0.01 (configurable per light)
+- **Slope-scaled bias**: enabled (prevents acne on grazing angles)
+- **Bias visualization**: debug mode to see bias application
+
+**Light Culling**:
+- **WebGPU**: Compute shader Forward+ (16x16 tile grid, supports 16+ lights)
+- **WebGL2**: Frustum culling only (8-light limit for performance)
+- **CPU overhead target**: <1ms per frame
+- **Stress test**: 1000 lights culled to 16 per tile in <1ms
+
+**Performance Targets**:
+- **WebGPU**: 16 lights @ 60 FPS (mid-range GPU: RTX 3060 / RX 6600)
+- **WebGL2**: 8 lights @ 60 FPS (mid-range GPU)
+- **Integrated GPU**: 4 lights @ 60 FPS (Intel Iris Xe with LOW quality)
+- **Shadowed lights**: 4 shadowed @ 60 FPS (1 directional CSM, 3 point/spot)
+- **Light culling**: <1ms CPU overhead
+- **Shadow rendering**: <4ms GPU time (including atlas updates)
+
+**Shader Variant Strategy** (Avoid 1,280 variant explosion):
+- **Ubershader**: Dynamic branching for shadow types
+- **Precompiled variants**: ONLY 4 common configurations
+  1. 1 directional (no shadows)
+  2. 1 directional (with CSM shadows)
+  3. 4 point lights (no shadows)
+  4. 8 mixed lights (with shadows)
+- **On-demand compilation**: Rare variants with 200ms stall warning
+- **Estimated memory**: 200KB (vs 64MB for all variants - 99.7% reduction)
+
+### Testing Requirements (Total: 615+ tests across Epics 3.15-3.18):
+- **Epic 3.15**: 200+ tests (Component: 60, Collection: 40, Material refactor: 20, Shader integration: 50, PBR integration: 30)
+- **Epic 3.16**: 130+ tests (Frustum culling: 60, Forward+ tile culling: 50, WebGL2 fallback: 20)
+- **Epic 3.17**: 230+ tests (Shadow atlas: 30, Directional shadows: 50, CSM: 60, Point shadows: 40, Spot shadows: 30, Quality tiers: 20)
+- **Epic 3.18**: 55+ tests (Performance: 30, Animation components: 15, Debug visualization: 10)
+- **Visual tests**: Shadow map validation, PBR correctness, cascade blending
+- **Performance tests**: 5 benchmark configurations (best/typical/heavy/pathological/stress)
+- **Hardware validation**: Mid-range GPU (RTX 3060), Integrated GPU (Intel Iris Xe)
+- **Coverage target**: >85% (Epics 3.15-3.17), >80% (Epic 3.18)
+
+---
+

@@ -180,8 +180,31 @@ export class WebGPUBackend implements IRendererBackend {
   }
 
   endFrame(): void {
-    if (!this.device || !this.currentCommandEncoder) {
+    if (!this.device || !this.currentCommandEncoder || !this.context) {
       return;
+    }
+
+    // If no render pass was created (no draw commands), create one just to clear the screen
+    if (!this.currentRenderPass) {
+      const textureView = this.context.getCurrentTexture().createView();
+      const depthView = this.depthTexture?.createView();
+
+      this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: textureView,
+            clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          },
+        ],
+        depthStencilAttachment: depthView ? {
+          view: depthView,
+          depthClearValue: 1.0,
+          depthLoadOp: 'clear',
+          depthStoreOp: 'store',
+        } : undefined,
+      });
     }
 
     // End any active render pass
@@ -217,10 +240,20 @@ export class WebGPUBackend implements IRendererBackend {
   }
 
   resize(width: number, height: number): void {
-    if (!this.canvas) return;
+    if (!this.canvas || !this.device) return;
 
     this.canvas.width = width;
     this.canvas.height = height;
+
+    // Recreate depth texture with new size
+    if (this.depthTexture) {
+      this.depthTexture.destroy();
+    }
+    this.depthTexture = this.device.createTexture({
+      size: { width, height },
+      format: 'depth24plus',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
   }
 
   getStats(): Readonly<RenderStats> {
@@ -573,23 +606,51 @@ export class WebGPUBackend implements IRendererBackend {
       return;
     }
 
+    try {
+      this.executeDrawCommandInternal(command);
+    } catch (error) {
+      console.error('Error executing draw command:', error);
+      // Ensure render pass is cleaned up on error
+      if (this.currentRenderPass) {
+        this.currentRenderPass.end();
+        this.currentRenderPass = null;
+      }
+    }
+  }
+
+  private executeDrawCommandInternal(command: DrawCommand): void {
+    if (!this.device || !this.currentCommandEncoder || !this.context) {
+      return;
+    }
+
     // Get shader
     const shader = this.shaders.get(command.shader);
     if (!shader) {
-      console.error(`Shader ${command.shader} not found`);
-      return;
+      throw new Error(`Shader ${command.shader} not found`);
     }
 
     // Begin render pass if not already active
     if (!this.currentRenderPass) {
       const textureView = this.context.getCurrentTexture().createView();
+
+      // Check if depth texture needs to be recreated (canvas size changed)
+      if (this.depthTexture && this.canvas &&
+          (this.depthTexture.width !== this.canvas.width || this.depthTexture.height !== this.canvas.height)) {
+        this.depthTexture.destroy();
+        this.depthTexture = this.device.createTexture({
+          size: { width: this.canvas.width, height: this.canvas.height },
+          format: 'depth24plus',
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+      }
+
       const depthView = this.depthTexture?.createView();
 
       this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
         colorAttachments: [
           {
             view: textureView,
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
             loadOp: 'clear',
             storeOp: 'store',
           },
@@ -677,27 +738,31 @@ export class WebGPUBackend implements IRendererBackend {
     // Bind vertex buffers based on vertex layout
     if (command.vertexLayout && command.vertexLayout.attributes) {
       for (const attr of command.vertexLayout.attributes) {
-        const buffer = this.buffers.get(attr.bufferId || command.vertexBufferId);
-        if (buffer) {
-          this.currentRenderPass.setVertexBuffer(attr.location, buffer.buffer);
+        const bufferId = attr.bufferId || command.vertexBufferId;
+        const buffer = this.buffers.get(bufferId);
+        if (!buffer) {
+          throw new Error(`Vertex buffer ${bufferId} not found`);
         }
+        this.currentRenderPass.setVertexBuffer(attr.location, buffer.buffer);
       }
     } else {
       // Fallback: bind first vertex buffer
       const vertexBuffer = this.buffers.get(command.vertexBufferId);
-      if (vertexBuffer) {
-        this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
+      if (!vertexBuffer) {
+        throw new Error(`Vertex buffer ${command.vertexBufferId} not found`);
       }
+      this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
     }
 
     // Bind index buffer if present
     if (command.indexBufferId) {
       const indexBuffer = this.buffers.get(command.indexBufferId);
-      if (indexBuffer) {
-        const indexFormat = command.indexType === 'uint32' ? 'uint32' : 'uint16';
-        this.currentRenderPass.setIndexBuffer(indexBuffer.buffer, indexFormat);
-        this.currentRenderPass.drawIndexed(command.vertexCount);
+      if (!indexBuffer) {
+        throw new Error(`Index buffer ${command.indexBufferId} not found`);
       }
+      const indexFormat = command.indexType === 'uint32' ? 'uint32' : 'uint16';
+      this.currentRenderPass.setIndexBuffer(indexBuffer.buffer, indexFormat);
+      this.currentRenderPass.drawIndexed(command.vertexCount);
     } else {
       this.currentRenderPass.draw(command.vertexCount);
     }

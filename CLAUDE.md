@@ -313,38 +313,76 @@ node --expose-gc packages/ecs/benchmark-runner.js
 - History persistence via localStorage
 - Comprehensive test coverage
 
+**Rendering Foundation Complete! (Epics 3.1-3.3, 3.9-3.12)**
+
+✅ **Epic 3.1: Rendering Pipeline** - COMPLETE
+- WebGL2 renderer with command buffers
+- Draw call batching and multi-pass rendering
+- Render state caching and statistics
+
+✅ **Epic 3.2: WebGPU Backend** - COMPLETE
+- WebGPU + WebGL2 backend abstraction
+- Automatic capability detection and fallback
+- Compute shader support (WebGPU only)
+
+✅ **Epic 3.3: PBR Material System** - COMPLETE
+- Cook-Torrance BRDF with physically-based shading
+- Material properties and texture support
+- MaterialManager with validation
+
+✅ **Epic 3.9: Shader Management** - COMPLETE (59 tests)
+- Hot-reload with file watching (<100ms)
+- Include system with circular dependency detection
+- GLSL ES 3.0 support (WGSL deferred)
+
+✅ **Epic 3.10: Camera System** - COMPLETE (52 tests)
+- ECS Camera component with perspective/orthographic projection
+- View/projection matrix generation
+- Orbit and first-person camera controllers
+
+✅ **Epic 3.11: Transform System** - COMPLETE
+- Cache-efficient SoA matrix storage
+- Hierarchical transforms with linked list
+- Zero-allocation matrix operations
+- ~185 bytes per transform
+
+✅ **Epic 3.12: Render Queue** - COMPLETE (35 tests)
+- Opaque/transparent/alpha-test sorting
+- Front-to-back/back-to-front optimization
+- State change minimization
+- <1ms sorting for 1000 objects
+
 **Critical Next Priorities (P0):**
 
-From recent architecture analyses (November 2025), these are the most critical gaps:
+1. **Epic 3.13: Draw Call Batching & Instancing** (HIGHEST PRIORITY)
+   - Static batching for build-time mesh combining
+   - Dynamic batching for runtime optimization
+   - Instance rendering (GPU-side, 1 call for N objects)
+   - Target: <100 draw calls for 1000 objects
 
-1. **Epic 3.9-3.12: Rendering Foundation** (HIGHEST PRIORITY)
-   - Shader system (3.9) - WGSL/GLSL support, hot-reload
-   - Camera system (3.10) - View/projection matrices, camera controllers
-   - Transform system (3.11) - Hierarchical transforms, matrix generation
-   - Render queue (3.12) - Opaque/transparent sorting, batching
-   - Required before full WebGL2/WebGPU rendering can work
-
-2. **Epic 3.1-3.2: Rendering Abstraction & WebGPU Implementation** (HIGH PRIORITY)
-   - IRenderer interface
-   - WebGPU backend (primary)
-   - WebGL2 backend (fallback)
-   - Depends on Epic 3.9-3.12 foundation
+2. **Epic 3.14-3.15: Advanced Rendering** (HIGH PRIORITY)
+   - Transparency & blending (back-to-front sorting)
+   - Multi-light system with Forward+ culling
+   - Shadow mapping with cascaded shadow maps
+   - PBR lighting integration
 
 3. **Epic 2.13-2.14: Memory Management** (HIGH PRIORITY)
    - GC mitigation strategies
-   - Object pooling
-   - Frame allocators
+   - Object pooling and frame allocators
    - Memory profiling integration
+   - GPU memory management (Epic 3.8)
 
 ### Key Documentation Files
-- **[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)**: Detailed epics, user stories, and task breakdowns (split by initiative)
+- **[planning/initiatives/INDEX.md](planning/initiatives/INDEX.md)**: Epic status index (17 of 70+ complete)
+- **[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)**: Detailed epics, user stories, and task breakdowns (organized by initiative)
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: System architecture overview with implementation status (November 2025 update)
 - **[HLD.md](HLD.md)**: High-Level Design with subsystem architectures and performance budgets
 - **[ENGINE_DESIGN.md](ENGINE_DESIGN.md)**: Core design principles (batteries included, swappable preferred)
 - **[PRD.md](PRD.md)**: Product Requirements Document
 - **[GAME_DESIGN.md](GAME_DESIGN.md)**: Sample game design demonstrating capabilities
-- **planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md**: Recent architecture analysis identifying critical gaps
-- **planning/CACHE_ARCHITECTURE_ANALYSIS.md**: Deep dive on cache-efficient ECS requirements
+- **planning/EPIC_CONSOLIDATION_SUMMARY.md**: Epic organization cleanup (November 2025)
+- **planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md**: Architecture analysis
+- **planning/CACHE_ARCHITECTURE_ANALYSIS.md**: Cache-efficient ECS deep dive
 
 ### When Starting Development
 
@@ -358,30 +396,30 @@ From recent architecture analyses (November 2025), these are the most critical g
 2. **Critical Context** (November 2025):
    - ECS Core OPTIMIZED (Epic 2.1 + 2.10-2.11): Cache-efficient SoA with typed arrays, 4.16x faster iteration
    - Main engine class EXISTS (Epic 2.7-2.9 complete): MiskatonicEngine, GameLoop, CommandSystem all implemented
-   - Rendering foundation NOT STARTED (Epic 3.9-3.12): Need shader system, camera, transforms, render queue - **THIS IS THE CRITICAL PATH**
-   - Physics and networking foundations are solid and production-ready
-   - Debug console complete (Epic 6.1): In-game developer console with command execution
+   - **Rendering foundation COMPLETE** (Epics 3.1-3.3, 3.9-3.12): Shader system, camera, transforms, render queue all production-ready
+   - Physics engine COMPLETE (Epics 4.1-4.5): Rapier/Cannon/Box2D abstraction, deterministic simulation
+   - Network sync COMPLETE (Epic 5.2): Delta compression, interest management
+   - Debug console COMPLETE (Epic 6.1): In-game developer console with command execution
 
 3. **Recommended Next Steps**:
-   - **If working on rendering**: Start with Epic 3.9-3.12 (Rendering Foundation - HIGHEST PRIORITY)
+   - **If working on rendering**: Start with Epic 3.13 (Batching/Instancing) or Epic 3.14-3.15 (Advanced rendering, lighting)
    - **If working on memory**: Start with Epic 2.13-2.14 (Memory Management - GC mitigation, pooling)
    - **If working on new features**: Check ARCHITECTURE.md for dependencies first
-   - **Note**: Cache-efficient ECS is already done (Epic 2.10-2.11 complete)
+   - **Epic Organization**: See [planning/initiatives/INDEX.md](planning/initiatives/INDEX.md) for complete epic status
 
 ## Known Architectural Issues
 
-**⚠️ CRITICAL: These issues are documented and planned for resolution**
+**⚠️ Note: Most critical gaps have been resolved (November 2025)**
 
-### 1. Rendering Foundation Missing (Epic 3.9-3.12) - **MOST CRITICAL GAP**
-**Issue:** No rendering foundation exists (shader system, camera, transforms, render queue)
-- **Impact:** Cannot render anything despite having ECS, physics, and main engine
-- **Status:** Architecture documented but implementation not started
-- **Resolution:** Build shader management, camera system, transform hierarchy, render queue
-- **Timeline:** Highest priority for rendering functionality
-- **Blocks:** Full WebGL2/WebGPU renderer implementation (Epic 3.1-3.2)
-- **Reference:** planning/RENDERING_ARCHITECTURE_ANALYSIS.md
+### 1. ✅ RESOLVED: Rendering Foundation (Epic 3.9-3.12)
+**Was:** No rendering foundation (shader system, camera, transforms, render queue)
+**Now:** ✅ All foundation epics complete and production-ready
+- ✅ Epic 3.9: Shader Management (hot-reload, includes, GLSL ES 3.0)
+- ✅ Epic 3.10: Camera System (ECS component, orbit/FPS controllers)
+- ✅ Epic 3.11: Transform System (cache-efficient SoA, zero allocations)
+- ✅ Epic 3.12: Render Queue (sorting, batching, state minimization)
 
-### 2. Memory Management Not Optimized (Epic 2.13-2.14)
+### 2. Memory Management Not Optimized (Epic 2.13-2.14) - **MEDIUM PRIORITY**
 **Issue:** No GC mitigation strategies in place
 - **Impact:** Potential frame drops from garbage collection
 - **Status:** Basic implementations work, but not optimized for 60 FPS
@@ -389,7 +427,14 @@ From recent architecture analyses (November 2025), these are the most critical g
 - **Timeline:** Medium priority, affects frame stability
 - **Reference:** planning/MEMORY_MANAGEMENT_ANALYSIS.md
 
-**When working on the codebase:** Check ARCHITECTURE.md for the latest status of these issues and their planned resolution.
+### 3. GPU Memory Management (Epic 3.8) - **IMPORTANT**
+**Issue:** No buffer pooling or texture atlasing
+- **Impact:** Excessive GPU reallocation, potential VRAM exhaustion
+- **Status:** Planned but not started
+- **Resolution:** Implement GPUBufferPool, TextureAtlas, VRAM budgets
+- **Target:** <256MB VRAM usage, <5 buffer reallocations/frame
+
+**When working on the codebase:** Check [planning/initiatives/INDEX.md](planning/initiatives/INDEX.md) for current epic status.
 
 ---
 

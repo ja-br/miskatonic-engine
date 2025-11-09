@@ -80,6 +80,7 @@ export class RenderQueue {
 
   // State tracking for minimization
   private lastMaterialId: string | null = null;
+  private lastShaderId: string | null = null;
 
   // Statistics
   private stats: RenderQueueStats = {

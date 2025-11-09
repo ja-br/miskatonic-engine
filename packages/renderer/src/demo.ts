@@ -31,6 +31,7 @@ import {
 import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
 import { DiceEntity } from './components/DiceEntity';
 import './components/registerDemoComponents'; // Register custom components
+import { MatrixPool } from './MatrixPool';
 
 export class Demo {
   private canvas: HTMLCanvasElement;
@@ -71,6 +72,11 @@ export class Demo {
   private lastTime: number = 0;
   private diceSets: number = 1; // Number of dice sets to roll (1 set = 6 dice)
 
+  // Matrix pooling for performance (eliminates GC pressure)
+  private matrixPool: MatrixPool;
+  private mat3Pool: MatrixPool;
+  private vec3Pool: MatrixPool;
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
 
@@ -86,6 +92,11 @@ export class Demo {
 
     // Initialize render queue
     this.renderQueue = new RenderQueue();
+
+    // Initialize matrix pools (pre-allocate for 1200 dice)
+    this.matrixPool = new MatrixPool(16, 4000); // mat4 matrices
+    this.mat3Pool = new MatrixPool(9, 1500);     // mat3 normal matrices
+    this.vec3Pool = new MatrixPool(3, 5000);     // vec3 uniforms
   }
 
   async initialize(): Promise<boolean> {
@@ -440,16 +451,12 @@ export class Demo {
     this.canvas.addEventListener('webglcontextrestored', async () => {
       console.log('WebGL context restored. Re-initializing renderer...');
       try {
-        // Re-initialize the renderer
-        const config: RendererConfig = {
-          backend: RenderBackend.WEBGL2,
-          canvas: this.canvas,
-          width: this.canvas.width,
-          height: this.canvas.height,
+        // Re-initialize the backend (this is what actually renders)
+        this.backend = await BackendFactory.create(this.canvas, {
           antialias: true,
           alpha: false,
-        };
-        this.renderer = new Renderer(config);
+          preferredBackend: 'webgl2'
+        });
 
         // Recreate shaders and geometry
         await this.createShaders();
@@ -547,20 +554,21 @@ export class Demo {
             const physicsPos = this.physicsWorld.getPosition(diceEntity.bodyHandle);
             const physicsRot = this.physicsWorld.getRotation(diceEntity.bodyHandle);
 
-            // Update transform position
-            transform.x = physicsPos.x;
-            transform.y = physicsPos.y;
-            transform.z = physicsPos.z;
+            if (physicsPos && physicsRot) {
+              // Update transform position
+              transform.x = physicsPos.x;
+              transform.y = physicsPos.y;
+              transform.z = physicsPos.z;
 
-            // Update transform rotation (quaternion to euler angles)
-            // For now, we'll store the quaternion in the rotation fields
-            // TODO: Convert quaternion to euler angles properly
-            transform.rotationX = physicsRot.x;
-            transform.rotationY = physicsRot.y;
-            transform.rotationZ = physicsRot.z;
-          } catch (error) {
-            // Physics body was removed but entity still exists (race condition during removal)
-            // Skip this entity - it will be cleaned up on next frame
+              // Update transform rotation (quaternion to euler angles)
+              // For now, we'll store the quaternion in the rotation fields
+              // TODO: Convert quaternion to euler angles properly
+              transform.rotationX = physicsRot.x;
+              transform.rotationY = physicsRot.y;
+              transform.rotationZ = physicsRot.z;
+            }
+          } catch (e) {
+            // Body might have been removed, skip this entity
             continue;
           }
         }
@@ -618,10 +626,24 @@ export class Demo {
 
         if (!transform || !diceEntity) continue;
 
-        const position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
-        const rotation = this.physicsWorld.getRotation(diceEntity.bodyHandle);
-        const modelMatrix = this.createModelMatrix(position, rotation);
-        const mvpMatrix = this.multiplyMatrices(viewProjMatrix, modelMatrix);
+        let position, rotation;
+        try {
+          position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
+          rotation = this.physicsWorld.getRotation(diceEntity.bodyHandle);
+
+          // Skip if body no longer exists
+          if (!position || !rotation) continue;
+        } catch (e) {
+          // Body might have been removed, skip this entity
+          continue;
+        }
+
+        // Acquire matrices from pool (eliminates GC pressure)
+        const modelMatrix = this.matrixPool.acquire();
+        const mvpMatrix = this.matrixPool.acquire();
+
+        this.createModelMatrix(modelMatrix, position, rotation);
+        this.multiplyMatrices(mvpMatrix, viewProjMatrix, modelMatrix);
 
         // Use cube mesh for D6, sphere for everything else
         const useCube = diceEntity.sides === 6;
@@ -630,17 +652,10 @@ export class Demo {
         const indexBufferId = useCube ? this.cubeIndexBufferId : this.sphereIndexBufferId;
         const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
 
-        // Add depth-based darkening and respawn pulse
+        // Add depth-based darkening
         const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
         const [r, g, b] = getDieColor(diceEntity.sides);
-        let brightness = 0.7 + depth * 0.3; // Brighter when higher up
-
-        // Add pulsing effect when near respawn time
-        const respawnProgress = this.respawnTimer / this.respawnDelay;
-        if (respawnProgress > 0.7) {
-          const pulse = Math.sin((respawnProgress - 0.7) * Math.PI * 10) * 0.2 + 1.0;
-          brightness *= pulse;
-        }
+        const brightness = 0.7 + depth * 0.3; // Brighter when higher up
 
         // Create draw command
         const drawCmd: DrawCommand = {
@@ -671,14 +686,35 @@ export class Demo {
               },
             ],
           },
-          uniforms: new Map([
-            ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: mvpMatrix }],
-            ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
-            ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]) }],
-            ['uLightDir', { name: 'uLightDir', type: 'vec3', value: new Float32Array([0.5, 1.0, 0.5]) }],
-            ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: new Float32Array([cameraTransform.x, cameraTransform.y, cameraTransform.z]) }],
-            ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: new Float32Array([r * brightness, g * brightness, b * brightness]) }],
-          ]),
+          uniforms: (() => {
+            // Acquire uniform arrays from pool
+            const normalMatrix = this.mat3Pool.acquire();
+            normalMatrix[0] = 1; normalMatrix[1] = 0; normalMatrix[2] = 0;
+            normalMatrix[3] = 0; normalMatrix[4] = 1; normalMatrix[5] = 0;
+            normalMatrix[6] = 0; normalMatrix[7] = 0; normalMatrix[8] = 1;
+
+            const lightDir = this.vec3Pool.acquire();
+            lightDir[0] = 0.5; lightDir[1] = 1.0; lightDir[2] = 0.5;
+
+            const cameraPos = this.vec3Pool.acquire();
+            cameraPos[0] = cameraTransform.x;
+            cameraPos[1] = cameraTransform.y;
+            cameraPos[2] = cameraTransform.z;
+
+            const baseColor = this.vec3Pool.acquire();
+            baseColor[0] = r * brightness;
+            baseColor[1] = g * brightness;
+            baseColor[2] = b * brightness;
+
+            return new Map([
+              ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: mvpMatrix }],
+              ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
+              ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: normalMatrix }],
+              ['uLightDir', { name: 'uLightDir', type: 'vec3', value: lightDir }],
+              ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: cameraPos }],
+              ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: baseColor }],
+            ]);
+          })(),
           state: {
             blendMode: 'none',
             depthTest: 'less',
@@ -706,13 +742,18 @@ export class Demo {
     const renderCommands = queuedCommands.map(qc => qc.drawCommand);
 
     // Begin frame
-    this.backend.beginFrame({ clearColor: [0.05, 0.05, 0.08, 1.0], clearDepth: 1.0 });
+    this.backend.beginFrame();
 
-    // Execute all render commands
+    // Always execute commands (even if empty) to ensure render pass is created and screen is cleared
     this.backend.executeCommands(renderCommands);
 
     // End frame
     this.backend.endFrame();
+
+    // Release all pooled matrices back to pool (eliminates per-frame allocations)
+    this.matrixPool.releaseAll();
+    this.mat3Pool.releaseAll();
+    this.vec3Pool.releaseAll();
 
     // Update FPS counter
     this.frameCount++;
@@ -844,6 +885,9 @@ export class Demo {
         angularVel
       ));
     }
+
+    // Update the dice count display
+    this.updateDiceCountDisplay();
   }
 
   private removeExcessDice(keepCount: number): void {
@@ -859,16 +903,19 @@ export class Demo {
       const diceEntity = components.get(DiceEntity);
 
       if (diceEntity) {
-        // Remove physics body
-        this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
-
-        // Remove ECS entity
+        // IMPORTANT: Remove ECS entity FIRST, then physics body
+        // This prevents race conditions where physics sync tries to access removed bodies
         this.world.destroyEntity(entity);
+        this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
       }
     }
   }
 
-  private createModelMatrix(position: { x: number; y: number; z: number }, rotation: { x: number; y: number; z: number; w: number }): Float32Array {
+  private createModelMatrix(
+    out: Float32Array,
+    position: { x: number; y: number; z: number },
+    rotation: { x: number; y: number; z: number; w: number }
+  ): void {
     // Convert quaternion to rotation matrix
     const x = rotation.x, y = rotation.y, z = rotation.z, w = rotation.w;
     const x2 = x + x, y2 = y + y, z2 = z + z;
@@ -876,16 +923,13 @@ export class Demo {
     const yy = y * y2, yz = y * z2, zz = z * z2;
     const wx = w * x2, wy = w * y2, wz = w * z2;
 
-    return new Float32Array([
-      1 - (yy + zz), xy + wz,       xz - wy,       0,
-      xy - wz,       1 - (xx + zz), yz + wx,       0,
-      xz + wy,       yz - wx,       1 - (xx + yy), 0,
-      position.x,    position.y,    position.z,    1,
-    ]);
+    out[0] = 1 - (yy + zz); out[1] = xy + wz;       out[2] = xz - wy;       out[3] = 0;
+    out[4] = xy - wz;       out[5] = 1 - (xx + zz); out[6] = yz + wx;       out[7] = 0;
+    out[8] = xz + wy;       out[9] = yz - wx;       out[10] = 1 - (xx + yy); out[11] = 0;
+    out[12] = position.x;   out[13] = position.y;   out[14] = position.z;    out[15] = 1;
   }
 
-  private multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
-    const out = new Float32Array(16);
+  private multiplyMatrices(out: Float32Array, a: Float32Array, b: Float32Array): void {
     const a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
     const a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
     const a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
@@ -914,8 +958,6 @@ export class Demo {
     out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
     out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
     out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-
-    return out;
   }
 
   private updateStats(fps: number, drawCalls: number, triangles: number): void {
@@ -944,21 +986,9 @@ export class Demo {
   }
 
   public manualRoll(): void {
-    // Set dice to the target count
-    const targetDiceCount = this.diceSets * 6;
-
-    // Count current dice using ECS query
-    const query = this.world.query().with(DiceEntity).build();
-    const currentDiceCount = Array.from(this.world.executeQuery(query)).length;
-
-    if (targetDiceCount > currentDiceCount) {
-      this.addMoreDice(targetDiceCount - currentDiceCount);
-    } else if (targetDiceCount < currentDiceCount) {
-      this.removeExcessDice(targetDiceCount);
-    }
-
-    // Respawn all dice
-    this.respawnDice();
+    // Add more dice (based on slider value) and make them fall from above
+    const diceToAdd = this.diceSets * 6;
+    this.addMoreDice(diceToAdd);
   }
 
   public getDiceSets(): number {
@@ -973,11 +1003,49 @@ export class Demo {
     }
   }
 
+  public reset(): void {
+    if (!this.physicsWorld) return;
+
+    // Get all dice entities
+    const query = this.world.query().with(DiceEntity).build();
+    const diceEntities = Array.from(this.world.executeQuery(query));
+
+    console.log(`[RESET] Found ${diceEntities.length} dice entities to remove`);
+
+    // Remove all dice
+    for (const { entity, components } of diceEntities) {
+      const diceEntity = components.get(DiceEntity);
+      if (diceEntity) {
+        // Remove physics body
+        try {
+          this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
+        } catch (e) {
+          // Body already removed
+        }
+        // Remove ECS entity
+        this.world.destroyEntity(entity);
+      }
+    }
+
+    // Verify entities are gone
+    const verifyQuery = this.world.query().with(DiceEntity).build();
+    const remainingEntities = Array.from(this.world.executeQuery(verifyQuery));
+    console.log(`[RESET] After removal, ${remainingEntities.length} dice entities remain`);
+
+    // The entities are now removed. The next render loop will show an empty scene.
+    // No need to force a render - the animation loop will handle it.
+
+    // Update display
+    this.updateDiceCountDisplay();
+  }
+
   private updateDiceCountDisplay(): void {
     const diceCountEl = document.getElementById('dice-count');
     if (diceCountEl) {
-      const totalDice = this.diceSets * 6;
-      diceCountEl.textContent = `${totalDice} dice total`;
+      // Count actual dice in scene
+      const query = this.world.query().with(DiceEntity).build();
+      const actualDiceCount = Array.from(this.world.executeQuery(query)).length;
+      diceCountEl.textContent = `${actualDiceCount} dice total`;
     }
   }
 
