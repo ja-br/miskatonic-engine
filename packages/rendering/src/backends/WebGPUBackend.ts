@@ -27,6 +27,7 @@ import type {
   TextureFilter,
   TextureWrap,
   DrawCommand,
+  VertexLayout,
 } from '../types';
 
 import { RenderCommandType } from '../types';
@@ -36,8 +37,16 @@ import { RenderCommandType } from '../types';
  */
 interface WebGPUShader {
   id: string;
-  pipeline: GPURenderPipeline;
+  shaderModule: GPUShaderModule; // Epic 3.13: Store shader module for pipeline variants
   bindGroupLayout: GPUBindGroupLayout;
+}
+
+/**
+ * Pipeline cache entry - Epic 3.13
+ */
+interface PipelineCacheEntry {
+  pipeline: GPURenderPipeline;
+  vertexLayoutHash: string;
 }
 
 interface WebGPUBuffer {
@@ -78,6 +87,9 @@ export class WebGPUBackend implements IRendererBackend {
   private buffers = new Map<string, WebGPUBuffer>();
   private textures = new Map<string, WebGPUTexture>();
   private framebuffers = new Map<string, WebGPUFramebuffer>();
+
+  // Epic 3.13: Pipeline cache for (shader, vertexLayout) variants
+  private pipelineCache = new Map<string, PipelineCacheEntry>();
 
   // Render state
   private currentRenderPass: GPURenderPassEncoder | null = null;
@@ -264,71 +276,57 @@ export class WebGPUBackend implements IRendererBackend {
     this.stats = this.createEmptyStats();
   }
 
-  // Shader Management
+  // Pipeline Management - Epic 3.13 Dynamic Vertex Layouts
 
-  createShader(id: string, source: ShaderSource): BackendShaderHandle {
+  /**
+   * Get or create pipeline variant for (shader, vertexLayout) combination
+   * Epic 3.13: Dynamic pipeline generation
+   */
+  private getPipeline(
+    shaderId: string,
+    vertexLayout: VertexLayout,
+    isInstancedShader: boolean
+  ): GPURenderPipeline {
     if (!this.device) {
       throw new Error('WebGPU backend not initialized');
     }
 
-    // For now, we expect WGSL source
-    // In a complete implementation, we would transpile GLSL -> WGSL here
-    const shaderModule = this.device.createShaderModule({
-      label: `Shader: ${id}`,
-      code: source.vertex, // Assuming combined WGSL shader for now
-    });
+    // Generate cache key
+    const layoutHash = this.hashVertexLayout(vertexLayout);
+    const cacheKey = `${shaderId}_${layoutHash}_${isInstancedShader}`;
 
-    // Create a basic render pipeline
-    // In a full implementation, this would be more configurable
-    const bindGroupLayout = this.device.createBindGroupLayout({
-      label: `BindGroupLayout: ${id}`,
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-          buffer: {
-            type: 'uniform',
-          },
-        },
-      ],
-    });
+    // Check cache
+    const cached = this.pipelineCache.get(cacheKey);
+    if (cached) {
+      return cached.pipeline;
+    }
 
+    // Get shader
+    const shader = this.shaders.get(shaderId);
+    if (!shader) {
+      throw new Error(`Shader ${shaderId} not found`);
+    }
+
+    // Build vertex buffers from layout
+    const vertexBuffers = this.buildVertexBuffers(vertexLayout, isInstancedShader);
+
+    // Create pipeline layout
     const pipelineLayout = this.device.createPipelineLayout({
-      label: `PipelineLayout: ${id}`,
-      bindGroupLayouts: [bindGroupLayout],
+      label: `PipelineLayout: ${cacheKey}`,
+      bindGroupLayouts: [shader.bindGroupLayout],
     });
 
+    // Create pipeline
     const pipeline = this.device.createRenderPipeline({
-      label: `Pipeline: ${id}`,
+      label: `Pipeline: ${cacheKey}`,
       layout: pipelineLayout,
       vertex: {
-        module: shaderModule,
+        module: shader.shaderModule,
         entryPoint: 'vs_main',
-        buffers: [
-          {
-            arrayStride: 12, // 3 floats * 4 bytes
-            attributes: [
-              {
-                shaderLocation: 0,
-                offset: 0,
-                format: 'float32x3',
-              },
-            ],
-          },
-          {
-            arrayStride: 12, // 3 floats * 4 bytes
-            attributes: [
-              {
-                shaderLocation: 1,
-                offset: 0,
-                format: 'float32x3',
-              },
-            ],
-          },
-        ],
+        buffers: vertexBuffers,
       },
       fragment: {
-        module: shaderModule,
+        module: shader.shaderModule,
         entryPoint: 'fs_main',
         targets: [
           {
@@ -347,7 +345,135 @@ export class WebGPUBackend implements IRendererBackend {
       },
     });
 
-    const shader: WebGPUShader = { id, pipeline, bindGroupLayout };
+    // Cache it
+    this.pipelineCache.set(cacheKey, { pipeline, vertexLayoutHash: layoutHash });
+
+    return pipeline;
+  }
+
+  /**
+   * Hash vertex layout for cache key
+   * Includes offset and stride to prevent cache collisions
+   */
+  private hashVertexLayout(layout: VertexLayout): string {
+    const attrStrings = layout.attributes.map(
+      attr => `${attr.name}:${attr.type}:${attr.size}:${attr.offset ?? 0}:${attr.stride ?? 0}`
+    );
+    return attrStrings.join('|');
+  }
+
+  /**
+   * Build GPUVertexBufferLayout array from VertexLayout
+   * Epic 3.13: Creates ONE buffer slot for interleaved vertex data
+   */
+  private buildVertexBuffers(
+    vertexLayout: VertexLayout,
+    isInstancedShader: boolean
+  ): GPUVertexBufferLayout[] {
+    const buffers: GPUVertexBufferLayout[] = [];
+
+    // Calculate total stride for interleaved data (sum of all attribute sizes)
+    let totalStride = 0;
+    for (const attr of vertexLayout.attributes) {
+      totalStride += this.getAttributeByteSize(attr.type, attr.size);
+    }
+
+    // Create ONE buffer slot with ALL vertex attributes
+    // This is for interleaved data: position+normal+uv all in same buffer
+    const attributes: GPUVertexAttribute[] = [];
+    for (let i = 0; i < vertexLayout.attributes.length; i++) {
+      const attr = vertexLayout.attributes[i];
+      attributes.push({
+        shaderLocation: i, // Sequential locations: 0, 1, 2, ...
+        offset: attr.offset ?? 0,
+        format: this.getGPUVertexFormat(attr.type, attr.size),
+      });
+    }
+
+    buffers.push({
+      arrayStride: totalStride,
+      stepMode: 'vertex',
+      attributes,
+    });
+
+    // Add instance buffer for instanced shaders (separate slot)
+    if (isInstancedShader) {
+      buffers.push({
+        arrayStride: 64, // mat4 = 16 floats * 4 bytes
+        stepMode: 'instance',
+        attributes: [
+          // mat4 requires 4 vec4 attributes (one per row)
+          { shaderLocation: vertexLayout.attributes.length + 0, offset: 0, format: 'float32x4' },
+          { shaderLocation: vertexLayout.attributes.length + 1, offset: 16, format: 'float32x4' },
+          { shaderLocation: vertexLayout.attributes.length + 2, offset: 32, format: 'float32x4' },
+          { shaderLocation: vertexLayout.attributes.length + 3, offset: 48, format: 'float32x4' },
+        ],
+      });
+    }
+
+    return buffers;
+  }
+
+  /**
+   * Get GPUVertexFormat from attribute type and size
+   */
+  private getGPUVertexFormat(type: string, size: number): GPUVertexFormat {
+    if (type === 'float') {
+      switch (size) {
+        case 1: return 'float32';
+        case 2: return 'float32x2';
+        case 3: return 'float32x3';
+        case 4: return 'float32x4';
+        default: throw new Error(`Unsupported float size: ${size}`);
+      }
+    }
+    throw new Error(`Unsupported attribute type: ${type}`);
+  }
+
+  /**
+   * Get byte size of attribute
+   */
+  private getAttributeByteSize(type: string, size: number): number {
+    if (type === 'float') {
+      return size * 4; // 4 bytes per float
+    }
+    throw new Error(`Unsupported attribute type: ${type}`);
+  }
+
+  // Shader Management
+
+  createShader(id: string, source: ShaderSource): BackendShaderHandle {
+    if (!this.device) {
+      throw new Error('WebGPU backend not initialized');
+    }
+
+    // Epic 3.13: Shader creation now just stores the shader module
+    // Pipelines are created on-demand by getPipeline() with specific vertex layouts
+
+    // For now, we expect WGSL source
+    // In a complete implementation, we would transpile GLSL -> WGSL here
+    const shaderModule = this.device.createShaderModule({
+      label: `Shader: ${id}`,
+      code: source.vertex, // Assuming combined WGSL shader for now
+    });
+
+    // Create bind group layout for uniforms
+    const bindGroupLayout = this.device.createBindGroupLayout({
+      label: `BindGroupLayout: ${id}`,
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: {
+            type: 'uniform',
+          },
+        },
+      ],
+    });
+
+    // Store shader module and bind group layout
+    // Pipelines will be created on-demand in getPipeline()
+    const shader: WebGPUShader = { id, shaderModule, bindGroupLayout };
     this.shaders.set(id, shader);
 
     return { __brand: 'BackendShader', id } as BackendShaderHandle;
@@ -690,8 +816,13 @@ export class WebGPUBackend implements IRendererBackend {
       });
     }
 
-    // Set pipeline
-    this.currentRenderPass.setPipeline(shader.pipeline);
+    // Epic 3.13: Get pipeline variant for this vertex layout
+    if (!command.vertexLayout) {
+      throw new Error('DrawCommand missing vertexLayout - required for WebGPU pipeline creation');
+    }
+    const isInstanced = command.shader.endsWith('_instanced');
+    const pipeline = this.getPipeline(command.shader, command.vertexLayout, isInstanced);
+    this.currentRenderPass.setPipeline(pipeline);
 
     // Create and bind uniform buffer with all uniforms
     if (command.uniforms && command.uniforms.size > 0) {
@@ -716,22 +847,25 @@ export class WebGPUBackend implements IRendererBackend {
         if (!uniform) continue;
 
         if (uniform.type === 'mat4') {
+          const values = uniform.value as number[] | Float32Array;
           for (let i = 0; i < 16; i++) {
-            dataView.setFloat32(offset + i * 4, uniform.value[i], true);
+            dataView.setFloat32(offset + i * 4, values[i], true);
           }
           offset += 64;
         } else if (uniform.type === 'mat3') {
           // Mat3 needs special handling - pad each column to vec4
+          const values = uniform.value as number[] | Float32Array;
           for (let col = 0; col < 3; col++) {
             for (let row = 0; row < 3; row++) {
-              dataView.setFloat32(offset + row * 4, uniform.value[col * 3 + row], true);
+              dataView.setFloat32(offset + row * 4, values[col * 3 + row], true);
             }
             offset += 16; // vec4 alignment per column
           }
           // NO extra padding needed after mat3
         } else if (uniform.type === 'vec3') {
+          const values = uniform.value as number[] | Float32Array;
           for (let i = 0; i < 3; i++) {
-            dataView.setFloat32(offset + i * 4, uniform.value[i], true);
+            dataView.setFloat32(offset + i * 4, values[i], true);
           }
           offset += 16; // vec3 is aligned to vec4
         }
@@ -761,23 +895,29 @@ export class WebGPUBackend implements IRendererBackend {
       this.currentRenderPass.setBindGroup(0, bindGroup);
     }
 
-    // Bind vertex buffers based on vertex layout
-    if (command.vertexLayout && command.vertexLayout.attributes) {
-      for (const attr of command.vertexLayout.attributes) {
-        const bufferId = attr.bufferId || command.vertexBufferId;
-        const buffer = this.buffers.get(bufferId);
-        if (!buffer) {
-          throw new Error(`Vertex buffer ${bufferId} not found`);
-        }
-        this.currentRenderPass.setVertexBuffer(attr.location, buffer.buffer);
+    // Bind vertex buffers
+    // NOTE: WebGPU uses buffer SLOT indices, not shader attribute locations
+    // The hardcoded pipeline has: slot 0 = position, slot 1 = normal
+    // TODO: Make this dynamic based on actual vertex layout
+
+    // Epic 3.13: Bind vertex buffers
+    // buildVertexBuffers() creates ONE slot (slot 0) for all interleaved vertex attributes
+    const vertexBuffer = this.buffers.get(command.vertexBufferId);
+    if (!vertexBuffer) {
+      throw new Error(`Vertex buffer ${command.vertexBufferId} not found`);
+    }
+
+    // Bind vertex buffer to slot 0 (all attributes in one buffer)
+    this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
+
+    // Epic 3.13: Bind instance buffer if present (slot 1)
+    if (command.instanceBufferId) {
+      const instanceBuffer = this.buffers.get(command.instanceBufferId);
+      if (!instanceBuffer) {
+        throw new Error(`Instance buffer ${command.instanceBufferId} not found`);
       }
-    } else {
-      // Fallback: bind first vertex buffer
-      const vertexBuffer = this.buffers.get(command.vertexBufferId);
-      if (!vertexBuffer) {
-        throw new Error(`Vertex buffer ${command.vertexBufferId} not found`);
-      }
-      this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
+      // Instance buffer is always in slot 1 (slot 0 is vertex data)
+      this.currentRenderPass.setVertexBuffer(1, instanceBuffer.buffer);
     }
 
     // Bind index buffer if present
@@ -788,9 +928,31 @@ export class WebGPUBackend implements IRendererBackend {
       }
       const indexFormat = command.indexType === 'uint32' ? 'uint32' : 'uint16';
       this.currentRenderPass.setIndexBuffer(indexBuffer.buffer, indexFormat);
-      this.currentRenderPass.drawIndexed(command.vertexCount);
+
+      // Epic 3.13: Use instanced draw call if instanceCount is set
+      if (command.instanceCount && command.instanceCount > 1) {
+        this.currentRenderPass.drawIndexed(
+          command.vertexCount,
+          command.instanceCount,
+          0, // firstIndex
+          0, // baseVertex
+          0  // firstInstance
+        );
+      } else {
+        this.currentRenderPass.drawIndexed(command.vertexCount);
+      }
     } else {
-      this.currentRenderPass.draw(command.vertexCount);
+      // Epic 3.13: Use instanced draw call if instanceCount is set
+      if (command.instanceCount && command.instanceCount > 1) {
+        this.currentRenderPass.draw(
+          command.vertexCount,
+          command.instanceCount,
+          0, // firstVertex
+          0  // firstInstance
+        );
+      } else {
+        this.currentRenderPass.draw(command.vertexCount);
+      }
     }
 
     // Update stats

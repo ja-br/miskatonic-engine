@@ -15,9 +15,8 @@ import {
   BackendFactory,
   createCube,
   createSphere,
+  InstanceBufferManager, // Epic 3.13: Instance rendering
   type RendererConfig,
-  type QueuedDrawCommand,
-  type CameraInfo,
   type DrawCommand,
   type IRendererBackend,
 } from '../../rendering/src';
@@ -41,6 +40,8 @@ export class Demo {
   private startTime: number = 0;
   private frameCount: number = 0;
   private lastFpsUpdate: number = 0;
+  private lastFrameTime: number = 0;
+  private frameTimeHistory: number[] = [];
   private resizeHandler: (() => void) | null = null;
 
   // ECS World and Systems
@@ -54,15 +55,14 @@ export class Demo {
 
   // Render queue for organized drawing
   private renderQueue: RenderQueue;
+  private instanceManager: InstanceBufferManager | null = null;
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
-  private cubeVertexBufferId: string = 'cube-positions';
-  private cubeNormalBufferId: string = 'cube-normals';
+  private cubeVertexBufferId: string = 'cube-vertices'; // Interleaved position+normal
   private cubeIndexBufferId: string = 'cube-indices';
   private cubeIndexCount: number = 0;
-  private sphereVertexBufferId: string = 'sphere-positions';
-  private sphereNormalBufferId: string = 'sphere-normals';
+  private sphereVertexBufferId: string = 'sphere-vertices'; // Interleaved position+normal
   private sphereIndexBufferId: string = 'sphere-indices';
   private sphereIndexCount: number = 0;
 
@@ -70,12 +70,15 @@ export class Demo {
   private physicsWorld: PhysicsWorld | null = null;
   private groundBody: RigidBodyHandle | null = null;
   private lastTime: number = 0;
-  private diceSets: number = 1; // Number of dice sets to roll (1 set = 6 dice)
+  private diceSets: number = 10; // Number of dice sets to roll (1 set = 6 dice) - Start with 10 sets (60 dice) to demonstrate instancing
 
   // Matrix pooling for performance (eliminates GC pressure)
   private matrixPool: MatrixPool;
   private mat3Pool: MatrixPool;
   private vec3Pool: MatrixPool;
+
+  // Debug: Log instancing info only once
+  private hasLoggedInstancing = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -123,6 +126,10 @@ export class Demo {
         powerPreference: 'high-performance',
       });
       console.log(`Using backend: ${this.backend.name}`);
+
+      // Create InstanceBufferManager for Epic 3.13 instanced rendering
+      this.instanceManager = new InstanceBufferManager(this.backend);
+      console.log('InstanceBufferManager initialized for instanced rendering');
 
       // Create legacy Renderer ONLY for WebGL2 backend (for BufferManager/ShaderManager)
       // WebGPU backend handles buffers/shaders directly
@@ -223,21 +230,42 @@ export class Demo {
     }
   }
 
+  /**
+   * Interleave position and normal data for cache-efficient rendering
+   */
+  private interleavePositionNormal(positions: Float32Array, normals: Float32Array): Float32Array {
+    const vertexCount = positions.length / 3;
+    const interleaved = new Float32Array(vertexCount * 6); // 3 pos + 3 normal per vertex
+
+    for (let i = 0; i < vertexCount; i++) {
+      const posOffset = i * 3;
+      const interleavedOffset = i * 6;
+
+      // Position (x, y, z)
+      interleaved[interleavedOffset + 0] = positions[posOffset + 0];
+      interleaved[interleavedOffset + 1] = positions[posOffset + 1];
+      interleaved[interleavedOffset + 2] = positions[posOffset + 2];
+
+      // Normal (nx, ny, nz)
+      interleaved[interleavedOffset + 3] = normals[posOffset + 0];
+      interleaved[interleavedOffset + 4] = normals[posOffset + 1];
+      interleaved[interleavedOffset + 5] = normals[posOffset + 2];
+    }
+
+    return interleaved;
+  }
+
   private createGeometry(): void {
     if (!this.backend) return;
 
-    // Create cube geometry
+    // Create cube geometry with interleaved position+normal data
     const cubeData = createCube(1.0);
+    const cubeInterleaved = this.interleavePositionNormal(cubeData.positions, cubeData.normals);
+
     this.backend.createBuffer(
       this.cubeVertexBufferId,
       'vertex',
-      cubeData.positions,
-      'static'
-    );
-    this.backend.createBuffer(
-      this.cubeNormalBufferId,
-      'vertex',
-      cubeData.normals,
+      cubeInterleaved,
       'static'
     );
     this.backend.createBuffer(
@@ -248,18 +276,14 @@ export class Demo {
     );
     this.cubeIndexCount = cubeData.indices.length;
 
-    // Create sphere geometry
+    // Create sphere geometry with interleaved position+normal data
     const sphereData = createSphere(0.5, 16, 12);
+    const sphereInterleaved = this.interleavePositionNormal(sphereData.positions, sphereData.normals);
+
     this.backend.createBuffer(
       this.sphereVertexBufferId,
       'vertex',
-      sphereData.positions,
-      'static'
-    );
-    this.backend.createBuffer(
-      this.sphereNormalBufferId,
-      'vertex',
-      sphereData.normals,
+      sphereInterleaved,
       'static'
     );
     this.backend.createBuffer(
@@ -347,22 +371,49 @@ export class Demo {
     });
 
     // Create gaming dice set with varied starting positions
-    const dice = [
+    const diceTemplate = [
       // D4 (tetrahedron - use small sphere as approximation)
-      { sides: 4, position: { x: -3, y: 15, z: -1 }, shape: CollisionShapeType.SPHERE, radius: 0.4, angularVel: { x: 2, y: 3, z: 1 } },
+      { sides: 4, shape: CollisionShapeType.SPHERE, radius: 0.4 },
       // D6 (cube)
-      { sides: 6, position: { x: -1.5, y: 18, z: 1 }, shape: CollisionShapeType.BOX, halfExtents: { x: 0.5, y: 0.5, z: 0.5 }, angularVel: { x: -1, y: 2, z: -2 } },
+      { sides: 6, shape: CollisionShapeType.BOX, halfExtents: { x: 0.5, y: 0.5, z: 0.5 } },
       // D8 (octahedron - use sphere)
-      { sides: 8, position: { x: 1, y: 20, z: -0.5 }, shape: CollisionShapeType.SPHERE, radius: 0.5, angularVel: { x: 1, y: -2, z: 3 } },
+      { sides: 8, shape: CollisionShapeType.SPHERE, radius: 0.5 },
       // D10 (pentagonal trapezohedron - use cylinder)
-      { sides: 10, position: { x: 3, y: 22, z: 0.5 }, shape: CollisionShapeType.CYLINDER, radius: 0.45, height: 1.0, angularVel: { x: -3, y: 1, z: -1 } },
+      { sides: 10, shape: CollisionShapeType.CYLINDER, radius: 0.45, height: 1.0 },
       // D12 (dodecahedron - use sphere)
-      { sides: 12, position: { x: -2, y: 24, z: 1.5 }, shape: CollisionShapeType.SPHERE, radius: 0.55, angularVel: { x: 2, y: -1, z: 2 } },
+      { sides: 12, shape: CollisionShapeType.SPHERE, radius: 0.55 },
       // D20 (icosahedron - use sphere)
-      { sides: 20, position: { x: 0.5, y: 26, z: -1.5 }, shape: CollisionShapeType.SPHERE, radius: 0.6, angularVel: { x: -2, y: 3, z: -2 } },
+      { sides: 20, shape: CollisionShapeType.SPHERE, radius: 0.6 },
     ];
 
-    for (const die of dice) {
+    // Spawn initial dice (based on diceSets value)
+    const setsToSpawn = this.diceSets; // Use the diceSets value (now 10)
+    console.log(`Spawning ${setsToSpawn} sets of dice (${setsToSpawn * 6} total dice)...`);
+
+    for (let set = 0; set < setsToSpawn; set++) {
+      for (let i = 0; i < diceTemplate.length; i++) {
+        const die = diceTemplate[i];
+
+        // Spread dice across a grid pattern
+        const gridX = (set % 6) * 3 - 7.5; // 6 columns
+        const gridZ = Math.floor(set / 6) * 3 - 5; // Multiple rows
+        const randomOffset = { x: (Math.random() - 0.5) * 1.5, z: (Math.random() - 0.5) * 1.5 };
+
+        const position = {
+          x: gridX + i * 0.5 + randomOffset.x,
+          y: 15 + set * 2 + i * 0.5, // Stack sets vertically
+          z: gridZ + randomOffset.z,
+        };
+
+        const angularVel = {
+          x: (Math.random() - 0.5) * 6,
+          y: (Math.random() - 0.5) * 6,
+          z: (Math.random() - 0.5) * 6,
+        };
+
+        const dieInstance = { ...die, position, angularVel };
+
+    for (const die of [dieInstance]) {
       let collisionShape: any;
 
       if (die.shape === CollisionShapeType.BOX) {
@@ -411,6 +462,10 @@ export class Demo {
         die.angularVel
       ));
     }
+      } // end diceTemplate loop
+    } // end sets loop
+
+    console.log(`Spawned ${setsToSpawn * 6} dice across ${setsToSpawn} sets`);
 
     // Add collision callback to log collisions
     this.physicsWorld.onCollision((event) => {
@@ -648,7 +703,6 @@ export class Demo {
         // Use cube mesh for D6, sphere for everything else
         const useCube = diceEntity.sides === 6;
         const vertexBufferId = useCube ? this.cubeVertexBufferId : this.sphereVertexBufferId;
-        const normalBufferId = useCube ? this.cubeNormalBufferId : this.sphereNormalBufferId;
         const indexBufferId = useCube ? this.cubeIndexBufferId : this.sphereIndexBufferId;
         const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
 
@@ -657,7 +711,9 @@ export class Demo {
         const [r, g, b] = getDieColor(diceEntity.sides);
         const brightness = 0.7 + depth * 0.3; // Brighter when higher up
 
-        // Create draw command
+        // Create draw command with interleaved vertex layout
+        // Interleaved format: [px, py, pz, nx, ny, nz, px, py, pz, nx, ny, nz, ...]
+        // Total stride: 24 bytes (6 floats * 4 bytes)
         const drawCmd: DrawCommand = {
           type: RenderCommandType.DRAW,
           shader: this.shaderProgramId,
@@ -670,19 +726,19 @@ export class Demo {
             attributes: [
               {
                 name: 'aPosition',
+                type: 'float',
+                size: 3,
                 location: 0,
-                format: 'float32x3',
-                offset: 0,
-                stride: 12,
-                bufferId: vertexBufferId,
+                offset: 0,      // Start of vertex data
+                stride: 24,     // 6 floats (pos + normal)
               },
               {
                 name: 'aNormal',
+                type: 'float',
+                size: 3,
                 location: 1,
-                format: 'float32x3',
-                offset: 0,
-                stride: 12,
-                bufferId: normalBufferId,
+                offset: 12,     // After position (3 floats * 4 bytes)
+                stride: 24,     // Same stride as position
               },
             ],
           },
@@ -724,9 +780,11 @@ export class Demo {
         };
 
         // Submit to render queue
+        // Epic 3.13 FIX: Use render type (cube/sphere) for materialId, NOT dice type
+        // This allows all spheres (D4, D8, D10, D12, D20) to instance together
         this.renderQueue.submit({
           drawCommand: drawCmd,
-          materialId: `dice-${diceEntity.sides}`,
+          materialId: useCube ? 'dice-cube' : 'dice-sphere',
           worldMatrix: modelMatrix,
           depth: 0,
           sortKey: 0,
@@ -736,10 +794,56 @@ export class Demo {
       }
     }
 
-    // Sort and execute render queue
+    // Epic 3.13: Sort and detect instances
     this.renderQueue.sort();
+
+    // Epic 3.13: Upload instance buffers to GPU if instancing is enabled
+    if (this.instanceManager) {
+      const opaqueGroups = this.renderQueue.getInstanceGroups('opaque');
+
+      // Log only once for debugging
+      if (!this.hasLoggedInstancing && opaqueGroups.length > 0) {
+        console.log(`\n=== Epic 3.13: Instanced Rendering Debug ===`);
+        console.log(`Found ${opaqueGroups.length} opaque groups`);
+      }
+
+      for (const group of opaqueGroups) {
+        if (!this.hasLoggedInstancing) {
+          console.log(`\nGroup "${group.key}":`);
+          console.log(`  - Objects: ${group.commands.length}`);
+          console.log(`  - Instance buffer created: ${!!group.instanceBuffer}`);
+        }
+
+        if (group.instanceBuffer) {
+          const gpuBuffer = this.instanceManager.upload(group.instanceBuffer);
+
+          if (!this.hasLoggedInstancing) {
+            console.log(`  - GPU buffer: ${gpuBuffer.id} (${gpuBuffer.count} instances)`);
+          }
+
+          // Set instanceBufferId on all commands in this group
+          for (const cmd of group.commands) {
+            cmd.drawCommand.instanceBufferId = gpuBuffer.id;
+            cmd.drawCommand.instanceCount = gpuBuffer.count;
+          }
+        }
+      }
+
+      if (!this.hasLoggedInstancing && opaqueGroups.length > 0) {
+        this.hasLoggedInstancing = true;
+      }
+    }
+
+    // Get render commands (now with instance buffer IDs set)
     const queuedCommands = this.renderQueue.getCommands();
     const renderCommands = queuedCommands.map(qc => qc.drawCommand);
+
+    // Log render command count only once
+    if (!this.hasLoggedInstancing && drawCalls > 0) {
+      console.log(`\nResult: ${drawCalls} objects → ${renderCommands.length} render commands`);
+      console.log(`Draw call reduction: ${((1 - renderCommands.length / drawCalls) * 100).toFixed(1)}%\n`);
+      this.hasLoggedInstancing = true;
+    }
 
     // Begin frame
     this.backend.beginFrame();
@@ -755,14 +859,68 @@ export class Demo {
     this.mat3Pool.releaseAll();
     this.vec3Pool.releaseAll();
 
+    // Track frame time
+    const frameTime = now - this.lastFrameTime;
+    this.lastFrameTime = now;
+    this.frameTimeHistory.push(frameTime);
+    if (this.frameTimeHistory.length > 60) this.frameTimeHistory.shift(); // Keep last 60 frames
+
     // Update FPS counter
     this.frameCount++;
     if (now - this.lastFpsUpdate >= 1000) {
       const fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
+
+      // Calculate average frame time from last 60 frames
+      const avgFrameTime = this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length;
+
+      // Epic 3.13 FIX: Get ACTUAL draw call count from RenderQueue after batching/instancing
+      const queueStats = this.renderQueue.getStats();
+      const actualDrawCalls = queueStats.opaqueCount + queueStats.alphaTestCount + queueStats.transparentCount
+        - queueStats.totalInstances // Remove instanced objects
+        + queueStats.instancedDrawCalls; // Add instanced draw calls (one per group)
+
       // Calculate total triangles (approximate average between cube and sphere)
       const avgTrianglesPerDie = ((this.cubeIndexCount / 3) + (this.sphereIndexCount / 3)) / 2;
       const triangles = Math.round(avgTrianglesPerDie * drawCalls);
-      this.updateStats(fps, drawCalls, triangles);
+
+      // Count total dice using ECS query
+      const diceQuery = this.world.query().with(DiceEntity).build();
+      const diceCount = Array.from(this.world.executeQuery(diceQuery)).length;
+
+      // Estimate VRAM usage based on buffer sizes
+      // Cube: 8 vertices * 6 floats (pos + normal) * 4 bytes = 192 bytes
+      // Cube indices: 36 indices * 2 bytes (uint16) = 72 bytes
+      // Sphere: ~408 vertices (16 segments * 12 rings) * 6 floats * 4 bytes = ~9792 bytes
+      // Sphere indices: ~1152 indices * 2 bytes = ~2304 bytes
+      const cubeVertexBytes = 8 * 6 * 4; // 8 vertices, 6 floats each (pos+normal), 4 bytes per float
+      const cubeIndexBytes = this.cubeIndexCount * 2; // uint16
+      const sphereVertexBytes = ((16 + 1) * (12 + 1)) * 6 * 4; // (segments+1) * (rings+1) vertices
+      const sphereIndexBytes = this.sphereIndexCount * 2; // uint16
+      const vramBytes = cubeVertexBytes + cubeIndexBytes + sphereVertexBytes + sphereIndexBytes;
+      const vramMB = vramBytes / (1024 * 1024);
+
+      // Calculate % of enforced VRAM budget (VRAMProfiler default: 256MB)
+      const vramBudgetMB = 256;
+      const vramUsagePercent = (vramMB / vramBudgetMB) * 100;
+
+      // Count buffers (vertex + index for cube and sphere)
+      const bufferCount = 4;
+      const textureCount = 0; // No textures in this demo
+
+      this.updateStats(
+        fps,
+        avgFrameTime,
+        actualDrawCalls,
+        triangles,
+        queueStats.instanceGroups,
+        queueStats.totalInstances,
+        queueStats.drawCallReduction,
+        diceCount,
+        vramMB,
+        vramUsagePercent,
+        bufferCount,
+        textureCount
+      );
       this.frameCount = 0;
       this.lastFpsUpdate = now;
     }
@@ -772,6 +930,9 @@ export class Demo {
 
   private respawnDice(): void {
     if (!this.physicsWorld) return;
+
+    // Reset instancing log so it prints again after respawn
+    this.hasLoggedInstancing = false;
 
     // Respawn all current dice using ECS query
     const query = this.world.query().with(DiceEntity).build();
@@ -960,14 +1121,43 @@ export class Demo {
     out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
   }
 
-  private updateStats(fps: number, drawCalls: number, triangles: number): void {
+  private updateStats(
+    fps: number,
+    frameTime: number,
+    drawCalls: number,
+    triangles: number,
+    instanceGroups: number,
+    instancedObjects: number,
+    drawCallReduction: number,
+    objectCount: number,
+    vramUsage: number,
+    vramUsagePercent: number,
+    bufferCount: number,
+    textureCount: number
+  ): void {
     const fpsEl = document.getElementById('fps');
+    const frameTimeEl = document.getElementById('frame-time');
     const drawCallsEl = document.getElementById('draw-calls');
     const trianglesEl = document.getElementById('triangles');
+    const instanceGroupsEl = document.getElementById('instance-groups');
+    const instancedObjectsEl = document.getElementById('instanced-objects');
+    const reductionEl = document.getElementById('draw-call-reduction');
+    const objectCountEl = document.getElementById('object-count');
+    const vramEl = document.getElementById('vram-usage');
+    const bufferCountEl = document.getElementById('buffer-count');
+    const textureCountEl = document.getElementById('texture-count');
 
     if (fpsEl) fpsEl.textContent = fps.toString();
+    if (frameTimeEl) frameTimeEl.textContent = frameTime.toFixed(2);
     if (drawCallsEl) drawCallsEl.textContent = drawCalls.toString();
     if (trianglesEl) trianglesEl.textContent = triangles.toString();
+    if (instanceGroupsEl) instanceGroupsEl.textContent = instanceGroups.toString();
+    if (instancedObjectsEl) instancedObjectsEl.textContent = instancedObjects.toString();
+    if (reductionEl) reductionEl.textContent = drawCallReduction.toFixed(1);
+    if (objectCountEl) objectCountEl.textContent = objectCount.toString();
+    if (vramEl) vramEl.textContent = `${vramUsage.toFixed(2)} (${vramUsagePercent.toFixed(3)}%)`;
+    if (bufferCountEl) bufferCountEl.textContent = bufferCount.toString();
+    if (textureCountEl) textureCountEl.textContent = textureCount.toString();
   }
 
   // Public API for UI controls

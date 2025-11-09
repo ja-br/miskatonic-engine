@@ -23,6 +23,11 @@ export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget
 export { MaterialManager, type Material, type MaterialConfig, type PBRMaterialProperties, type MaterialTextures } from './Material';
 export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueStats } from './RenderQueue';
 
+// Epic 3.8: GPU Memory Management
+export { GPUBufferPool, BufferUsageType, type BufferPoolStats } from './GPUBufferPool';
+export { TextureAtlas, type AtlasRegion, type TextureAtlasStats } from './TextureAtlas';
+export { VRAMProfiler, VRAMCategory, type VRAMBudget, type VRAMUsage, type VRAMStats } from './VRAMProfiler';
+
 // Epic 3.13: Instance rendering and batching
 export { InstanceBuffer, InstanceBufferPool, globalInstanceBufferPool, type InstanceData } from './InstanceBuffer';
 export { InstanceDetector, type InstanceGroup, type InstanceDetectorConfig } from './InstanceDetector';

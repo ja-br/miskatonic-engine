@@ -36,7 +36,7 @@ Initiative (Domain) → Epic (Major Deliverable) → User Stories (Features) →
 | 3.10 - Camera System |  Complete | 52 tests | ECS camera, orbit/FPS controls |
 | 3.11 - Transform System |  Complete | Production-ready | Cache-efficient SoA, zero allocations |
 | 3.12 - Render Queue |  Complete | 35 tests | Sorting, batching, state minimization |
-| 3.13 - Draw Call Batching & Instancing |  Complete | 177 tests | 1000 objects → 1 draw call (99.9% reduction) |
+| 3.13 - Draw Call Batching & Instancing |  Complete | 264 tests | 96.7% draw call reduction (60 objects → 2) |
 | 4.1-4.5 - Physics Engine |  Complete | Integration tests | Rapier/Cannon/Box2D abstraction, deterministic |
 | 5.2 - State Synchronization |  Complete | 89 tests (94.82%) | Delta compression, interest management |
 | 6.1 - Debug Console |  Complete | 69 tests | In-game console with command execution |

@@ -165,13 +165,13 @@ void main() {
     const stats = this.queue.getStats();
 
     console.log(`  Total commands submitted: ${objectCount}`);
-    console.log(`  Instance groups detected: ${stats.instancedGroups}`);
+    console.log(`  Instance groups detected: ${stats.instancedDrawCalls}`);
     console.log(`  Total instances: ${stats.totalInstances}`);
     console.log(`  Draw call reduction: ${stats.drawCallReduction.toFixed(2)}%`);
 
     // Calculate expected vs actual draw calls
     const beforeDrawCalls = objectCount;
-    const afterDrawCalls = stats.instancedGroups + (objectCount - stats.totalInstances);
+    const afterDrawCalls = stats.instancedDrawCalls + (objectCount - stats.totalInstances);
 
     console.log(`\n  Performance Impact:`);
     console.log(`    Before (no instancing): ${beforeDrawCalls} draw calls`);

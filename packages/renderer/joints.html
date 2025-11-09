@@ -191,9 +191,20 @@
     <div id="app">
       <canvas id="canvas"></canvas>
       <div id="stats">
+        <div style="font-weight: bold; margin-bottom: 8px; color: #0f0;">Performance</div>
         <div>FPS: <span id="fps">0</span></div>
+        <div>Frame Time: <span id="frame-time">0.0</span> ms</div>
         <div>Draw Calls: <span id="draw-calls">0</span></div>
         <div>Triangles: <span id="triangles">0</span></div>
+        <div style="margin-top: 8px; font-weight: bold; color: #0ff;">Instancing</div>
+        <div>Groups: <span id="instance-groups">0</span></div>
+        <div>Instanced: <span id="instanced-objects">0</span></div>
+        <div>Reduction: <span id="draw-call-reduction">0.0</span>%</div>
+        <div style="margin-top: 8px; font-weight: bold; color: #f0f;">Memory</div>
+        <div>VRAM: <span id="vram-usage">0.0</span> MB</div>
+        <div>Buffers: <span id="buffer-count">0</span></div>
+        <div>Textures: <span id="texture-count">0</span></div>
+        <div style="margin-top: 8px; font-weight: bold; color: #ff0;">Physics</div>
         <div>Bodies: <span id="bodies">0</span></div>
         <div>Joints: <span id="joints">0</span></div>
       </div>

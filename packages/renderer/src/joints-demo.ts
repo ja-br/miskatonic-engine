@@ -22,6 +22,7 @@ import {
   BackendFactory,
   type IRendererBackend,
   RenderQueue,
+  InstanceBufferManager, // Epic 3.13: Instance rendering
   type DrawCommand,
   RenderCommandType,
   PrimitiveMode,
@@ -44,10 +45,13 @@ export class JointsDemo {
   private backend: IRendererBackend | null = null;
   private renderer: Renderer | null = null;
   private renderQueue: RenderQueue;
+  private instanceManager: InstanceBufferManager | null = null;
   private animationId: number | null = null;
   private startTime: number = 0;
   private frameCount: number = 0;
   private lastFpsUpdate: number = 0;
+  private lastFrameTime: number = 0;
+  private frameTimeHistory: number[] = [];
   private resizeHandler: (() => void) | null = null;
 
   // ECS World and Systems
@@ -61,12 +65,10 @@ export class JointsDemo {
 
   // Rendering resources
   private shaderProgramId: string = 'basic-lighting';
-  private cubeVertexBufferId: string = 'cube-positions';
-  private cubeNormalBufferId: string = 'cube-normals';
+  private cubeVertexBufferId: string = 'cube-vertices'; // Interleaved position+normal
   private cubeIndexBufferId: string = 'cube-indices';
   private cubeIndexCount: number = 0;
-  private sphereVertexBufferId: string = 'sphere-positions';
-  private sphereNormalBufferId: string = 'sphere-normals';
+  private sphereVertexBufferId: string = 'sphere-vertices'; // Interleaved position+normal
   private sphereIndexBufferId: string = 'sphere-indices';
   private sphereIndexCount: number = 0;
 
@@ -126,6 +128,10 @@ export class JointsDemo {
       });
 
       console.log(`Using backend: ${this.backend.name}`);
+
+      // Create InstanceBufferManager for Epic 3.13 instanced rendering
+      this.instanceManager = new InstanceBufferManager(this.backend);
+      console.log('InstanceBufferManager initialized for instanced rendering');
 
       // Create legacy Renderer only for WebGL2 backend (for BufferManager/ShaderManager compatibility)
       if (this.backend.name === 'WebGL2') {
@@ -205,21 +211,42 @@ export class JointsDemo {
     }
   }
 
+  /**
+   * Interleave position and normal data for cache-efficient rendering
+   */
+  private interleavePositionNormal(positions: Float32Array, normals: Float32Array): Float32Array {
+    const vertexCount = positions.length / 3;
+    const interleaved = new Float32Array(vertexCount * 6); // 3 pos + 3 normal per vertex
+
+    for (let i = 0; i < vertexCount; i++) {
+      const posOffset = i * 3;
+      const interleavedOffset = i * 6;
+
+      // Position (x, y, z)
+      interleaved[interleavedOffset + 0] = positions[posOffset + 0];
+      interleaved[interleavedOffset + 1] = positions[posOffset + 1];
+      interleaved[interleavedOffset + 2] = positions[posOffset + 2];
+
+      // Normal (nx, ny, nz)
+      interleaved[interleavedOffset + 3] = normals[posOffset + 0];
+      interleaved[interleavedOffset + 4] = normals[posOffset + 1];
+      interleaved[interleavedOffset + 5] = normals[posOffset + 2];
+    }
+
+    return interleaved;
+  }
+
   private createGeometry(): void {
     if (!this.backend) return;
 
-    // Create cube geometry
+    // Create cube geometry with interleaved position+normal data
     const cubeData = createCube(1.0);
+    const cubeInterleaved = this.interleavePositionNormal(cubeData.positions, cubeData.normals);
+
     this.backend.createBuffer(
       this.cubeVertexBufferId,
       'vertex',
-      cubeData.positions,
-      'static'
-    );
-    this.backend.createBuffer(
-      this.cubeNormalBufferId,
-      'vertex',
-      cubeData.normals,
+      cubeInterleaved,
       'static'
     );
     this.backend.createBuffer(
@@ -230,18 +257,14 @@ export class JointsDemo {
     );
     this.cubeIndexCount = cubeData.indices.length;
 
-    // Create sphere geometry
+    // Create sphere geometry with interleaved position+normal data
     const sphereData = createSphere(0.5, 16, 12);
+    const sphereInterleaved = this.interleavePositionNormal(sphereData.positions, sphereData.normals);
+
     this.backend.createBuffer(
       this.sphereVertexBufferId,
       'vertex',
-      sphereData.positions,
-      'static'
-    );
-    this.backend.createBuffer(
-      this.sphereNormalBufferId,
-      'vertex',
-      sphereData.normals,
+      sphereInterleaved,
       'static'
     );
     this.backend.createBuffer(
@@ -887,6 +910,12 @@ export class JointsDemo {
     const deltaTime = this.lastTime ? (now - this.lastTime) / 1000 : 0;
     this.lastTime = now;
 
+    // Track frame time for performance metrics
+    const frameTime = now - this.lastFrameTime;
+    this.lastFrameTime = now;
+    this.frameTimeHistory.push(frameTime);
+    if (this.frameTimeHistory.length > 60) this.frameTimeHistory.shift();
+
     // Step physics
     if (deltaTime > 0) {
       this.physicsWorld.step(deltaTime);
@@ -979,11 +1008,12 @@ export class JointsDemo {
         // Select appropriate buffers based on render type
         const useCube = renderType === 'cube';
         const vertexBufferId = useCube ? this.cubeVertexBufferId : this.sphereVertexBufferId;
-        const normalBufferId = useCube ? this.cubeNormalBufferId : this.sphereNormalBufferId;
         const indexBufferId = useCube ? this.cubeIndexBufferId : this.sphereIndexBufferId;
         const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
 
-        // Create draw command
+        // Create draw command with interleaved vertex layout
+        // Interleaved format: [px, py, pz, nx, ny, nz, px, py, pz, nx, ny, nz, ...]
+        // Total stride: 24 bytes (6 floats * 4 bytes)
         const drawCmd: DrawCommand = {
           type: RenderCommandType.DRAW,
           shader: this.shaderProgramId,
@@ -992,23 +1022,24 @@ export class JointsDemo {
           indexBufferId,
           indexType: 'uint16',
           vertexCount: indexCount,
+          meshId: `mesh-${renderType}`, // Epic 3.13: Explicit meshId for instancing grouping
           vertexLayout: {
             attributes: [
               {
                 name: 'aPosition',
+                type: 'float',
+                size: 3,
                 location: 0,
-                format: 'float32x3',
-                offset: 0,
-                stride: 12,
-                bufferId: vertexBufferId,
+                offset: 0,      // Start of vertex data
+                stride: 24,     // 6 floats (pos + normal)
               },
               {
                 name: 'aNormal',
+                type: 'float',
+                size: 3,
                 location: 1,
-                format: 'float32x3',
-                offset: 0,
-                stride: 12,
-                bufferId: normalBufferId,
+                offset: 12,     // After position (3 floats * 4 bytes)
+                stride: 24,     // Same stride as position
               },
             ],
           },
@@ -1041,8 +1072,25 @@ export class JointsDemo {
       }
     }
 
-    // Sort and execute render queue
+    // Epic 3.13: Sort and detect instances
     this.renderQueue.sort();
+
+    // Epic 3.13: Upload instance buffers to GPU if instancing is enabled
+    if (this.instanceManager) {
+      const opaqueGroups = this.renderQueue.getInstanceGroups('opaque');
+      for (const group of opaqueGroups) {
+        if (group.instanceBuffer) {
+          const gpuBuffer = this.instanceManager.upload(group.instanceBuffer);
+          // Set instanceBufferId on all commands in this group
+          for (const cmd of group.commands) {
+            cmd.drawCommand.instanceBufferId = gpuBuffer.id;
+            cmd.drawCommand.instanceCount = gpuBuffer.count;
+          }
+        }
+      }
+    }
+
+    // Get render commands (now with instance buffer IDs set)
     const queuedCommands = this.renderQueue.getCommands();
     const renderCommands = queuedCommands.map(qc => qc.drawCommand);
 
@@ -1060,14 +1108,62 @@ export class JointsDemo {
     this.frameCount++;
     if (now - this.lastFpsUpdate >= 1000) {
       const fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsUpdate));
+
+      // Epic 3.13: Get ACTUAL draw call count from RenderQueue after batching/instancing
+      const queueStats = this.renderQueue.getStats();
+      const actualDrawCalls = queueStats.opaqueCount + queueStats.alphaTestCount + queueStats.transparentCount
+        - queueStats.totalInstances // Remove instanced objects
+        + queueStats.instancedDrawCalls; // Add instanced draw calls (one per group)
+
+      // Calculate average frame time
+      const avgFrameTime = this.frameTimeHistory.length > 0
+        ? this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length
+        : 0;
+
       const avgTrianglesPerBody = ((this.cubeIndexCount / 3) + (this.sphereIndexCount / 3)) / 2;
-      const triangles = Math.round(avgTrianglesPerBody * drawCalls);
+      const triangles = Math.round(avgTrianglesPerBody * actualDrawCalls);
 
       // Count bodies using ECS query
       const bodyQuery = this.world.query().with(JointBodyEntity).build();
       const bodyCount = Array.from(this.world.executeQuery(bodyQuery)).length;
 
-      this.updateStats(fps, drawCalls, triangles, bodyCount, this.joints.length);
+      // Estimate VRAM usage based on buffer sizes
+      // Cube: 8 vertices * 6 floats (pos + normal) * 4 bytes = 192 bytes
+      // Cube indices: 36 indices * 2 bytes (uint16) = 72 bytes
+      // Sphere: ~408 vertices (16 segments * 12 rings) * 6 floats * 4 bytes = ~9792 bytes
+      // Sphere indices: ~1152 indices * 2 bytes = ~2304 bytes
+      const cubeVertexBytes = 8 * 6 * 4; // 8 vertices, 6 floats each (pos+normal), 4 bytes per float
+      const cubeIndexBytes = this.cubeIndexCount * 2; // uint16
+      const sphereVertexBytes = ((16 + 1) * (12 + 1)) * 6 * 4; // (segments+1) * (rings+1) vertices
+      const sphereIndexBytes = this.sphereIndexCount * 2; // uint16
+      const vramBytes = cubeVertexBytes + cubeIndexBytes + sphereVertexBytes + sphereIndexBytes;
+      const vramMB = vramBytes / (1024 * 1024);
+
+      // Calculate % of enforced VRAM budget (VRAMProfiler default: 256MB)
+      const vramBudgetMB = 256;
+      const vramUsagePercent = (vramMB / vramBudgetMB) * 100;
+
+      // Buffer count: 2 vertex buffers + 2 index buffers
+      const bufferCount = 4;
+
+      // Texture count: 0 (we're not using textures in this demo)
+      const textureCount = 0;
+
+      this.updateStats(
+        fps,
+        avgFrameTime,
+        actualDrawCalls,
+        triangles,
+        queueStats.instanceGroups,
+        queueStats.totalInstances,
+        queueStats.drawCallReduction,
+        vramMB,
+        vramUsagePercent,
+        bufferCount,
+        textureCount,
+        bodyCount,
+        this.joints.length
+      );
       this.frameCount = 0;
       this.lastFpsUpdate = now;
     }
@@ -1330,16 +1426,44 @@ export class JointsDemo {
     return program;
   }
 
-  private updateStats(fps: number, drawCalls: number, triangles: number, bodies: number, joints: number): void {
+  private updateStats(
+    fps: number,
+    frameTime: number,
+    drawCalls: number,
+    triangles: number,
+    instanceGroups: number,
+    instancedObjects: number,
+    drawCallReduction: number,
+    vramUsage: number,
+    vramUsagePercent: number,
+    bufferCount: number,
+    textureCount: number,
+    bodies: number,
+    joints: number
+  ): void {
     const fpsEl = document.getElementById('fps');
+    const frameTimeEl = document.getElementById('frame-time');
     const drawCallsEl = document.getElementById('draw-calls');
     const trianglesEl = document.getElementById('triangles');
+    const instanceGroupsEl = document.getElementById('instance-groups');
+    const instancedObjectsEl = document.getElementById('instanced-objects');
+    const reductionEl = document.getElementById('draw-call-reduction');
+    const vramEl = document.getElementById('vram-usage');
+    const bufferCountEl = document.getElementById('buffer-count');
+    const textureCountEl = document.getElementById('texture-count');
     const bodiesEl = document.getElementById('bodies');
     const jointsEl = document.getElementById('joints');
 
     if (fpsEl) fpsEl.textContent = fps.toString();
+    if (frameTimeEl) frameTimeEl.textContent = frameTime.toFixed(1);
     if (drawCallsEl) drawCallsEl.textContent = drawCalls.toString();
     if (trianglesEl) trianglesEl.textContent = triangles.toString();
+    if (instanceGroupsEl) instanceGroupsEl.textContent = instanceGroups.toString();
+    if (instancedObjectsEl) instancedObjectsEl.textContent = instancedObjects.toString();
+    if (reductionEl) reductionEl.textContent = drawCallReduction.toFixed(1);
+    if (vramEl) vramEl.textContent = `${vramUsage.toFixed(2)} (${vramUsagePercent.toFixed(3)}%)`;
+    if (bufferCountEl) bufferCountEl.textContent = bufferCount.toString();
+    if (textureCountEl) textureCountEl.textContent = textureCount.toString();
     if (bodiesEl) bodiesEl.textContent = bodies.toString();
     if (jointsEl) jointsEl.textContent = joints.toString();
   }

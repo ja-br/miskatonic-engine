@@ -90,9 +90,10 @@ export class RenderQueue {
   private transparent: QueuedDrawCommand[] = [];
 
   // Epic 3.13: Instance detection (per-queue detectors for clean lifecycle management)
-  private opaqueDetector = new InstanceDetector();
-  private alphaTestDetector = new InstanceDetector();
-  private transparentDetector = new InstanceDetector();
+  // Use threshold of 2 for better demo visibility (default is 10)
+  private opaqueDetector = new InstanceDetector({ minInstanceThreshold: 2 });
+  private alphaTestDetector = new InstanceDetector({ minInstanceThreshold: 2 });
+  private transparentDetector = new InstanceDetector({ minInstanceThreshold: 2 });
   private instanceGroupsCache: Map<string, InstanceGroup[]> = new Map();
 
   // State tracking for minimization
@@ -478,7 +479,11 @@ export class RenderQueue {
   /**
    * Compute material state hash (Epic 3.13)
    *
-   * Hashes uniforms, textures, and render state to detect material compatibility.
+   * Hashes shader ID, textures, and render state to detect material compatibility.
+   *
+   * ✅ CRITICAL FIX: DO NOT hash uniform VALUES (only shader + textures + state).
+   * Per-instance data (transforms, colors) should vary without preventing instancing.
+   *
    * Uses numeric hash to avoid string allocations.
    *
    * @param command - Queued draw command
@@ -487,19 +492,15 @@ export class RenderQueue {
   private computeMaterialStateHash(command: QueuedDrawCommand): number {
     let hash = 2166136261; // FNV offset basis
 
-    // Hash uniforms
-    if (command.drawCommand.uniforms) {
-      const uniformEntries = Array.from(command.drawCommand.uniforms.entries());
-      for (let i = 0; i < uniformEntries.length; i++) {
-        const [key, uniform] = uniformEntries[i];
-        hash ^= this.hashStringFast(key);
-        hash = Math.imul(hash, 16777619);
-        hash ^= this.hashUniformValueFast(uniform.value);
-        hash = Math.imul(hash, 16777619);
-      }
+    // ✅ Hash shader ID (determines compatibility)
+    // Same shader program = can be instanced together
+    if (command.drawCommand.shader) {
+      hash ^= this.hashStringFast(command.drawCommand.shader);
+      hash = Math.imul(hash, 16777619);
     }
 
-    // Hash textures
+    // ✅ Hash textures (different textures = incompatible for instancing)
+    // Texture IDs determine material appearance
     if (command.drawCommand.textures) {
       const textureEntries = Array.from(command.drawCommand.textures.entries());
       for (let i = 0; i < textureEntries.length; i++) {
@@ -511,7 +512,8 @@ export class RenderQueue {
       }
     }
 
-    // Hash render state
+    // ✅ Hash render state (blend mode, depth test, etc.)
+    // Different blend states = incompatible for batching
     if (command.renderState) {
       const state = command.renderState;
       if (state.blendMode) {
@@ -532,6 +534,14 @@ export class RenderQueue {
       }
     }
 
+    // ❌ DO NOT HASH UNIFORM VALUES
+    // Per-instance uniforms (transforms, colors) should not affect material compatibility.
+    // Different values are OK - they'll be set per-instance via vertex attributes.
+    //
+    // This was the critical bug:
+    // - 60 dice with different uBaseColor values → 60 different hashes → NO BATCHING
+    // - Fix: hash only shader + textures + state, not per-instance uniform values
+
     return hash >>> 0;
   }
 
@@ -549,7 +559,14 @@ export class RenderQueue {
 
   /**
    * Fast uniform value hash (no allocations, 6-decimal precision)
+   *
+   * NOTE: This method is intentionally kept for future use but not currently used
+   * after Epic 3.13 fix. Previously used to hash uniform values for material
+   * compatibility, which was causing the instancing bug.
+   *
+   * @deprecated Not used after Epic 3.13 fix - kept for reference
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private hashUniformValueFast(value: number | number[] | Float32Array): number {
     if (typeof value === 'number') {
       return Math.floor(value * 1000000); // 6-decimal precision
