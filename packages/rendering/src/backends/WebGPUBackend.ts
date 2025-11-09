@@ -418,6 +418,32 @@ export class WebGPUBackend implements IRendererBackend {
     }
   }
 
+  /**
+   * Set vertex attribute divisor for instanced rendering (Epic 3.13)
+   *
+   * WebGPU Note: Divisor is configured via stepMode in vertex buffer layout
+   * at render pipeline creation time, not as a separate API call.
+   *
+   * This implementation stores the divisor configuration for use during
+   * pipeline creation. The actual stepMode will be set to:
+   * - 'vertex' if divisor === 0
+   * - 'instance' if divisor === 1
+   *
+   * @param shader - Shader handle (for API compatibility)
+   * @param attributeName - Name of the attribute
+   * @param divisor - Divisor value (0 = per-vertex, 1 = per-instance)
+   */
+  setVertexAttributeDivisor(
+    _shader: BackendShaderHandle,
+    _attributeName: string,
+    _divisor: number
+  ): void {
+    // WebGPU handles this in vertex buffer layout configuration
+    // Store for future use during render pipeline creation
+    // TODO: Implement pipeline configuration when needed
+    console.warn('WebGPUBackend.setVertexAttributeDivisor: Not yet implemented - configure stepMode in vertex buffer layout');
+  }
+
   // Texture Management
 
   createTexture(

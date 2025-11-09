@@ -367,6 +367,49 @@ export class WebGL2Backend implements IRendererBackend {
     }
   }
 
+  /**
+   * Set vertex attribute divisor for instanced rendering (Epic 3.13)
+   *
+   * For mat4 instance attributes, this must be called 4 times (once per vec4 row).
+   *
+   * Example:
+   * ```typescript
+   * // Standard per-vertex attributes (divisor = 0)
+   * backend.setVertexAttributeDivisor(shader, 'a_position', 0);
+   * backend.setVertexAttributeDivisor(shader, 'a_normal', 0);
+   *
+   * // Per-instance transform (mat4 = 4 vec4s, divisor = 1)
+   * backend.setVertexAttributeDivisor(shader, 'a_InstanceTransform', 1);
+   * backend.setVertexAttributeDivisor(shader, 'a_InstanceTransform_1', 1);
+   * backend.setVertexAttributeDivisor(shader, 'a_InstanceTransform_2', 1);
+   * backend.setVertexAttributeDivisor(shader, 'a_InstanceTransform_3', 1);
+   * ```
+   */
+  setVertexAttributeDivisor(
+    shader: BackendShaderHandle,
+    attributeName: string,
+    divisor: number
+  ): void {
+    if (!this.gl) {
+      console.warn('setVertexAttributeDivisor: WebGL2 context not initialized');
+      return;
+    }
+
+    const shaderData = this.shaders.get(shader.id);
+    if (!shaderData) {
+      console.warn(`setVertexAttributeDivisor: Shader ${shader.id} not found`);
+      return;
+    }
+
+    const location = shaderData.attributes.get(attributeName);
+    if (location === undefined) {
+      console.warn(`setVertexAttributeDivisor: Attribute ${attributeName} not found in shader ${shader.id}`);
+      return;
+    }
+
+    this.gl.vertexAttribDivisor(location, divisor);
+  }
+
   // Texture Management
 
   createTexture(
@@ -635,6 +678,36 @@ export class WebGL2Backend implements IRendererBackend {
 
     gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer.buffer);
     this.setupVertexLayout(shader, command.vertexLayout);
+
+    // Epic 3.13: Bind instance buffer if present
+    if (command.instanceBufferId) {
+      const instanceBuffer = this.buffers.get(command.instanceBufferId);
+      if (instanceBuffer) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, instanceBuffer.buffer);
+
+        // Set up instance transform attribute (mat4 = 4 vec4s)
+        // Assuming instance attribute name is 'a_InstanceTransform'
+        const baseLocation = shader.attributes.get('a_InstanceTransform');
+        if (baseLocation !== undefined) {
+          const bytesPerMatrix = 16 * 4; // mat4 = 16 floats * 4 bytes
+
+          // Configure each row of the mat4 as a separate vec4 attribute
+          for (let i = 0; i < 4; i++) {
+            const location = baseLocation + i;
+            gl.enableVertexAttribArray(location);
+            gl.vertexAttribPointer(
+              location,
+              4,              // vec4 (4 floats per row)
+              gl.FLOAT,
+              false,
+              bytesPerMatrix, // stride = size of one mat4
+              i * 16          // offset = row index * 4 floats * 4 bytes
+            );
+            gl.vertexAttribDivisor(location, 1); // Per-instance
+          }
+        }
+      }
+    }
 
     // Set uniforms
     if (command.uniforms) {

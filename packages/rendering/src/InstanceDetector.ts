@@ -77,6 +77,16 @@ export interface InstanceDetectorConfig {
    * Default: true
    */
   enabled: boolean;
+
+  /**
+   * Enable material compatibility checking
+   *
+   * If true, checks uniforms/textures/state for compatibility.
+   * If false, only checks mesh + material ID (faster but may cause visual bugs).
+   *
+   * Default: true (RECOMMENDED)
+   */
+  checkMaterialCompatibility: boolean;
 }
 
 /**
@@ -98,6 +108,7 @@ export class InstanceDetector {
     this.config = {
       minInstanceThreshold: config?.minInstanceThreshold ?? 10,
       enabled: config?.enabled ?? true,
+      checkMaterialCompatibility: config?.checkMaterialCompatibility ?? true,
     };
   }
 
@@ -114,6 +125,7 @@ export class InstanceDetector {
     }
 
     // Release old buffers BEFORE clearing groups (fix memory leak)
+    // Note: RenderQueue uses per-queue detectors, so this is safe
     this.releaseAll();
 
     // Clear previous groups
@@ -213,6 +225,10 @@ export class InstanceDetector {
   releaseAll(): void {
     const groups = Array.from(this.groups.values());
     for (let i = 0; i < groups.length; i++) {
+      // Mark buffer as ready before releasing (fixes race condition)
+      if (groups[i].instanceBuffer) {
+        groups[i].instanceBuffer!.markReady();
+      }
       this.releaseInstanceBuffer(groups[i]);
     }
   }
@@ -284,17 +300,34 @@ export class InstanceDetector {
   /**
    * Generate instance key for command
    *
-   * Key format: `${meshId}-${materialId}`
+   * Key format: `${meshId}-${materialId}-${cachedHash}` (if compatibility checking enabled)
+   * Key format: `${meshId}-${materialId}` (if compatibility checking disabled)
    *
    * Commands with same key can be instanced together.
+   * Material state hash is pre-computed in RenderQueue.submit() to avoid allocations.
    *
    * @param command - Draw command
    * @returns Instance key
    */
   private getInstanceKey(command: QueuedDrawCommand): string {
     const meshId = this.extractMeshId(command);
-    return `${meshId}-${command.materialId}`;
+
+    if (this.config.checkMaterialCompatibility && command._cachedMaterialHash !== undefined) {
+      return `${meshId}-${command.materialId}-${command._cachedMaterialHash}`;
+    } else {
+      // Fast path: only check mesh + material ID
+      return `${meshId}-${command.materialId}`;
+    }
   }
+
+  /**
+   * NOTE: Material state hashing moved to RenderQueue.computeMaterialStateHash()
+   * to avoid per-frame allocations. The hash is pre-computed in submit() and
+   * cached on command._cachedMaterialHash.
+   *
+   * This eliminates ~20,000 allocations per frame for 1000 objects.
+   * See RenderQueue.ts:computeMaterialStateHash() for implementation.
+   */
 
   /**
    * Extract mesh ID from command

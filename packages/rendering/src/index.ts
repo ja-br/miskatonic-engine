@@ -27,6 +27,7 @@ export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueS
 export { InstanceBuffer, InstanceBufferPool, globalInstanceBufferPool, type InstanceData } from './InstanceBuffer';
 export { InstanceDetector, type InstanceGroup, type InstanceDetectorConfig } from './InstanceDetector';
 export { InstanceBufferManager, type GPUInstanceBuffer } from './InstanceBufferManager';
+export { InstancedShaderManager, createShaderVariants, type ShaderVariant, type InstancedShaderConfig } from './InstancedShaderManager';
 
 // Backend abstraction (Epic 3.2)
 export {

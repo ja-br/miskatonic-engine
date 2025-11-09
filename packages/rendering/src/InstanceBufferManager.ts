@@ -98,6 +98,18 @@ export class InstanceBufferManager {
   }
 
   /**
+   * Release instance buffer (mark as ready, don't delete)
+   *
+   * Call this after rendering is complete to mark buffer as ready for reuse.
+   * The GPU buffer remains allocated for next frame.
+   *
+   * @param instanceBuffer - Instance buffer to release
+   */
+  release(instanceBuffer: InstanceBuffer): void {
+    instanceBuffer.markReady();
+  }
+
+  /**
    * Delete GPU buffer
    *
    * @param instanceBuffer - CPU-side instance buffer

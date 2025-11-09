@@ -1,0 +1,237 @@
+Input Handling & Routing
+
+  The problem: When you click the mouse, does it go to the editor UI or
+  the game viewport?
+
+  - Need an input priority system (UI captures first, then viewport)
+  - Keyboard shortcuts for the editor (save, undo, delete, etc.) vs game
+  input
+  - What happens to game input systems during edit mode?
+  - Context-aware shortcuts (delete entity in hierarchy vs delete in
+  viewport vs delete in text field)
+
+  Editor Camera vs Game Camera(s)
+
+  You have a camera system (Epic 3.10) but:
+  - Editor needs its own camera that's NOT part of the game scene
+  - When you enter play mode, does the editor camera position transfer to
+  a game camera?
+  - Multiple viewports might need multiple editor cameras (top, front,
+  side, perspective)
+  - Camera settings that are editor-only (grid rendering distance, gizmo
+  scale)
+
+  Rendering Layers & Gizmo Integration
+
+  Since you just opened Epic 3.13 (batching/instancing):
+
+  How do gizmos interact with the render queue?
+  - Gizmos shouldn't be batched with game geometry
+  - Need a separate render pass or layer for editor-only visuals
+  - Debug visualization (colliders, bounds) needs similar treatment
+  - Does the render queue need to know about "editor-only" renderables?
+
+  Performance implications:
+  - Editor UI rendering overhead vs game rendering
+  - Gizmo rendering shouldn't impact game performance measurements
+  - How do you profile game performance separately from editor overhead?
+
+  Asset Pipeline Integration
+
+  Import pipeline:
+  - Drag-drop files into editor triggers import
+  - Different importers for different file types (FBX, GLTF, PNG, etc.)
+  - Import settings UI (compression, normal map flags, etc.)
+  - Where do imported assets live? Need a project directory structure
+
+  Asset processing:
+  - Texture compression, mipmap generation
+  - Model optimization (LOD generation, mesh compression)
+  - Does processing happen on import, on save, or at build time?
+  - Progress UI for long imports
+
+  Project Structure & Files
+
+  What defines a "project"?
+  - Project file format (JSON with settings, asset references, etc.)
+  - Directory structure conventions
+  - Where do scenes live vs prefabs vs source assets vs imported assets?
+  - How do you open a project? File > Open Project?
+
+  Example structure:
+  MyGame/
+  ├── MyGame.miska (project file)
+  ├── Assets/
+  │   ├── Scenes/
+  │   ├── Prefabs/
+  │   ├── Materials/
+  │   ├── Textures/
+  │   └── Scripts/
+  ├── Library/ (generated, gitignored)
+  └── Temp/ (build artifacts)
+
+  Edit/Play Mode Switching
+
+  State management:
+  - How much state do you serialize when entering play mode?
+  - Just the ECS world, or also editor selections, camera position, etc.?
+  - What if the game modifies the scene? Revert on stop, or keep changes?
+  - "Continue playing from here" vs "restart scene" options
+
+  System behavior:
+  - Which systems run in edit mode? (rendering yes, physics maybe, AI
+  probably not)
+  - Can you step frame-by-frame in play mode?
+  - Pause button behavior
+
+  Undo/Redo System
+
+  Scope:
+  - Undo entity creation/deletion
+  - Undo property changes
+  - Undo hierarchy rearrangement
+  - How far back does history go?
+
+  Implementation approach:
+  - Command pattern with before/after state snapshots?
+  - Delta-based (only store what changed)?
+  - Memory implications of storing history
+
+  Error Handling & Recovery
+
+  When the engine crashes or throws:
+  - Does the editor catch it and let you keep working?
+  - Auto-save before entering play mode?
+  - Error console showing exceptions
+  - Can you recover unsaved work?
+
+  Multi-Window Support
+
+  Do you want:
+  - Detachable panels (inspector in separate window)?
+  - Multiple scene viewports simultaneously?
+  - Multi-monitor support?
+
+  Electron implications:
+  - Each window is a separate renderer process (expensive)
+  - Or use web features (CSS to position panels, single process)
+
+  Version Control Integration
+
+  Scene file merging:
+  - JSON scenes are mergeable, but entity IDs might conflict
+  - Need stable IDs (UUIDs vs incrementing integers?)
+  - Consider external tools (git integration, diff viewer)
+
+  What should be in git:
+  - Source scenes (JSON)
+  - Source assets (PNG, FBX, etc.)
+  - NOT: imported/processed assets (Library folder)
+  - NOT: generated metadata (if you gitignore it)
+
+  Platform-Specific Considerations
+
+  Electron on different OSs:
+  - Native menu bar (macOS top bar vs Windows in-window)
+  - Keyboard shortcuts (Cmd vs Ctrl)
+  - File paths (Windows backslash, Unix forward slash)
+  - Native file dialogs look different
+
+  Performance Monitoring in Editor
+
+  Distinguishing overhead:
+  - Game performance (what will ship)
+  - Editor UI overhead
+  - Gizmo rendering overhead
+  - Profiler needs to separate these concerns
+
+  Editor-specific metrics:
+  - How many entities in scene?
+  - How many draw calls are gizmos vs game?
+  - Memory used by editor UI vs game
+
+  Testing the Editor Itself
+
+  How do you test editor features?
+  - Unit tests for editor utilities
+  - Integration tests (simulate clicking UI, check ECS state)
+  - E2E tests (Playwright can control Electron)
+  - Visual regression tests for UI
+
+  Build/Export Workflow
+
+  Going from editor to shipped game:
+  - "Build" button that packages the game
+  - Converts JSON scenes to binary
+  - Excludes editor code from bundle
+  - Platform selection (Windows, macOS, Linux builds)
+  - Optimization passes (dead code elimination, asset compression)
+
+  Packaging considerations:
+  - Electron app bundle structure
+  - Auto-updater integration (Epic 1.3)
+  - Code signing, notarization (macOS)
+
+  Editor Settings & Preferences
+
+  User preferences:
+  - UI theme (dark/light)
+  - Grid snap settings
+  - Autosave frequency
+  - Default camera speed
+  - Shortcut customization
+
+  Where stored:
+  - Electron has app.getPath('userData')
+  - Per-project settings vs global editor settings
+
+  Relationship to Rendering Epics
+
+  Since you opened Epic 3.13:
+
+  Does the editor need to understand batching?
+  - Probably not deeply - the rendering system handles it
+  - But editor might want to visualize "this is batched" or "this breaks a
+   batch"
+  - Debug overlay showing batch boundaries?
+
+  Instancing visualization:
+  - Show which entities are being instanced together
+  - Performance gain from instancing might be visible in editor profiler
+
+  Material editor integration:
+  - When you edit a material, all instances update (already have
+  hot-reload)
+  - Preview rendering for material editor uses the same batching system
+
+  Collaboration Features (Future)
+
+  Not for now, but worth considering architecture for:
+  - Multiple users editing same scene (like Google Docs)
+  - Locking system (who's editing what entity)
+  - Change broadcasting
+  - This would heavily influence serialization format
+
+  ---
+  Most Critical for Initial Implementation
+
+  If I had to prioritize what to think about NOW vs later:
+
+  Now:
+  1. Input routing (critical for basic usability)
+  2. Editor camera separate from game cameras
+  3. Gizmo rendering layer (separate from game rendering)
+  4. Project file structure and directory conventions
+  5. Edit/play state serialization scope
+  6. Error handling (crashes shouldn't lose work)
+
+  Soon:
+  7. Undo/redo (expected in any editor)
+  8. Asset import pipeline
+  9. Build/export workflow
+
+  Later:
+  10. Multi-window support
+  11. Advanced profiling
+  12. Collaboration
+

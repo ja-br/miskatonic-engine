@@ -48,6 +48,9 @@ export interface QueuedDrawCommand {
 
   // State information
   renderState?: Partial<RenderState>;
+
+  // Epic 3.13: Cached material state hash (computed once in submit)
+  _cachedMaterialHash?: number;
 }
 
 /**
@@ -86,8 +89,10 @@ export class RenderQueue {
   private alphaTest: QueuedDrawCommand[] = [];
   private transparent: QueuedDrawCommand[] = [];
 
-  // Epic 3.13: Instance detection
-  private instanceDetector = new InstanceDetector();
+  // Epic 3.13: Instance detection (per-queue detectors for clean lifecycle management)
+  private opaqueDetector = new InstanceDetector();
+  private alphaTestDetector = new InstanceDetector();
+  private transparentDetector = new InstanceDetector();
   private instanceGroupsCache: Map<string, InstanceGroup[]> = new Map();
 
   // State tracking for minimization
@@ -142,6 +147,9 @@ export class RenderQueue {
       throw new Error('RenderQueue: Missing drawCommand');
     }
 
+    // Epic 3.13: Pre-compute material state hash once (avoid per-frame allocations)
+    command._cachedMaterialHash = this.computeMaterialStateHash(command);
+
     const blendMode = command.renderState?.blendMode || 'none';
 
     if (blendMode === 'alpha' || blendMode === 'additive' || blendMode === 'multiply') {
@@ -183,21 +191,33 @@ export class RenderQueue {
     // Transparent: Back-to-front (descending depth)
     this.transparent.sort((a, b) => b.sortKey - a.sortKey);
 
-    // Epic 3.13: Detect instance groups for each queue
-    this.instanceGroupsCache.set('opaque', this.instanceDetector.detectGroups(this.opaque));
-    this.instanceGroupsCache.set('alphaTest', this.instanceDetector.detectGroups(this.alphaTest));
-    this.instanceGroupsCache.set('transparent', this.instanceDetector.detectGroups(this.transparent));
+    // Epic 3.13: Detect instance groups for each queue (using separate detectors)
+    this.instanceGroupsCache.set('opaque', this.opaqueDetector.detectGroups(this.opaque));
+    this.instanceGroupsCache.set('alphaTest', this.alphaTestDetector.detectGroups(this.alphaTest));
+    this.instanceGroupsCache.set('transparent', this.transparentDetector.detectGroups(this.transparent));
 
-    // Update stats
-    const instanceStats = this.instanceDetector.getStats();
+    // Update stats (aggregate across all detectors)
+    const opaqueStats = this.opaqueDetector.getStats();
+    const alphaTestStats = this.alphaTestDetector.getStats();
+    const transparentStats = this.transparentDetector.getStats();
+
     this.stats.sortTime = performance.now() - startTime;
     this.stats.opaqueCount = this.opaque.length;
     this.stats.alphaTestCount = this.alphaTest.length;
     this.stats.transparentCount = this.transparent.length;
-    this.stats.instanceGroups = instanceStats.instancedGroups;
-    this.stats.totalInstances = instanceStats.totalInstances;
-    this.stats.drawCallReduction = instanceStats.drawCallReduction;
-    this.stats.instancedDrawCalls = instanceStats.instancedGroups;
+    this.stats.instanceGroups = opaqueStats.totalGroups + alphaTestStats.totalGroups + transparentStats.totalGroups;
+    this.stats.totalInstances = opaqueStats.totalInstances + alphaTestStats.totalInstances + transparentStats.totalInstances;
+    this.stats.instancedDrawCalls = opaqueStats.instancedGroups + alphaTestStats.instancedGroups + transparentStats.instancedGroups;
+
+    // Calculate combined draw call reduction
+    const totalCommands = this.opaque.length + this.alphaTest.length + this.transparent.length;
+    const totalInstancedGroups = this.stats.instancedDrawCalls;
+    const totalNonInstancedCommands = totalCommands - this.stats.totalInstances;
+    const beforeDrawCalls = totalCommands;
+    const afterDrawCalls = totalInstancedGroups + totalNonInstancedCommands;
+    this.stats.drawCallReduction = beforeDrawCalls > 0
+      ? ((beforeDrawCalls - afterDrawCalls) / beforeDrawCalls) * 100
+      : 0;
   }
 
   /**
@@ -246,7 +266,7 @@ export class RenderQueue {
    * Epic 3.13: Check if instancing is enabled
    */
   isInstancedRenderingEnabled(): boolean {
-    return this.instanceDetector.getConfig().enabled;
+    return this.opaqueDetector.getConfig().enabled;
   }
 
   /**
@@ -255,7 +275,9 @@ export class RenderQueue {
    * @param enabled - true to enable, false to disable
    */
   setInstancedRenderingEnabled(enabled: boolean): void {
-    this.instanceDetector.updateConfig({ enabled });
+    this.opaqueDetector.updateConfig({ enabled });
+    this.alphaTestDetector.updateConfig({ enabled });
+    this.transparentDetector.updateConfig({ enabled });
   }
 
   /**
@@ -266,7 +288,9 @@ export class RenderQueue {
    * @param threshold - Minimum instances (default: 10)
    */
   setInstanceThreshold(threshold: number): void {
-    this.instanceDetector.updateConfig({ minInstanceThreshold: threshold });
+    this.opaqueDetector.updateConfig({ minInstanceThreshold: threshold });
+    this.alphaTestDetector.updateConfig({ minInstanceThreshold: threshold });
+    this.transparentDetector.updateConfig({ minInstanceThreshold: threshold });
   }
 
   /**
@@ -277,8 +301,10 @@ export class RenderQueue {
     this.alphaTest.length = 0;
     this.transparent.length = 0;
 
-    // Epic 3.13: Release instance buffers back to pool
-    this.instanceDetector.releaseAll();
+    // Epic 3.13: Release instance buffers back to pool (all three detectors)
+    this.opaqueDetector.releaseAll();
+    this.alphaTestDetector.releaseAll();
+    this.transparentDetector.releaseAll();
     this.instanceGroupsCache.clear();
 
     this.lastMaterialId = null;
@@ -447,5 +473,95 @@ export class RenderQueue {
     // TODO (Epic 3.13): Check material.hasAlphaTest property
     // For now, return false (no alpha-test detection)
     return false;
+  }
+
+  /**
+   * Compute material state hash (Epic 3.13)
+   *
+   * Hashes uniforms, textures, and render state to detect material compatibility.
+   * Uses numeric hash to avoid string allocations.
+   *
+   * @param command - Queued draw command
+   * @returns Material state hash (0 if no material state)
+   */
+  private computeMaterialStateHash(command: QueuedDrawCommand): number {
+    let hash = 2166136261; // FNV offset basis
+
+    // Hash uniforms
+    if (command.drawCommand.uniforms) {
+      const uniformEntries = Array.from(command.drawCommand.uniforms.entries());
+      for (let i = 0; i < uniformEntries.length; i++) {
+        const [key, uniform] = uniformEntries[i];
+        hash ^= this.hashStringFast(key);
+        hash = Math.imul(hash, 16777619);
+        hash ^= this.hashUniformValueFast(uniform.value);
+        hash = Math.imul(hash, 16777619);
+      }
+    }
+
+    // Hash textures
+    if (command.drawCommand.textures) {
+      const textureEntries = Array.from(command.drawCommand.textures.entries());
+      for (let i = 0; i < textureEntries.length; i++) {
+        const [unit, textureId] = textureEntries[i];
+        hash ^= unit;
+        hash = Math.imul(hash, 16777619);
+        hash ^= this.hashStringFast(textureId);
+        hash = Math.imul(hash, 16777619);
+      }
+    }
+
+    // Hash render state
+    if (command.renderState) {
+      const state = command.renderState;
+      if (state.blendMode) {
+        hash ^= this.hashStringFast(state.blendMode);
+        hash = Math.imul(hash, 16777619);
+      }
+      if (state.depthTest) {
+        hash ^= this.hashStringFast(state.depthTest);
+        hash = Math.imul(hash, 16777619);
+      }
+      if (state.cullMode) {
+        hash ^= this.hashStringFast(state.cullMode);
+        hash = Math.imul(hash, 16777619);
+      }
+      if (state.depthWrite !== undefined) {
+        hash ^= state.depthWrite ? 1 : 0;
+        hash = Math.imul(hash, 16777619);
+      }
+    }
+
+    return hash >>> 0;
+  }
+
+  /**
+   * Fast string hash using FNV-1a (no allocations)
+   */
+  private hashStringFast(str: string): number {
+    let hash = 2166136261;
+    for (let i = 0; i < str.length; i++) {
+      hash ^= str.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  /**
+   * Fast uniform value hash (no allocations, 6-decimal precision)
+   */
+  private hashUniformValueFast(value: number | number[] | Float32Array): number {
+    if (typeof value === 'number') {
+      return Math.floor(value * 1000000); // 6-decimal precision
+    }
+
+    let hash = 0;
+    const length = Array.isArray(value) ? value.length : value.length;
+    for (let i = 0; i < length; i++) {
+      const v = Array.isArray(value) ? value[i] : value[i];
+      hash ^= Math.floor(v * 1000000);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
   }
 }
