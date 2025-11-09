@@ -20,7 +20,7 @@ Initiative (Domain) → Epic (Major Deliverable) → User Stories (Features) →
 
 ## Progress Summary
 
-**Completed Epics:** 17 of 70+ planned
+**Completed Epics:** 18 of 70+ planned
 
 | Epic | Status | Test Coverage | Key Achievement |
 |------|--------|---------------|-----------------|
@@ -36,6 +36,7 @@ Initiative (Domain) → Epic (Major Deliverable) → User Stories (Features) →
 | 3.10 - Camera System |  Complete | 52 tests | ECS camera, orbit/FPS controls |
 | 3.11 - Transform System |  Complete | Production-ready | Cache-efficient SoA, zero allocations |
 | 3.12 - Render Queue |  Complete | 35 tests | Sorting, batching, state minimization |
+| 3.13 - Draw Call Batching & Instancing |  Complete | 177 tests | 1000 objects → 1 draw call (99.9% reduction) |
 | 4.1-4.5 - Physics Engine |  Complete | Integration tests | Rapier/Cannon/Box2D abstraction, deterministic |
 | 5.2 - State Synchronization |  Complete | 89 tests (94.82%) | Delta compression, interest management |
 | 6.1 - Debug Console |  Complete | 69 tests | In-game console with command execution |
@@ -80,14 +81,23 @@ Entity Component System (ECS), event bus, resource management, and scheduling.
 ### [INIT-003: Rendering & Graphics](./INIT-003-Rendering-Graphics.md)
 **Priority:** P0
 **Dependencies:** INIT-002
-**Status:** 0 of 5 epics complete (0%)
+**Status:** 8 of 15+ epics complete (53%) 🚀
 
 WebGL2/WebGPU rendering pipeline with PBR materials, instancing, and post-processing.
 
-**Epics:**
-- 🔲 3.1 - Rendering Abstraction Layer (Planned)
-- 🔲 3.2 - WebGPU/WebGL2 Renderer (Planned)
-- 🔲 3.3 - PBR Material System (Planned)
+**Completed Epics:**
+- ✅ 3.1 - Rendering Pipeline (Complete)
+- ✅ 3.2 - WebGPU Backend (Complete)
+- ✅ 3.3 - PBR Material System (Complete)
+- ✅ 3.9 - Shader Management (Complete)
+- ✅ 3.10 - Camera System (Complete)
+- ✅ 3.11 - Transform System (Complete)
+- ✅ 3.12 - Render Queue (Complete)
+- ✅ 3.13 - Draw Call Batching & Instancing (Complete) **NEW!**
+
+**In Progress/Planned:**
+- 🔲 3.8 - GPU Memory Management (Planned - HIGH PRIORITY)
+- 🔲 3.14-3.15 - Advanced Rendering (Transparency, Lighting, Shadows) (Planned - HIGH PRIORITY)
 - 🔲 3.4 - Post-Processing Pipeline (Planned)
 - 🔲 3.5 - Scene Management (Planned)
 

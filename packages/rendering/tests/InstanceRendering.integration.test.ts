@@ -110,8 +110,8 @@ describe('Instance Rendering Integration', () => {
 
       // Check statistics
       const stats = queue.getStats();
-      expect(stats.totalGroups).toBe(1);
-      expect(stats.instancedGroups).toBe(1);
+      expect(stats.instanceGroups).toBe(1); // Total groups (RenderQueueStats uses 'instanceGroups')
+      expect(stats.instancedDrawCalls).toBe(1); // Instanced draw calls
       expect(stats.totalInstances).toBe(objectCount);
 
       // Draw call reduction: (1000 - 1) / 1000 * 100 = 99.9%
@@ -228,8 +228,8 @@ describe('Instance Rendering Integration', () => {
 
       // Check statistics
       const stats = queue.getStats();
-      expect(stats.totalGroups).toBe(6); // 1 cube group + 5 sphere groups
-      expect(stats.instancedGroups).toBe(1); // Only cubes instanced
+      expect(stats.instanceGroups).toBe(6); // 1 cube group + 5 sphere groups (RenderQueueStats uses 'instanceGroups')
+      expect(stats.instancedDrawCalls).toBe(1); // Only cubes instanced
       expect(stats.totalInstances).toBe(100); // 100 cubes
 
       // Draw call reduction: (105 - (1 + 5)) / 105 * 100 = 94.29%
@@ -276,8 +276,9 @@ describe('Instance Rendering Integration', () => {
 
       // Clear and submit again
       queue.clear();
+      commands.length = 0; // Clear commands array for second frame
 
-      // Second frame: Add 50 more objects
+      // Second frame: Add 50 more objects (150 total)
       for (let i = 0; i < 150; i++) {
         commands.push({
           drawCommand: {
