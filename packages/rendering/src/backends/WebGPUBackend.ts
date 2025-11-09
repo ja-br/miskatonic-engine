@@ -397,16 +397,19 @@ export class WebGPUBackend implements IRendererBackend {
     });
 
     // Add instance buffer for instanced shaders (separate slot)
+    // Layout: mat4 transform (64 bytes) + vec4 color (16 bytes) = 80 bytes per instance
     if (isInstancedShader) {
       buffers.push({
-        arrayStride: 64, // mat4 = 16 floats * 4 bytes
+        arrayStride: 80, // mat4 (64 bytes) + vec4 (16 bytes)
         stepMode: 'instance',
         attributes: [
-          // mat4 requires 4 vec4 attributes (one per row)
+          // mat4 transform requires 4 vec4 attributes (one per row)
           { shaderLocation: vertexLayout.attributes.length + 0, offset: 0, format: 'float32x4' },
           { shaderLocation: vertexLayout.attributes.length + 1, offset: 16, format: 'float32x4' },
           { shaderLocation: vertexLayout.attributes.length + 2, offset: 32, format: 'float32x4' },
           { shaderLocation: vertexLayout.attributes.length + 3, offset: 48, format: 'float32x4' },
+          // vec4 color attribute
+          { shaderLocation: vertexLayout.attributes.length + 4, offset: 64, format: 'float32x4' },
         ],
       });
     }

@@ -114,12 +114,10 @@ export class Demo {
       this.resizeHandler = () => this.resizeCanvas();
       window.addEventListener('resize', this.resizeHandler);
 
-      // Create backend with automatic WebGPU/WebGL2 detection and fallback
+      // Create WebGPU backend
       console.log('Creating rendering backend...');
 
       this.backend = await BackendFactory.create(this.canvas, {
-        enableWebGPU: true,  // Enable WebGPU with automatic fallback to WebGL2
-        enableWebGL2: true,
         antialias: true,
         alpha: false,
         depth: true,
@@ -130,20 +128,6 @@ export class Demo {
       // Create InstanceBufferManager for Epic 3.13 instanced rendering
       this.instanceManager = new InstanceBufferManager(this.backend);
       console.log('InstanceBufferManager initialized for instanced rendering');
-
-      // Create legacy Renderer ONLY for WebGL2 backend (for BufferManager/ShaderManager)
-      // WebGPU backend handles buffers/shaders directly
-      if (this.backend.name === 'WebGL2') {
-        const config: RendererConfig = {
-          backend: RenderBackend.WEBGL2,
-          canvas: this.canvas,
-          width: this.canvas.width,
-          height: this.canvas.height,
-          antialias: true,
-          alpha: false,
-        };
-        this.renderer = new Renderer(config);
-      }
 
       // Create ECS camera entity
       this.cameraEntity = this.world.createEntity();
@@ -175,7 +159,7 @@ export class Demo {
       await this.initializePhysics();
 
       console.log('Renderer initialized successfully');
-      console.log('Backend:', RenderBackend.WEBGL2);
+      console.log('Backend:', this.backend.name);
       console.log('Canvas size:', this.canvas.width, 'x', this.canvas.height);
 
       return true;
@@ -192,13 +176,21 @@ export class Demo {
     if (this.backend.name === 'WebGPU') {
       console.log('Loading WGSL shaders for WebGPU backend');
       const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
+      const wgslInstancedSource = await import('./shaders/basic-lighting_instanced.wgsl?raw').then(m => m.default);
 
-      // Create shader via backend
+      // Create standard shader
       await this.backend.createShader(this.shaderProgramId, {
         vertex: wgslSource,  // WGSL uses single-file shaders
         fragment: wgslSource,
       });
-      console.log('WGSL shaders compiled successfully');
+
+      // Epic 3.13: Create instanced shader variant
+      await this.backend.createShader(`${this.shaderProgramId}_instanced`, {
+        vertex: wgslInstancedSource,
+        fragment: wgslInstancedSource,
+      });
+
+      console.log('WGSL shaders compiled successfully (standard + instanced)');
     } else {
       // WebGL2 backend - requires legacy Renderer
       if (!this.renderer) {
@@ -208,12 +200,21 @@ export class Demo {
       console.log('Loading GLSL shaders for WebGL2 backend');
       const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
       const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
+      const vertexInstancedShaderSource = await import('./shaders/basic-lighting_instanced.vert?raw').then(m => m.default);
+      const fragmentInstancedShaderSource = await import('./shaders/basic-lighting_instanced.frag?raw').then(m => m.default);
 
       const shaderManager = this.renderer.getShaderManager();
       try {
+        // Create standard shader
         shaderManager.createProgram(this.shaderProgramId, {
           vertex: vertexShaderSource,
           fragment: fragmentShaderSource,
+        });
+
+        // Epic 3.13: Create instanced shader variant
+        shaderManager.createProgram(`${this.shaderProgramId}_instanced`, {
+          vertex: vertexInstancedShaderSource,
+          fragment: fragmentInstancedShaderSource,
         });
 
         // Verify shader program was created successfully
@@ -222,7 +223,7 @@ export class Demo {
           throw new Error('Shader program creation failed - program not found after creation');
         }
 
-        console.log('GLSL shaders compiled and linked successfully');
+        console.log('GLSL shaders compiled and linked successfully (standard + instanced)');
       } catch (error) {
         console.error('Shader compilation failed:', error);
         throw new Error(`Failed to create shader program: ${error instanceof Error ? error.message : String(error)}`);
@@ -473,6 +474,10 @@ export class Demo {
     });
 
     console.log('Physics initialized successfully');
+
+    // CRITICAL: Initialize all ECS systems (allocates matrix indices, etc.)
+    this.world.init();
+    console.log('ECS systems initialized');
   }
 
   start(): void {
@@ -600,27 +605,24 @@ export class Demo {
     // Sync physics transforms to ECS entities
     if (this.physicsWorld) {
       const query = this.world.query().with(Transform).with(DiceEntity).build();
-      for (const { components } of this.world.executeQuery(query)) {
-        const transform = components.get(Transform);
+      for (const { entity, components } of this.world.executeQuery(query)) {
         const diceEntity = components.get(DiceEntity);
 
-        if (transform && diceEntity) {
+        if (diceEntity) {
           try {
             const physicsPos = this.physicsWorld.getPosition(diceEntity.bodyHandle);
             const physicsRot = this.physicsWorld.getRotation(diceEntity.bodyHandle);
 
             if (physicsPos && physicsRot) {
-              // Update transform position
-              transform.x = physicsPos.x;
-              transform.y = physicsPos.y;
-              transform.z = physicsPos.z;
+              // CRITICAL FIX #13: Use TransformSystem.setPosition/setRotation to avoid clobbering matrix indices
+              // This ensures matrix indices are preserved and dirty flag is set correctly
 
-              // Update transform rotation (quaternion to euler angles)
-              // For now, we'll store the quaternion in the rotation fields
-              // TODO: Convert quaternion to euler angles properly
-              transform.rotationX = physicsRot.x;
-              transform.rotationY = physicsRot.y;
-              transform.rotationZ = physicsRot.z;
+              // Update position using TransformSystem (handles dirty flag and setComponent internally)
+              this.transformSystem.setPosition(entity, physicsPos.x, physicsPos.y, physicsPos.z);
+
+              // CRITICAL FIX #14: Convert quaternion to Euler angles properly
+              const euler = this.quaternionToEuler(physicsRot);
+              this.transformSystem.setRotation(entity, euler.x, euler.y, euler.z);
             }
           } catch (e) {
             // Body might have been removed, skip this entity
@@ -762,13 +764,22 @@ export class Demo {
             baseColor[1] = g * brightness;
             baseColor[2] = b * brightness;
 
+            // CRITICAL FIX: Copy pooled values to prevent shared reference bugs
+            // Without this, all entities share the same Float32Array from the pool,
+            // causing all spheres to have the same color (the last one processed)
+            const lightDirCopy = new Float32Array([lightDir[0], lightDir[1], lightDir[2]]);
+            const cameraPosCopy = new Float32Array([cameraPos[0], cameraPos[1], cameraPos[2]]);
+            const baseColorCopy = new Float32Array([baseColor[0], baseColor[1], baseColor[2]]);
+
+            // Epic 3.13 FIX: For instanced rendering, send viewProjMatrix instead of mvpMatrix
+            // The instanced shader will apply the per-instance model transform
             return new Map([
-              ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: mvpMatrix }],
+              ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: viewProjMatrix }],
               ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
               ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: normalMatrix }],
-              ['uLightDir', { name: 'uLightDir', type: 'vec3', value: lightDir }],
-              ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: cameraPos }],
-              ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: baseColor }],
+              ['uLightDir', { name: 'uLightDir', type: 'vec3', value: lightDirCopy }],
+              ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: cameraPosCopy }],
+              ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: baseColorCopy }],
             ]);
           })(),
           state: {
@@ -814,18 +825,20 @@ export class Demo {
           console.log(`  - Instance buffer created: ${!!group.instanceBuffer}`);
         }
 
-        if (group.instanceBuffer) {
+        if (group.instanceBuffer && group.commands.length > 0) {
           const gpuBuffer = this.instanceManager.upload(group.instanceBuffer);
 
           if (!this.hasLoggedInstancing) {
             console.log(`  - GPU buffer: ${gpuBuffer.id} (${gpuBuffer.count} instances)`);
           }
 
-          // Set instanceBufferId on all commands in this group
-          for (const cmd of group.commands) {
-            cmd.drawCommand.instanceBufferId = gpuBuffer.id;
-            cmd.drawCommand.instanceCount = gpuBuffer.count;
-          }
+          // Epic 3.13 FIX: Set instance buffer on ONLY the first command (the representative)
+          // The rest will be filtered out by getCommands() deduplication
+          const representativeCommand = group.commands[0];
+          representativeCommand.drawCommand.instanceBufferId = gpuBuffer.id;
+          representativeCommand.drawCommand.instanceCount = gpuBuffer.count;
+          // Use instanced shader variant
+          representativeCommand.drawCommand.shader = `${this.shaderProgramId}_instanced`;
         }
       }
 
@@ -1047,6 +1060,11 @@ export class Demo {
       ));
     }
 
+    // CRITICAL FIX: Initialize TransformSystem for new entities to allocate matrix indices
+    // Without this, new entities have localMatrixIndex = -1 which causes allocation failures
+    // after multiple button clicks when capacity is exceeded
+    this.transformSystem.init();
+
     // Update the dice count display
     this.updateDiceCountDisplay();
   }
@@ -1070,6 +1088,33 @@ export class Demo {
         this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
       }
     }
+  }
+
+  /**
+   * CRITICAL FIX #14: Convert quaternion to Euler angles (in radians)
+   * Uses proper mathematical conversion to avoid gimbal lock and maintain correct rotation
+   *
+   * @param quat - Quaternion rotation (x, y, z, w)
+   * @returns Euler angles in radians { x: pitch, y: yaw, z: roll }
+   */
+  private quaternionToEuler(quat: { x: number; y: number; z: number; w: number }): { x: number; y: number; z: number } {
+    const { x, y, z, w } = quat;
+
+    // Roll (X-axis rotation)
+    const sinr_cosp = 2 * (w * x + y * z);
+    const cosr_cosp = 1 - 2 * (x * x + y * y);
+    const roll = Math.atan2(sinr_cosp, cosr_cosp);
+
+    // Pitch (Y-axis rotation)
+    const sinp = 2 * (w * y - z * x);
+    const pitch = Math.abs(sinp) >= 1 ? Math.sign(sinp) * Math.PI / 2 : Math.asin(sinp);
+
+    // Yaw (Z-axis rotation)
+    const siny_cosp = 2 * (w * z + x * y);
+    const cosy_cosp = 1 - 2 * (y * y + z * z);
+    const yaw = Math.atan2(siny_cosp, cosy_cosp);
+
+    return { x: roll, y: pitch, z: yaw };
   }
 
   private createModelMatrix(

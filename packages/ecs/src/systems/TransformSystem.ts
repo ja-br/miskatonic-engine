@@ -51,8 +51,12 @@ export class TransformSystem implements System {
     const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
-    for (const { entity: _entityId, components } of entities) {
-      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
+    console.log(`[TransformSystem.init] Processing ${entities.length} entities`);
+    let allocatedCount = 0;
+
+    for (const { entity: entityId } of entities) {
+      // CRITICAL: Get fresh component from world, not from query result
+      const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       // Allocate matrix indices if not already allocated
@@ -60,8 +64,20 @@ export class TransformSystem implements System {
         transform.localMatrixIndex = this.matrixStorage.allocate();
         transform.worldMatrixIndex = this.matrixStorage.allocate();
         transform.dirty = 1; // Mark dirty
+        console.log(`[TransformSystem.init] Entity ${entityId}: allocated indices ${transform.localMatrixIndex}, ${transform.worldMatrixIndex}`);
+        // Write back changes
+        this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
+        allocatedCount++;
+
+        // VERIFY: Read back to confirm write succeeded
+        const readBack = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
+        if (readBack) {
+          console.log(`[TransformSystem.init] Entity ${entityId}: read back localMatrixIndex=${readBack.localMatrixIndex}, worldMatrixIndex=${readBack.worldMatrixIndex}`);
+        }
       }
     }
+
+    console.log(`[TransformSystem.init] Allocated indices for ${allocatedCount} entities`);
   }
 
   /**
@@ -72,7 +88,7 @@ export class TransformSystem implements System {
     const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
-    for (const { components } of entities) {
+    for (const { entity: entityId, components } of entities) {
       const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
@@ -85,6 +101,9 @@ export class TransformSystem implements System {
         this.matrixStorage.free(transform.worldMatrixIndex);
         transform.worldMatrixIndex = -1;
       }
+
+      // Write back changes
+      this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
     }
 
     this.matrixStorage.clear();
@@ -109,8 +128,10 @@ export class TransformSystem implements System {
     const entities = world.executeQuery(query);
 
     // Process all transforms
-    for (const { entity: entityId, components } of entities) {
-      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
+    for (const { entity: entityId } of entities) {
+      // CRITICAL: Always get fresh component from world, not from query result map
+      // Query results contain snapshots that don't reflect setComponent() changes
+      let transform = world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       // Allocate matrix indices if needed (entity created after init)
@@ -118,11 +139,13 @@ export class TransformSystem implements System {
         transform.localMatrixIndex = this.matrixStorage.allocate();
         transform.worldMatrixIndex = this.matrixStorage.allocate();
         transform.dirty = 1;
+        world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
       }
 
       // Only process dirty transforms
       if (transform.dirty === 1) {
         this.updateTransform(world, entityId, transform);
+        world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
       }
     }
   }
@@ -173,11 +196,13 @@ export class TransformSystem implements System {
       const ancestorTransform = world.getComponent(ancestorId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (ancestorTransform) {
         this.updateTransformSingle(world, ancestorId, ancestorTransform);
+        world.setComponent(ancestorId, Transform as ComponentType<Transform>, ancestorTransform);
       }
     }
 
     // Finally update this transform
     this.updateTransformSingle(world, entityId, transform);
+    // Note: Caller is responsible for writing back transform
   }
 
   /**
@@ -215,6 +240,7 @@ export class TransformSystem implements System {
 
     // 3. Mark clean
     transform.dirty = 0;
+    // Note: Caller is responsible for writing back transform
 
     // 4. Dirty all children (their world matrices need recalculation)
     // Walk linked list of children
@@ -227,6 +253,7 @@ export class TransformSystem implements System {
       }
 
       childTransform.dirty = 1;
+      world.setComponent(childId, Transform as ComponentType<Transform>, childTransform);
       childId = childTransform.nextSiblingId; // Next sibling
     }
   }
@@ -252,6 +279,7 @@ export class TransformSystem implements System {
     transform.y = y;
     transform.z = z;
     transform.dirty = 1;
+    this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
   }
 
   /**
@@ -270,6 +298,7 @@ export class TransformSystem implements System {
     transform.rotationY = y;
     transform.rotationZ = z;
     transform.dirty = 1;
+    this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
   }
 
   /**
@@ -288,6 +317,7 @@ export class TransformSystem implements System {
     transform.scaleY = y;
     transform.scaleZ = z;
     transform.dirty = 1;
+    this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
   }
 
   /**
@@ -300,6 +330,7 @@ export class TransformSystem implements System {
     if (!transform) return;
 
     transform.dirty = 1;
+    this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
   }
 
   /**
@@ -345,6 +376,9 @@ export class TransformSystem implements System {
     if (newParentId !== -1) {
       this.addToParentList(childId, newParentId);
     }
+
+    // Write back child transform
+    this.world.setComponent(childId, Transform as ComponentType<Transform>, childTransform);
   }
 
   /**
@@ -410,6 +444,10 @@ export class TransformSystem implements System {
 
       parentTransform.firstChildId = childTransform.nextSiblingId;
       childTransform.nextSiblingId = -1;
+
+      // Write back both transforms
+      this.world.setComponent(parentId, Transform as ComponentType<Transform>, parentTransform);
+      this.world.setComponent(childId, Transform as ComponentType<Transform>, childTransform);
     } else {
       // Find previous sibling
       let prevSiblingId = parentTransform.firstChildId;
@@ -425,6 +463,10 @@ export class TransformSystem implements System {
 
           prevSibling.nextSiblingId = childTransform.nextSiblingId;
           childTransform.nextSiblingId = -1;
+
+          // Write back both transforms
+          this.world.setComponent(prevSiblingId, Transform as ComponentType<Transform>, prevSibling);
+          this.world.setComponent(childId, Transform as ComponentType<Transform>, childTransform);
           break;
         }
 
@@ -446,6 +488,10 @@ export class TransformSystem implements System {
     // Add to front of linked list
     childTransform.nextSiblingId = parentTransform.firstChildId;
     parentTransform.firstChildId = childId;
+
+    // Write back both transforms
+    this.world.setComponent(parentId, Transform as ComponentType<Transform>, parentTransform);
+    this.world.setComponent(childId, Transform as ComponentType<Transform>, childTransform);
   }
 
   // =============================================================================
@@ -465,6 +511,7 @@ export class TransformSystem implements System {
     // Update if dirty
     if (transform.dirty === 1) {
       this.updateTransform(this.world, entityId, transform);
+      this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
     }
 
     return this.matrixStorage.getWorldMatrix(transform.worldMatrixIndex);
@@ -483,6 +530,7 @@ export class TransformSystem implements System {
     // Update if dirty
     if (transform.dirty === 1) {
       this.updateTransform(this.world, entityId, transform);
+      this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
     }
 
     return this.matrixStorage.getLocalMatrix(transform.localMatrixIndex);
@@ -498,6 +546,7 @@ export class TransformSystem implements System {
 
     transform.dirty = 1;
     this.updateTransform(this.world, entityId, transform);
+    this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
   }
 
   /**
@@ -508,12 +557,13 @@ export class TransformSystem implements System {
     const query = this.world.query().with(Transform as ComponentType<Transform>).build();
     const entities = this.world.executeQuery(query);
 
-    for (const { entity: entityId, components } of entities) {
-      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
+    for (const { entity: entityId } of entities) {
+      const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       transform.dirty = 1;
       this.updateTransform(this.world, entityId, transform);
+      this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
     }
   }
 
@@ -534,8 +584,8 @@ export class TransformSystem implements System {
     let dirtyTransforms = 0;
     let hierarchicalTransforms = 0;
 
-    for (const { components } of entities) {
-      const transform = components.get(Transform as ComponentType<Transform>) as TransformData | undefined;
+    for (const { entity: entityId } of entities) {
+      const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
       if (!transform) continue;
 
       totalTransforms++;
@@ -596,6 +646,8 @@ export class TransformSystem implements System {
       childTransform.parentId = -1;
       childTransform.nextSiblingId = -1;
       childTransform.dirty = 1; // Mark dirty (parent changed)
+
+      this.world.setComponent(childId, Transform as ComponentType<Transform>, childTransform);
 
       childId = nextSiblingId;
     }

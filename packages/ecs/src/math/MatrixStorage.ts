@@ -60,6 +60,7 @@ export class MatrixStorage {
 
     // Grow if needed
     if (this.nextIndex >= this.capacity) {
+      console.warn(`MatrixStorage.grow() called: ${this.capacity} → ${this.capacity * 2} (nextIndex: ${this.nextIndex})`);
       this.grow();
     }
 
@@ -172,7 +173,12 @@ export class MatrixStorage {
    * Pre-allocate enough capacity to avoid this in production.
    */
   private grow(): void {
-    const newCapacity = this.capacity * 2;
+    const MAX_CAPACITY = 65536; // Hard limit: 65K entities = ~8MB per array
+    const newCapacity = Math.min(this.capacity * 2, MAX_CAPACITY);
+
+    if (newCapacity === this.capacity) {
+      throw new Error(`MatrixStorage: Cannot grow beyond ${MAX_CAPACITY} entities`);
+    }
 
     // Allocate new larger arrays
     const newLocal = new Float32Array(newCapacity * 16);

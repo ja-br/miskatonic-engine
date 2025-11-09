@@ -40,7 +40,8 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   output.worldPosition = worldPosition.xyz;
 
   // Transform to clip space
-  output.position = uniforms.modelViewProjection * vec4<f32>(input.position, 1.0);
+  // Epic 3.13 FIX: modelViewProjection is now viewProj, apply model separately
+  output.position = uniforms.modelViewProjection * worldPosition;
 
   return output;
 }

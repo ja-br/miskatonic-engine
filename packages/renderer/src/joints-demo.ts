@@ -117,10 +117,8 @@ export class JointsDemo {
 
       console.log('Creating rendering backend...');
 
-      // Create backend with WebGPU enabled (automatic fallback to WebGL2)
+      // Create WebGPU backend
       this.backend = await BackendFactory.create(this.canvas, {
-        enableWebGPU: true,
-        enableWebGL2: true,
         antialias: true,
         alpha: false,
         depth: true,
@@ -132,19 +130,6 @@ export class JointsDemo {
       // Create InstanceBufferManager for Epic 3.13 instanced rendering
       this.instanceManager = new InstanceBufferManager(this.backend);
       console.log('InstanceBufferManager initialized for instanced rendering');
-
-      // Create legacy Renderer only for WebGL2 backend (for BufferManager/ShaderManager compatibility)
-      if (this.backend.name === 'WebGL2') {
-        const config: RendererConfig = {
-          backend: RenderBackend.WEBGL2,
-          canvas: this.canvas,
-          width: this.canvas.width,
-          height: this.canvas.height,
-          antialias: true,
-          alpha: false,
-        };
-        this.renderer = new Renderer(config);
-      }
 
       // Create ECS camera entity
       this.cameraEntity = this.world.createEntity();
@@ -186,29 +171,23 @@ export class JointsDemo {
   private async createShaders(): Promise<void> {
     if (!this.backend) return;
 
-    if (this.backend.name === 'WebGPU') {
-      console.log('Loading WGSL shaders for WebGPU backend');
-      const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
-      await this.backend.createShader(this.shaderProgramId, {
-        vertex: wgslSource,
-        fragment: wgslSource,
-      });
-      console.log('WGSL shaders compiled successfully');
-    } else {
-      console.log('Loading GLSL shaders for WebGL2 backend');
-      // Import shaders as raw strings using Vite's ?raw suffix
-      const vertexShaderSource = await import('./shaders/basic-lighting.vert?raw').then(m => m.default);
-      const fragmentShaderSource = await import('./shaders/basic-lighting.frag?raw').then(m => m.default);
+    // WebGPU-only (WebGL2 support removed December 2024)
+    console.log('Loading WGSL shaders for WebGPU backend');
+    const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
+    await this.backend.createShader(this.shaderProgramId, {
+      vertex: wgslSource,
+      fragment: wgslSource,
+    });
+    console.log('WGSL shaders compiled successfully');
 
-      if (this.renderer) {
-        const shaderManager = this.renderer.getShaderManager();
-        shaderManager.createProgram(this.shaderProgramId, {
-          vertex: vertexShaderSource,
-          fragment: fragmentShaderSource,
-        });
-      }
-      console.log('GLSL shaders compiled successfully');
-    }
+    // Epic 3.13: Load instanced shader variant
+    console.log('Loading instanced WGSL shaders for WebGPU backend');
+    const wgslInstancedSource = await import('./shaders/basic-lighting_instanced.wgsl?raw').then(m => m.default);
+    await this.backend.createShader(`${this.shaderProgramId}_instanced`, {
+      vertex: wgslInstancedSource,
+      fragment: wgslInstancedSource,
+    });
+    console.log('Instanced WGSL shaders compiled successfully');
   }
 
   /**
@@ -1044,7 +1023,7 @@ export class JointsDemo {
             ],
           },
           uniforms: new Map([
-            ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: mvpMatrix }],
+            ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: viewProjMatrix }],
             ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
             ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]) }],
             ['uLightDir', { name: 'uLightDir', type: 'vec3', value: new Float32Array([0.5, 1.0, 0.5]) }],
@@ -1081,11 +1060,17 @@ export class JointsDemo {
       for (const group of opaqueGroups) {
         if (group.instanceBuffer) {
           const gpuBuffer = this.instanceManager.upload(group.instanceBuffer);
-          // Set instanceBufferId on all commands in this group
-          for (const cmd of group.commands) {
-            cmd.drawCommand.instanceBufferId = gpuBuffer.id;
-            cmd.drawCommand.instanceCount = gpuBuffer.count;
-          }
+
+          // Epic 3.13 FIX: Set instance buffer on ONLY the first command (the representative)
+          // The rest will be filtered out by getCommands() deduplication
+          const representativeCommand = group.commands[0];
+          representativeCommand.drawCommand.instanceBufferId = gpuBuffer.id;
+          representativeCommand.drawCommand.instanceCount = gpuBuffer.count;
+
+          // CRITICAL: Switch to instanced shader variant
+          // Without this, the non-instanced shader is used which doesn't have @location(6) instanceColor,
+          // causing a shader/buffer layout mismatch
+          representativeCommand.drawCommand.shader = `${this.shaderProgramId}_instanced`;
         }
       }
     }

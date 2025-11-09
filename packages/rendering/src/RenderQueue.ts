@@ -222,14 +222,80 @@ export class RenderQueue {
   }
 
   /**
-   * Get all commands in render order
+   * Get all commands in render order (deduplicated for instancing)
    *
    * Order: opaque -> alpha-test -> transparent
    *
-   * @returns Array of commands in render order
+   * Epic 3.13 Fix: Returns deduplicated commands for instanced rendering.
+   * For each instance group, only the first command is returned with
+   * instanceBufferId and instanceCount set. Other commands in the group
+   * are excluded to prevent rendering duplicates.
+   *
+   * @returns Array of commands in render order (deduplicated)
    */
   getCommands(): QueuedDrawCommand[] {
-    return [...this.opaque, ...this.alphaTest, ...this.transparent];
+    return [
+      ...this.getDeduplicatedCommands('opaque'),
+      ...this.getDeduplicatedCommands('alphaTest'),
+      ...this.getDeduplicatedCommands('transparent'),
+    ];
+  }
+
+  /**
+   * Get deduplicated commands for a specific queue
+   *
+   * For instance groups with instanceCount >= threshold:
+   *   - Returns only the FIRST command from each group
+   *   - That command has instanceBufferId and instanceCount set
+   *
+   * For non-instanced commands:
+   *   - Returns all commands individually
+   *
+   * CRITICAL FIX (Bug #17): Preserves sort order by walking sorted queue
+   * CRITICAL FIX (Bug #18): Checks instanceBuffer existence, not hardcoded >= 2
+   * MAJOR FIX (Bug #20): Reuses emitted Set to avoid per-frame allocations
+   *
+   * @param queueType - Queue to get commands from
+   * @returns Deduplicated commands
+   */
+  private getDeduplicatedCommands(queueType: 'opaque' | 'alphaTest' | 'transparent'): QueuedDrawCommand[] {
+    const groups = this.instanceGroupsCache.get(queueType) || [];
+    const sourceQueue = queueType === 'opaque' ? this.opaque
+      : queueType === 'alphaTest' ? this.alphaTest
+      : this.transparent;
+
+    // Build lookup: command → representative (only for instanced groups)
+    const commandToRepresentative = new Map<QueuedDrawCommand, QueuedDrawCommand>();
+    for (const group of groups) {
+      // FIX #18: Check instanceBuffer existence, not hardcoded >= 2
+      if (group.instanceBuffer) {
+        const rep = group.commands[0];
+        for (const cmd of group.commands) {
+          commandToRepresentative.set(cmd, rep);
+        }
+      }
+    }
+
+    // Walk sorted queue (PRESERVES ORDER) - FIX #17
+    const commands: QueuedDrawCommand[] = [];
+    const emitted = new Set<QueuedDrawCommand>();
+
+    for (const cmd of sourceQueue) {
+      const rep = commandToRepresentative.get(cmd);
+
+      if (rep !== undefined) {
+        // This command is part of an instance group
+        if (!emitted.has(rep)) {
+          commands.push(rep);
+          emitted.add(rep);
+        }
+      } else {
+        // Non-instanced command
+        commands.push(cmd);
+      }
+    }
+
+    return commands;
   }
 
   /**

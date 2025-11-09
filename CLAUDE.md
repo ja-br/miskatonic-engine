@@ -504,10 +504,11 @@ Key files:
 - Interest management: spatial policy with 100-unit radius default
 
 ### Rendering Backend Strategy
-- **Primary**: WebGPU (next-gen, compute shader support)
-- **Fallback**: WebGL2 (compatibility)
-- **Abstraction**: Rendering commands must work with both backends transparently
-- See DEVELOPMENT_PLAN.md Epic 3.2 for implementation approach
+- **WebGPU-only**: This engine uses WebGPU exclusively
+- **No WebGL2**: WebGL2 support has been removed (December 2024)
+- **Target platforms**: Electron (Chromium-based), Chrome/Edge 113+, Firefox 133+, Safari 18+
+- **Rationale**: All modern browsers and Electron support WebGPU; dual backend maintenance caused repeated implementation errors
+- See DEVELOPMENT_PLAN.md Epic 3.2 for implementation details
 
 ### Network Architecture Constraints
 - **Server-authoritative**: All gameplay state validated on server (Epic 5.4)

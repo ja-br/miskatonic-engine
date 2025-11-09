@@ -184,7 +184,7 @@ export class InstanceDetector {
   /**
    * Create instance buffer for group
    *
-   * Allocates buffer from pool and populates with per-instance transforms.
+   * Allocates buffer from pool and populates with per-instance transforms and colors.
    *
    * @param group - Instance group
    */
@@ -194,10 +194,30 @@ export class InstanceDetector {
     // Acquire buffer from pool
     const buffer = globalInstanceBufferPool.acquire(instanceCount);
 
-    // Populate with instance transforms
+    // Populate with instance transforms and colors
     for (let i = 0; i < instanceCount; i++) {
       const command = group.commands[i];
+
+      // Set transform
       buffer.setInstanceTransform(i, command.worldMatrix);
+
+      // Extract color from uBaseColor uniform (if present)
+      let r = 1.0, g = 1.0, b = 1.0, a = 1.0;
+      if (command.drawCommand.uniforms) {
+        const baseColorUniform = command.drawCommand.uniforms.get('uBaseColor');
+        if (baseColorUniform && baseColorUniform.value) {
+          const color = baseColorUniform.value;
+          if (color instanceof Float32Array || Array.isArray(color)) {
+            r = color[0] ?? 1.0;
+            g = color[1] ?? 1.0;
+            b = color[2] ?? 1.0;
+            a = color[3] ?? 1.0; // Default alpha to 1.0 if not provided
+          }
+        }
+      }
+
+      // Set color
+      buffer.setInstanceColor(i, r, g, b, a);
     }
 
     group.instanceBuffer = buffer;

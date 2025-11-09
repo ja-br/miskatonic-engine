@@ -5,7 +5,7 @@
  *
  * Features:
  * - Instance buffer allocation and resizing
- * - Per-instance transform matrices (mat4)
+ * - Per-instance transform matrices (mat4) + colors (vec4)
  * - Buffer pooling to avoid reallocation
  * - Dirty tracking for efficient updates
  *
@@ -14,14 +14,22 @@
  * - Zero allocation in hot path (reuse buffers)
  * - <100KB memory overhead for pooling
  *
+ * Layout (80 bytes per instance):
+ * - Transform (mat4): 16 floats = 64 bytes (offset 0)
+ * - Color (vec4):     4 floats  = 16 bytes (offset 64)
+ *
  * Usage:
  * ```typescript
  * const instanceBuffer = new InstanceBuffer(1000); // Max 1000 instances
  * instanceBuffer.setInstanceTransform(0, transform1);
- * instanceBuffer.setInstanceTransform(1, transform2);
+ * instanceBuffer.setInstanceColor(0, 1.0, 0.0, 0.0, 1.0);
  * instanceBuffer.upload(gl); // Upload to GPU
  * ```
  */
+
+// Stride per instance: mat4 (64 bytes) + vec4 (16 bytes) = 80 bytes
+const FLOATS_PER_INSTANCE = 20; // 16 (mat4) + 4 (vec4)
+const BYTES_PER_INSTANCE = 80;  // 20 floats * 4 bytes
 
 export interface InstanceData {
   /**
@@ -35,9 +43,9 @@ export interface InstanceData {
   capacity: number;
 
   /**
-   * Packed per-instance data (mat4 per instance)
-   * Layout: [mat4_0, mat4_1, ..., mat4_n]
-   * Size: capacity * 16 floats * 4 bytes = capacity * 64 bytes
+   * Packed per-instance data (mat4 + vec4 per instance)
+   * Layout: [mat4_0, vec4_color_0, mat4_1, vec4_color_1, ...]
+   * Size: capacity * 20 floats * 4 bytes = capacity * 80 bytes
    */
   data: Float32Array;
 
@@ -70,7 +78,7 @@ export class InstanceBuffer {
     this.data = {
       count: 0,
       capacity,
-      data: new Float32Array(capacity * 16), // mat4 = 16 floats
+      data: new Float32Array(capacity * FLOATS_PER_INSTANCE), // mat4 + vec4 = 20 floats
       dirty: false,
       inFlight: false,
     };
@@ -130,9 +138,40 @@ export class InstanceBuffer {
       );
     }
 
-    // Copy matrix to instance slot
-    const offset = index * 16;
+    // Copy matrix to instance slot (offset by stride)
+    const offset = index * FLOATS_PER_INSTANCE;
     this.data.data.set(matrix, offset);
+
+    // Update count if this is a new instance
+    if (index >= this.data.count) {
+      this.data.count = index + 1;
+    }
+
+    this.data.dirty = true;
+  }
+
+  /**
+   * Set color for specific instance
+   *
+   * @param index - Instance index (0 to count-1)
+   * @param r - Red component (0.0 to 1.0)
+   * @param g - Green component (0.0 to 1.0)
+   * @param b - Blue component (0.0 to 1.0)
+   * @param a - Alpha component (0.0 to 1.0, default: 1.0)
+   */
+  setInstanceColor(index: number, r: number, g: number, b: number, a: number = 1.0): void {
+    if (index < 0 || index >= this.data.capacity) {
+      throw new Error(
+        `InstanceBuffer: Index ${index} out of bounds (capacity: ${this.data.capacity})`
+      );
+    }
+
+    // Copy color to instance slot (after mat4, at offset 16)
+    const offset = index * FLOATS_PER_INSTANCE + 16;
+    this.data.data[offset + 0] = r;
+    this.data.data[offset + 1] = g;
+    this.data.data[offset + 2] = b;
+    this.data.data[offset + 3] = a;
 
     // Update count if this is a new instance
     if (index >= this.data.count) {
@@ -162,9 +201,9 @@ export class InstanceBuffer {
       }
     }
 
-    // Bulk copy (optimized)
+    // Bulk copy (optimized) - account for stride
     for (let i = 0; i < matrices.length; i++) {
-      const offset = (startIndex + i) * 16;
+      const offset = (startIndex + i) * FLOATS_PER_INSTANCE;
       this.data.data.set(matrices[i], offset);
     }
 
@@ -230,12 +269,12 @@ export class InstanceBuffer {
     }
 
     // Allocate new buffer
-    const newData = new Float32Array(newCapacity * 16);
+    const newData = new Float32Array(newCapacity * FLOATS_PER_INSTANCE);
 
     // Copy existing data
     const copyCount = Math.min(this.data.count, newCapacity);
     if (copyCount > 0) {
-      newData.set(this.data.data.subarray(0, copyCount * 16));
+      newData.set(this.data.data.subarray(0, copyCount * FLOATS_PER_INSTANCE));
     }
 
     // Replace buffer
@@ -248,7 +287,7 @@ export class InstanceBuffer {
    * Get memory usage in bytes
    */
   getMemoryUsage(): number {
-    return this.data.capacity * 16 * 4; // capacity * 16 floats * 4 bytes
+    return this.data.capacity * BYTES_PER_INSTANCE; // capacity * 80 bytes
   }
 }
 
@@ -264,7 +303,7 @@ export class InstanceBufferPool {
   // Bucket sizes (power of 2)
   private static readonly BUCKET_SIZES = [64, 128, 256, 512, 1024, 2048, 4096];
 
-  // Maximum capacity (4MB = 65536 instances * 64 bytes)
+  // Maximum capacity (5MB = 65536 instances * 80 bytes)
   private static readonly MAX_CAPACITY = 65536;
 
   /**
@@ -348,7 +387,7 @@ export class InstanceBufferPool {
       stats.push({
         bucketSize,
         count: pool.length,
-        memoryBytes: pool.length * bucketSize * 16 * 4,
+        memoryBytes: pool.length * bucketSize * BYTES_PER_INSTANCE,
       });
     }
 

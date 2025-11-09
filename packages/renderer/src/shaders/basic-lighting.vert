@@ -12,5 +12,6 @@ void main() {
   vNormal = normalize(uNormalMatrix * aNormal);
   vec4 worldPosition = uModel * vec4(aPosition, 1.0);
   vPosition = worldPosition.xyz;
-  gl_Position = uModelViewProjection * vec4(aPosition, 1.0);
+  // Use worldPosition for MVP transform (uModelViewProjection is actually viewProj)
+  gl_Position = uModelViewProjection * worldPosition;
 }

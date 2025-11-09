@@ -1,6 +1,6 @@
 /**
  * @miskatonic/rendering
- * WebGL2/WebGPU rendering engine for Miskatonic
+ * WebGPU rendering engine for Miskatonic
  */
 
 // Main renderer
@@ -48,7 +48,6 @@ export {
   isBackendBufferHandle,
   isBackendTextureHandle,
   isBackendFramebufferHandle,
-  WebGL2Backend,
   WebGPUBackend,
   BackendFactory,
   type BackendFactoryOptions,

@@ -72,12 +72,23 @@ export class ComponentStorage<T> {
    * @param initialCapacity - Initial array capacity (will grow as needed)
    */
   constructor(fieldDescriptors: FieldDescriptor[], initialCapacity: number = 256) {
+    if (fieldDescriptors.length === 0) {
+      throw new Error('ComponentStorage requires at least one field');
+    }
     this.fieldDescriptors = fieldDescriptors;
     this.capacity = initialCapacity;
 
-    // Initialize typed arrays for each field
+    // Initialize typed arrays for each field with default values
     for (const descriptor of fieldDescriptors) {
-      this.fields.set(descriptor.name, new descriptor.arrayType(initialCapacity));
+      const array = new descriptor.arrayType(initialCapacity);
+
+      // Typed arrays are zero-initialized by default, but we need to fill with defaultValue
+      // Critical for fields like localMatrixIndex (-1), parentId (-1), etc.
+      if (descriptor.defaultValue !== undefined) {
+        array.fill(descriptor.defaultValue);
+      }
+
+      this.fields.set(descriptor.name, array);
     }
   }
 
@@ -235,8 +246,13 @@ export class ComponentStorage<T> {
       // Create new larger array
       const newArray = new descriptor.arrayType(newCapacity);
 
-      // Copy old data
+      // Copy old data FIRST
       newArray.set(oldArray);
+
+      // Initialize ONLY new capacity with default values (for indices beyond old capacity)
+      if (descriptor.defaultValue !== undefined) {
+        newArray.fill(descriptor.defaultValue, oldArray.length);
+      }
 
       // Replace old array
       this.fields.set(fieldName, newArray);
@@ -311,6 +327,9 @@ export function createFieldDescriptor(
   defaultValue: number = 0,
   arrayType?: TypedArrayConstructor
 ): FieldDescriptor {
+  if (typeof defaultValue !== 'number' || !Number.isFinite(defaultValue)) {
+    throw new TypeError(`defaultValue must be finite number, got ${typeof defaultValue}: ${defaultValue}`);
+  }
   return {
     name,
     arrayType: arrayType || inferArrayType(defaultValue),
