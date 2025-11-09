@@ -31,6 +31,105 @@ import type {
 } from '../types';
 
 import { RenderCommandType } from '../types';
+import { VRAMProfiler, VRAMCategory, type VRAMStats } from '../VRAMProfiler';
+
+/**
+ * Uniform Buffer Pool - Epic 2.13
+ * Reuses uniform buffers across frames to avoid expensive GPU allocations
+ *
+ * Fixed: Increased pool size to 8192 to handle high draw call counts
+ * Fixed: Added buffer ID tracking for bind group caching
+ */
+class UniformBufferPool {
+  private pool: GPUBuffer[] = [];
+  private maxPoolSize = 8192; // Support up to 8K draw calls per frame
+  private nextBufferId = 0;
+  private bufferIds = new WeakMap<GPUBuffer, number>();
+
+  // Performance stats
+  private stats = {
+    buffersCreated: 0,
+    buffersReused: 0,
+  };
+
+  /**
+   * Acquire a uniform buffer from the pool or create a new one
+   */
+  acquire(device: GPUDevice, size: number): GPUBuffer {
+    // Try to reuse a buffer from the pool
+    const buffer = this.pool.pop();
+    if (buffer && buffer.size >= size) {
+      this.stats.buffersReused++;
+      return buffer;
+    }
+
+    // No suitable buffer available, create a new one
+    // Note: Uniform buffers must be aligned to 256 bytes in WebGPU
+    const alignedSize = Math.ceil(size / 256) * 256;
+    const newBuffer = device.createBuffer({
+      size: alignedSize,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    // Assign unique ID for bind group caching
+    this.bufferIds.set(newBuffer, this.nextBufferId++);
+    this.stats.buffersCreated++;
+
+    return newBuffer;
+  }
+
+  /**
+   * Get unique ID for a buffer (for bind group caching)
+   */
+  getBufferId(buffer: GPUBuffer): number {
+    return this.bufferIds.get(buffer) ?? -1;
+  }
+
+  /**
+   * Release a uniform buffer back to the pool for reuse
+   */
+  release(buffer: GPUBuffer): void {
+    if (this.pool.length < this.maxPoolSize) {
+      this.pool.push(buffer);
+    } else {
+      // Pool is full, destroy the buffer
+      buffer.destroy();
+    }
+  }
+
+  /**
+   * Get pool statistics
+   */
+  getStats() {
+    return {
+      poolSize: this.pool.length,
+      buffersCreated: this.stats.buffersCreated,
+      buffersReused: this.stats.buffersReused,
+      reuseRate: this.stats.buffersCreated > 0
+        ? (this.stats.buffersReused / (this.stats.buffersCreated + this.stats.buffersReused) * 100).toFixed(1) + '%'
+        : '0%',
+    };
+  }
+
+  /**
+   * Reset statistics counters
+   */
+  resetStats(): void {
+    this.stats.buffersCreated = 0;
+    this.stats.buffersReused = 0;
+  }
+
+  /**
+   * Clear all pooled buffers (call on dispose)
+   */
+  clear(): void {
+    for (const buffer of this.pool) {
+      buffer.destroy();
+    }
+    this.pool = [];
+    this.bufferIds = new WeakMap();
+  }
+}
 
 /**
  * WebGPU resource wrappers
@@ -91,11 +190,28 @@ export class WebGPUBackend implements IRendererBackend {
   // Epic 3.13: Pipeline cache for (shader, vertexLayout) variants
   private pipelineCache = new Map<string, PipelineCacheEntry>();
 
+  // Epic 2.13: Performance optimizations
+  private uniformBufferPool = new UniformBufferPool();
+  private frameUniformBuffers: GPUBuffer[] = []; // Track buffers for release at end of frame
+  private bindGroupCache = new Map<string, GPUBindGroup>();
+  private vramProfiler: VRAMProfiler;
+
+  // Epic 2.13: Performance counters
+  private perfStats = {
+    bindGroupsCreated: 0,
+    bindGroupsCached: 0,
+  };
+
   // Render state
   private currentRenderPass: GPURenderPassEncoder | null = null;
   private currentCommandEncoder: GPUCommandEncoder | null = null;
   private depthTexture: GPUTexture | null = null;
   private stats: RenderStats = this.createEmptyStats();
+
+  constructor() {
+    // Initialize VRAM profiler with 256MB budget (typical for integrated GPUs)
+    this.vramProfiler = new VRAMProfiler(256 * 1024 * 1024);
+  }
 
   async initialize(config: BackendConfig): Promise<boolean> {
     // Check if WebGPU is available
@@ -230,6 +346,12 @@ export class WebGPUBackend implements IRendererBackend {
     this.device.queue.submit([commandBuffer]);
 
     this.currentCommandEncoder = null;
+
+    // Epic 2.13: Release uniform buffers back to pool
+    for (const buffer of this.frameUniformBuffers) {
+      this.uniformBufferPool.release(buffer);
+    }
+    this.frameUniformBuffers = [];
   }
 
   executeCommands(commands: RenderCommand[]): void {
@@ -274,6 +396,10 @@ export class WebGPUBackend implements IRendererBackend {
 
   resetStats(): void {
     this.stats = this.createEmptyStats();
+  }
+
+  getVRAMStats(): VRAMStats {
+    return this.vramProfiler.getStats();
   }
 
   // Pipeline Management - Epic 3.13 Dynamic Vertex Layouts
@@ -509,6 +635,15 @@ export class WebGPUBackend implements IRendererBackend {
       gpuUsage |= GPUBufferUsage.UNIFORM;
     }
 
+    // Epic 2.13: Track VRAM allocation before creating buffer
+    const category = type === 'vertex' ? VRAMCategory.VERTEX_BUFFERS
+                   : type === 'index' ? VRAMCategory.INDEX_BUFFERS
+                   : VRAMCategory.UNIFORM_BUFFERS;
+
+    if (!this.vramProfiler.allocate(id, category, dataArray.byteLength)) {
+      throw new Error(`VRAM budget exceeded: cannot allocate ${dataArray.byteLength} bytes for ${id}`);
+    }
+
     const buffer = this.device.createBuffer({
       label: `Buffer: ${id}`,
       size: dataArray.byteLength,
@@ -542,6 +677,9 @@ export class WebGPUBackend implements IRendererBackend {
   deleteBuffer(handle: BackendBufferHandle): void {
     const bufferData = this.buffers.get(handle.id);
     if (bufferData) {
+      // Epic 2.13: Deallocate from VRAM profiler
+      this.vramProfiler.deallocate(handle.id);
+
       bufferData.buffer.destroy();
       this.buffers.delete(handle.id);
     }
@@ -730,6 +868,10 @@ export class WebGPUBackend implements IRendererBackend {
     this.shaders.clear();
     this.framebuffers.clear();
 
+    // Epic 2.13: Clean up performance optimization resources
+    this.uniformBufferPool.clear();
+    this.bindGroupCache.clear();
+
     if (this.device) {
       this.device.destroy();
       this.device = null;
@@ -874,25 +1016,36 @@ export class WebGPUBackend implements IRendererBackend {
         }
       }
 
-      // Create uniform buffer
-      const uniformBuffer = this.device.createBuffer({
-        size: uniformData.byteLength,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-      });
+      // Epic 2.13: Acquire uniform buffer from pool (instead of creating new one)
+      const uniformBuffer = this.uniformBufferPool.acquire(this.device, uniformData.byteLength);
       this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
 
-      // Create bind group
-      const bindGroup = this.device.createBindGroup({
-        layout: shader.bindGroupLayout,
-        entries: [
-          {
-            binding: 0,
-            resource: {
-              buffer: uniformBuffer,
+      // Track buffer for release at end of frame
+      this.frameUniformBuffers.push(uniformBuffer);
+
+      // Epic 2.13: CRITICAL FIX - Include buffer ID in cache key
+      // Bind groups are tied to specific buffers, so we need per-buffer caching
+      const bufferId = this.uniformBufferPool.getBufferId(uniformBuffer);
+      const bindGroupKey = `${command.shader}_uniform_${bufferId}`;
+      let bindGroup = this.bindGroupCache.get(bindGroupKey);
+
+      if (!bindGroup) {
+        bindGroup = this.device.createBindGroup({
+          layout: shader.bindGroupLayout,
+          entries: [
+            {
+              binding: 0,
+              resource: {
+                buffer: uniformBuffer,
+              },
             },
-          },
-        ],
-      });
+          ],
+        });
+        this.bindGroupCache.set(bindGroupKey, bindGroup);
+        this.perfStats.bindGroupsCreated++;
+      } else {
+        this.perfStats.bindGroupsCached++;
+      }
 
       // Bind the group
       this.currentRenderPass.setBindGroup(0, bindGroup);

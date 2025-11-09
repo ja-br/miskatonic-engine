@@ -559,10 +559,12 @@ export class Demo {
     this.lastTime = now;
 
     // Step physics simulation
+    const t0 = performance.now();
     let alpha = 0; // Interpolation factor
     if (this.physicsWorld && deltaTime > 0) {
       alpha = this.physicsWorld.step(deltaTime);
     }
+    const t1 = performance.now();
 
     // Sync physics transforms to ECS entities
     if (this.physicsWorld) {
@@ -593,9 +595,11 @@ export class Demo {
         }
       }
     }
+    const t2 = performance.now();
 
     // Update ECS systems (includes TransformSystem)
     this.world.update(deltaTime);
+    const t3 = performance.now();
 
     // Get view-projection matrix from ECS camera
     const aspectRatio = this.canvas.width / this.canvas.height;
@@ -768,7 +772,9 @@ export class Demo {
     }
 
     // Epic 3.13: Sort and detect instances
+    const t4 = performance.now();
     this.renderQueue.sort();
+    const t5 = performance.now();
 
     // Epic 3.13: Upload instance buffers to GPU if instancing is enabled
     if (this.instanceManager) {
@@ -812,22 +818,55 @@ export class Demo {
     // Get render commands (now with instance buffer IDs set)
     const queuedCommands = this.renderQueue.getCommands();
     const renderCommands = queuedCommands.map(qc => qc.drawCommand);
+    const queueStats = this.renderQueue.getStats();
 
-    // Log render command count only once
-    if (!this.hasLoggedInstancing && drawCalls > 0) {
-      console.log(`\nResult: ${drawCalls} objects → ${renderCommands.length} render commands`);
-      console.log(`Draw call reduction: ${((1 - renderCommands.length / drawCalls) * 100).toFixed(1)}%\n`);
-      this.hasLoggedInstancing = true;
+    // DIAGNOSTIC: Log performance stats every second
+    if (now - this.lastFpsUpdate >= 1000) {
+      console.log('\n=== PERFORMANCE DIAGNOSTIC ===');
+      console.log(`Submitted to queue: ${queueStats.totalCommands}`);
+      console.log(`Instance groups detected: ${queueStats.instanceGroups}`);
+      console.log(`Final render commands: ${renderCommands.length}`);
+      console.log(`Instanced draw calls: ${queueStats.instancedDrawCalls}`);
+
+      // Buffer pool stats
+      const poolStats = (this.backend as any).uniformBufferPool?.getStats();
+      if (poolStats) {
+        console.log(`\nBuffer Pool: created=${poolStats.buffersCreated}, reused=${poolStats.buffersReused}, rate=${poolStats.reuseRate}, poolSize=${poolStats.poolSize}`);
+      }
+
+      // Frame time breakdown (will be logged after endFrame)
+      (this as any).pendingTimingLog = {
+        physics: (t1 - t0).toFixed(2),
+        sync: (t2 - t1).toFixed(2),
+        ecs: (t3 - t2).toFixed(2),
+        sort: (t5 - t4).toFixed(2),
+      };
     }
 
     // Begin frame
     this.backend.beginFrame();
 
     // Always execute commands (even if empty) to ensure render pass is created and screen is cleared
+    const t6 = performance.now();
     this.backend.executeCommands(renderCommands);
+    const t7 = performance.now();
 
     // End frame
     this.backend.endFrame();
+
+    // Log CPU frame timing breakdown
+    const pending = (this as any).pendingTimingLog;
+    if (pending) {
+      const gpuEncode = (t7 - t6).toFixed(2);
+      console.log(`\n=== CPU FRAME BREAKDOWN ===`);
+      console.log(`Physics: ${pending.physics}ms, Sync: ${pending.sync}ms, ECS: ${pending.ecs}ms, Sort: ${pending.sort}ms, GPU Encode: ${gpuEncode}ms`);
+      const cpuTotal = parseFloat(pending.physics) + parseFloat(pending.sync) + parseFloat(pending.ecs) + parseFloat(pending.sort) + parseFloat(gpuEncode);
+      console.log(`Total CPU: ${cpuTotal.toFixed(2)}ms`);
+      const currentFrameTime = this.frameTimes.length > 0 ? this.frameTimes[this.frameTimes.length - 1] : 0;
+      const gpuTime = currentFrameTime - cpuTotal;
+      console.log(`Frame time: ${currentFrameTime.toFixed(2)}ms (GPU execution: ${gpuTime.toFixed(2)}ms)`);
+      (this as any).pendingTimingLog = null;
+    }
 
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
     this.matrixPool.releaseAll();
@@ -862,25 +901,21 @@ export class Demo {
       const diceQuery = this.world.query().with(DiceEntity).build();
       const diceCount = Array.from(this.world.executeQuery(diceQuery)).length;
 
-      // Estimate VRAM usage based on buffer sizes
-      // Cube: 8 vertices * 6 floats (pos + normal) * 4 bytes = 192 bytes
-      // Cube indices: 36 indices * 2 bytes (uint16) = 72 bytes
-      // Sphere: ~408 vertices (16 segments * 12 rings) * 6 floats * 4 bytes = ~9792 bytes
-      // Sphere indices: ~1152 indices * 2 bytes = ~2304 bytes
-      const cubeVertexBytes = 8 * 6 * 4; // 8 vertices, 6 floats each (pos+normal), 4 bytes per float
-      const cubeIndexBytes = this.cubeIndexCount * 2; // uint16
-      const sphereVertexBytes = ((16 + 1) * (12 + 1)) * 6 * 4; // (segments+1) * (rings+1) vertices
-      const sphereIndexBytes = this.sphereIndexCount * 2; // uint16
-      const vramBytes = cubeVertexBytes + cubeIndexBytes + sphereVertexBytes + sphereIndexBytes;
-      const vramMB = vramBytes / (1024 * 1024);
+      // Epic 3.8: Get VRAM usage from VRAMProfiler
+      const vramStats = this.backend.getVRAMStats();
+      const vramMB = vramStats.totalUsed / (1024 * 1024);
+      const vramUsagePercent = vramStats.utilizationPercent;
 
-      // Calculate % of enforced VRAM budget (VRAMProfiler default: 256MB)
-      const vramBudgetMB = 256;
-      const vramUsagePercent = (vramMB / vramBudgetMB) * 100;
-
-      // Count buffers (vertex + index for cube and sphere)
-      const bufferCount = 4;
-      const textureCount = 0; // No textures in this demo
+      // Count allocations from VRAM profiler
+      let bufferCount = 0;
+      let textureCount = 0;
+      for (const [category, usage] of vramStats.byCategory) {
+        if (category === 'vertex_buffers' || category === 'index_buffers' || category === 'uniform_buffers') {
+          bufferCount += usage.allocations;
+        } else if (category === 'textures') {
+          textureCount += usage.allocations;
+        }
+      }
 
       this.updateStats(
         fps,

@@ -19,6 +19,7 @@ import type {
   TextureFilter,
   TextureWrap,
 } from '../types';
+import type { VRAMStats } from '../VRAMProfiler';
 
 /**
  * Opaque resource handles
@@ -147,6 +148,11 @@ export interface IRendererBackend {
    * Reset statistics counters
    */
   resetStats(): void;
+
+  /**
+   * Get VRAM usage statistics (Epic 3.8)
+   */
+  getVRAMStats(): VRAMStats;
 
   // Resource Management
 
