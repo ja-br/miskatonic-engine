@@ -201,6 +201,8 @@ export interface DrawCommand {
   vertexCount: number;
   vertexLayout: VertexLayout; // How to interpret vertex data
   instanceCount?: number;
+  instanceBufferId?: string; // Epic 3.13: Instance buffer ID for instanced rendering
+  meshId?: string; // Epic 3.13: Unique mesh identifier for instancing detection
   uniforms?: Map<string, Uniform>;
   textures?: Map<number, string>; // texture unit -> texture ID
   state?: Partial<RenderState>;

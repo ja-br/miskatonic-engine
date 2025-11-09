@@ -1,5 +1,5 @@
 /**
- * RenderQueue - Epic 3.12
+ * RenderQueue - Epic 3.12 + Epic 3.13
  *
  * Organizes draw calls for optimal rendering performance.
  *
@@ -8,20 +8,23 @@
  * - Smart sorting: opaque front-to-back, transparent back-to-front
  * - State change minimization
  * - Sort key optimization (single integer comparison)
+ * - Instance rendering (Epic 3.13): Automatic detection and grouping
  * - Batch-friendly organization
  *
  * Performance Targets:
  * - <1ms sorting time for 1000 objects
- * - <100 draw calls for 1000 objects (with batching)
+ * - <100 draw calls for 1000 objects (with instancing)
  * - <50 material changes per frame
  *
  * Architecture:
  * - Opaque queue: Sorted front-to-back by depth (minimize overdraw)
  * - Alpha-test queue: Sorted by material (minimize state changes)
  * - Transparent queue: Sorted back-to-front by depth (correct blending)
+ * - Instance detection: Groups commands by (mesh, material) for instancing
  */
 
 import type { DrawCommand, RenderState } from './types';
+import { InstanceDetector, type InstanceGroup } from './InstanceDetector';
 
 /**
  * Queued draw command with sorting information
@@ -67,6 +70,11 @@ export interface RenderQueueStats {
   sortTime: number; // milliseconds
   materialChanges: number;
   stateChanges: number;
+  // Epic 3.13: Instance rendering stats
+  instanceGroups: number;
+  instancedDrawCalls: number;
+  totalInstances: number;
+  drawCallReduction: number; // Percentage
 }
 
 /**
@@ -77,6 +85,10 @@ export class RenderQueue {
   private opaque: QueuedDrawCommand[] = [];
   private alphaTest: QueuedDrawCommand[] = [];
   private transparent: QueuedDrawCommand[] = [];
+
+  // Epic 3.13: Instance detection
+  private instanceDetector = new InstanceDetector();
+  private instanceGroupsCache: Map<string, InstanceGroup[]> = new Map();
 
   // State tracking for minimization
   private lastMaterialId: string | null = null;
@@ -91,6 +103,11 @@ export class RenderQueue {
     sortTime: 0,
     materialChanges: 0,
     stateChanges: 0,
+    // Epic 3.13 stats
+    instanceGroups: 0,
+    instancedDrawCalls: 0,
+    totalInstances: 0,
+    drawCallReduction: 0,
   };
 
   // Camera for depth calculation
@@ -152,6 +169,7 @@ export class RenderQueue {
    * - Opaque: Front-to-back by depth (minimize overdraw via early-z)
    * - Alpha-test: By material (minimize state changes)
    * - Transparent: Back-to-front by depth (correct blending)
+   * - Epic 3.13: Detect instance groups for each queue
    */
   sort(): void {
     const startTime = performance.now();
@@ -165,10 +183,21 @@ export class RenderQueue {
     // Transparent: Back-to-front (descending depth)
     this.transparent.sort((a, b) => b.sortKey - a.sortKey);
 
+    // Epic 3.13: Detect instance groups for each queue
+    this.instanceGroupsCache.set('opaque', this.instanceDetector.detectGroups(this.opaque));
+    this.instanceGroupsCache.set('alphaTest', this.instanceDetector.detectGroups(this.alphaTest));
+    this.instanceGroupsCache.set('transparent', this.instanceDetector.detectGroups(this.transparent));
+
+    // Update stats
+    const instanceStats = this.instanceDetector.getStats();
     this.stats.sortTime = performance.now() - startTime;
     this.stats.opaqueCount = this.opaque.length;
     this.stats.alphaTestCount = this.alphaTest.length;
     this.stats.transparentCount = this.transparent.length;
+    this.stats.instanceGroups = instanceStats.instancedGroups;
+    this.stats.totalInstances = instanceStats.totalInstances;
+    this.stats.drawCallReduction = instanceStats.drawCallReduction;
+    this.stats.instancedDrawCalls = instanceStats.instancedGroups;
   }
 
   /**
@@ -204,12 +233,53 @@ export class RenderQueue {
   }
 
   /**
+   * Epic 3.13: Get instance groups for specific queue
+   *
+   * @param queueType - Queue type ('opaque', 'alphaTest', 'transparent')
+   * @returns Instance groups for queue
+   */
+  getInstanceGroups(queueType: 'opaque' | 'alphaTest' | 'transparent'): readonly InstanceGroup[] {
+    return this.instanceGroupsCache.get(queueType) || [];
+  }
+
+  /**
+   * Epic 3.13: Check if instancing is enabled
+   */
+  isInstancedRenderingEnabled(): boolean {
+    return this.instanceDetector.getConfig().enabled;
+  }
+
+  /**
+   * Epic 3.13: Enable/disable instanced rendering
+   *
+   * @param enabled - true to enable, false to disable
+   */
+  setInstancedRenderingEnabled(enabled: boolean): void {
+    this.instanceDetector.updateConfig({ enabled });
+  }
+
+  /**
+   * Epic 3.13: Set minimum instance threshold
+   *
+   * Commands with fewer instances than this threshold will not be instanced.
+   *
+   * @param threshold - Minimum instances (default: 10)
+   */
+  setInstanceThreshold(threshold: number): void {
+    this.instanceDetector.updateConfig({ minInstanceThreshold: threshold });
+  }
+
+  /**
    * Clear all queues (call at start of frame)
    */
   clear(): void {
     this.opaque.length = 0;
     this.alphaTest.length = 0;
     this.transparent.length = 0;
+
+    // Epic 3.13: Release instance buffers back to pool
+    this.instanceDetector.releaseAll();
+    this.instanceGroupsCache.clear();
 
     this.lastMaterialId = null;
     this.lastShaderId = null;
@@ -222,6 +292,11 @@ export class RenderQueue {
       sortTime: 0,
       materialChanges: 0,
       stateChanges: 0,
+      // Epic 3.13 stats
+      instanceGroups: 0,
+      instancedDrawCalls: 0,
+      totalInstances: 0,
+      drawCallReduction: 0,
     };
   }
 

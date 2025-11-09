@@ -106,7 +106,14 @@ describe('World', () => {
       world.addComponent(entity, Transform, transform);
 
       expect(world.hasComponent(entity, Transform)).toBe(true);
-      expect(world.getComponent(entity, Transform)).toBe(transform);
+
+      // NOTE: SoA storage (Epic 2.11) returns plain objects from typed arrays,
+      // not class instances. We validate field values instead of object identity.
+      const retrieved = world.getComponent(entity, Transform);
+      expect(retrieved).toBeDefined();
+      expect(retrieved!.x).toBe(10);
+      expect(retrieved!.y).toBe(20);
+      expect(retrieved!.z).toBe(30);
     });
 
     it('should add multiple components to same entity', () => {

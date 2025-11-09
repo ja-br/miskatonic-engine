@@ -984,6 +984,8 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       joint.configureMotorVelocity(0, 0);
     } else {
       // Enable motor with target velocity and max force
+      // IMPORTANT: Need to set motor model to VelocityBased for velocity control to work
+      joint.configureMotorModel(RAPIER.MotorModel.VelocityBased);
       joint.configureMotorVelocity(motor.targetVelocity, motor.maxForce);
     }
   }

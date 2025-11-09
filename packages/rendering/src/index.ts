@@ -23,6 +23,11 @@ export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget
 export { MaterialManager, type Material, type MaterialConfig, type PBRMaterialProperties, type MaterialTextures } from './Material';
 export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueStats } from './RenderQueue';
 
+// Epic 3.13: Instance rendering and batching
+export { InstanceBuffer, InstanceBufferPool, globalInstanceBufferPool, type InstanceData } from './InstanceBuffer';
+export { InstanceDetector, type InstanceGroup, type InstanceDetectorConfig } from './InstanceDetector';
+export { InstanceBufferManager, type GPUInstanceBuffer } from './InstanceBufferManager';
+
 // Backend abstraction (Epic 3.2)
 export {
   // Backend interface and implementations

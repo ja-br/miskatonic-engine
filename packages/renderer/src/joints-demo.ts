@@ -77,6 +77,7 @@ export class JointsDemo {
 
   // Demo controls
   private motorSpeed: number = 2.0;
+  private motorForce: number = 10.0;
   private motorJoint: JointHandle | null = null;
 
   // Elevator animation
@@ -719,7 +720,7 @@ export class JointsDemo {
       axis: { x: 0, y: 1, z: 0 }, // Rotate around Y axis
       motor: {
         targetVelocity: this.motorSpeed,
-        maxForce: 10.0,
+        maxForce: this.motorForce,
       },
       collideConnected: false,
     });
@@ -1346,16 +1347,26 @@ export class JointsDemo {
   // Public API for controlling motor
   public setMotorSpeed(speed: number): void {
     this.motorSpeed = speed;
+    console.log(`[MOTOR] Setting speed to ${speed}, motorJoint: ${this.motorJoint}`);
     if (this.physicsWorld && this.motorJoint !== null) {
       this.physicsWorld.setJointMotor(this.motorJoint, {
         targetVelocity: speed,
-        maxForce: 10.0,
+        maxForce: this.motorForce,
       });
+      console.log(`[MOTOR] Speed updated successfully`);
     }
   }
 
-  public getMotorSpeed(): number {
-    return this.motorSpeed;
+  public setMotorForce(force: number): void {
+    this.motorForce = force;
+    console.log(`[MOTOR] Setting force to ${force}, motorJoint: ${this.motorJoint}`);
+    if (this.physicsWorld && this.motorJoint !== null) {
+      this.physicsWorld.setJointMotor(this.motorJoint, {
+        targetVelocity: this.motorSpeed,
+        maxForce: force,
+      });
+      console.log(`[MOTOR] Force updated successfully`);
+    }
   }
 
   dispose(): void {

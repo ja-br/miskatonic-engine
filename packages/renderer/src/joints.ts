@@ -25,15 +25,25 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   demo.start();
 
-  // Setup motor speed control
+  // Setup motor controls
   const motorSpeedSlider = document.getElementById('motor-speed') as HTMLInputElement;
   const motorSpeedValue = document.getElementById('motor-speed-value');
+  const motorForceSlider = document.getElementById('motor-force') as HTMLInputElement;
+  const motorForceValue = document.getElementById('motor-force-value');
 
   if (motorSpeedSlider && motorSpeedValue) {
     motorSpeedSlider.addEventListener('input', () => {
       const speed = parseFloat(motorSpeedSlider.value);
       motorSpeedValue.textContent = speed.toFixed(1);
       demo.setMotorSpeed(speed);
+    });
+  }
+
+  if (motorForceSlider && motorForceValue) {
+    motorForceSlider.addEventListener('input', () => {
+      const force = parseFloat(motorForceSlider.value);
+      motorForceValue.textContent = force.toString();
+      demo.setMotorForce(force);
     });
   }
 

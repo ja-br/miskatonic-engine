@@ -229,10 +229,16 @@
       </div>
       <div id="controls">
         <div class="control-group">
-          <div class="control-label">Motor Control</div>
+          <div class="control-label">Motor Controls</div>
           <div class="control-row">
+            <span style="min-width: 60px; font-size: 11px;">Speed:</span>
             <input type="range" id="motor-speed" min="-5" max="5" step="0.5" value="2" />
-            <span id="motor-speed-value">2.0</span>
+            <span id="motor-speed-value" style="min-width: 40px; text-align: right;">2.0</span>
+          </div>
+          <div class="control-row">
+            <span style="min-width: 60px; font-size: 11px;">Force:</span>
+            <input type="range" id="motor-force" min="0" max="50" step="5" value="10" />
+            <span id="motor-force-value" style="min-width: 40px; text-align: right;">10</span>
           </div>
         </div>
       </div>
