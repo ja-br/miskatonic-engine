@@ -882,13 +882,16 @@ export class Demo {
     this.backend.executeCommands(renderCommands);
     const t7 = performance.now();
 
-    // End frame
+    // End frame - measure present/compositor overhead
+    const tBeforeEndFrame = performance.now();
     this.backend.endFrame();
+    const tAfterEndFrame = performance.now();
 
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
     this.matrixPool.releaseAll();
     this.mat3Pool.releaseAll();
     this.vec3Pool.releaseAll();
+    const tAfterCleanup = performance.now();
 
     // Track frame time
     const frameTime = now - this.lastFrameTime;
@@ -899,6 +902,9 @@ export class Demo {
     const pending = (this as any).pendingTimingLog;
     if (pending) {
       const gpuEncode = (t7 - t6).toFixed(2);
+      const endFrameTime = (tAfterEndFrame - tBeforeEndFrame).toFixed(2);
+      const cleanupTime = (tAfterCleanup - tAfterEndFrame).toFixed(2);
+
       console.log(`\n=== CPU TIMING BREAKDOWN ===`);
       console.log(`Physics: ${pending.physics}ms`);
       console.log(`Sync (physics→ECS): ${pending.sync}ms`);
@@ -906,9 +912,12 @@ export class Demo {
       console.log(`Dice loop (${diceEntities.length} dice): ${pending.diceLoop}ms`);
       console.log(`Render queue sort: ${pending.sort}ms`);
       console.log(`GPU command encode: ${gpuEncode}ms`);
+      console.log(`endFrame() [submit+present]: ${endFrameTime}ms`);
+      console.log(`Matrix pool cleanup: ${cleanupTime}ms`);
 
       const cpuTotal = parseFloat(pending.physics) + parseFloat(pending.sync) + parseFloat(pending.ecs) +
-                       parseFloat(pending.diceLoop) + parseFloat(pending.sort) + parseFloat(gpuEncode);
+                       parseFloat(pending.diceLoop) + parseFloat(pending.sort) + parseFloat(gpuEncode) +
+                       parseFloat(endFrameTime) + parseFloat(cleanupTime);
       console.log(`\nTotal CPU: ${cpuTotal.toFixed(2)}ms`);
 
       // Get actual GPU execution time from backend (WebGPU timestamp queries)
@@ -922,8 +931,21 @@ export class Demo {
         console.log(`  [timestamp-query not available on this device]`);
       }
 
+      // Calculate unaccounted time (compositor/present overhead)
+      const measuredTotal = cpuTotal + gpuTimeMeasured;
+      const unaccountedTime = frameTime - measuredTotal;
+
       console.log(`\n*** FRAME TIME: ${frameTime.toFixed(2)}ms ***`);
-      console.log(`    Bottleneck: ${cpuTotal > gpuTimeEstimated ? 'CPU' : 'GPU'}`);
+      console.log(`    Measured work: ${measuredTotal.toFixed(2)}ms`);
+      console.log(`    Unaccounted (compositor/V-Sync): ${unaccountedTime.toFixed(2)}ms`);
+      console.log(`    Bottleneck: ${cpuTotal > gpuTimeMeasured ? 'CPU' : 'GPU'}`);
+
+      if (unaccountedTime > 5) {
+        console.log(`    ⚠️  High compositor overhead detected!`);
+        console.log(`    → Windows DWM or V-Sync causing ${unaccountedTime.toFixed(2)}ms latency`);
+        console.log(`    → Try: --disable-frame-rate-limit or --disable-gpu-vsync flags`);
+      }
+
       (this as any).pendingTimingLog = null;
     }
     if (this.frameTimeHistory.length > 60) this.frameTimeHistory.shift(); // Keep last 60 frames

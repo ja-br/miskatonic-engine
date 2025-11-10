@@ -10,6 +10,49 @@ import { SecurityPolicy } from './security/SecurityPolicy';
 import { PermissionHandler } from './security/PermissionHandler';
 import log from 'electron-log';
 
+// ============================================================================
+// GPU/WebGPU Configuration - MUST be set before app.ready
+// ============================================================================
+
+// Enable hardware acceleration
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+
+// Platform-specific GPU backend configuration
+if (process.platform === 'win32') {
+  // Windows: WebGPU uses D3D12 natively (no flags needed)
+  // Chromium automatically selects D3D12 backend on Windows for WebGPU
+
+  // Force discrete GPU on laptops with dual GPUs
+  app.commandLine.appendSwitch('force-high-performance-gpu');
+
+  // Note: WebGPU V-Sync is configured via presentMode: 'fifo' in WebGPUBackend.ts
+  // This should cap FPS at monitor refresh rate (e.g., 144Hz)
+
+  // OPTIONAL: Uncomment to disable V-Sync (allows >144 FPS, causes tearing)
+  // WARNING: May cause screen tearing
+  //
+  // app.commandLine.appendSwitch('disable-gpu-vsync');
+  //   → Disables V-Sync at GPU level
+  //   → Can cause screen tearing but reduces latency by ~8ms
+  //   → Recommended for competitive gaming scenarios
+  //
+  // app.commandLine.appendSwitch('disable-gpu-watchdog');
+  //   → Prevents GPU timeout detection (TDR)
+  //   → Use only if experiencing GPU driver timeouts during heavy rendering
+  //   → WARNING: May hide actual GPU hangs
+
+  log.info('Windows GPU backend: D3D12 (WebGPU native)');
+} else if (process.platform === 'darwin') {
+  // macOS: WebGPU uses Metal natively (no flags needed)
+  log.info('macOS GPU backend: Metal');
+} else {
+  // Linux: Enable Vulkan for WebGPU
+  app.commandLine.appendSwitch('enable-features', 'Vulkan');
+  app.commandLine.appendSwitch('use-vulkan');
+  log.info('Linux GPU backend: Vulkan');
+}
+
 /**
  * Main application class
  */

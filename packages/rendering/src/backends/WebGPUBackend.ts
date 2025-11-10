@@ -270,6 +270,7 @@ export class WebGPUBackend implements IRendererBackend {
         device: this.device,
         format: this.preferredFormat,
         alphaMode: config.alpha ? 'premultiplied' : 'opaque',
+        presentMode: 'fifo', // V-Sync: cap at monitor refresh rate (e.g., 144Hz)
       });
 
       // Create depth texture
@@ -360,9 +361,18 @@ export class WebGPUBackend implements IRendererBackend {
       return;
     }
 
+    const tStart = performance.now();
+
     // If no render pass was created (no draw commands), create one just to clear the screen
     if (!this.currentRenderPass) {
+      const tSwapStart = performance.now();
       const textureView = this.context.getCurrentTexture().createView();
+      const tSwapEnd = performance.now();
+      const swapTime = tSwapEnd - tSwapStart;
+      if (swapTime > 1.0) {
+        console.warn(`⚠️ Slow swap chain acquisition: ${swapTime.toFixed(2)}ms`);
+      }
+
       const depthView = this.depthTexture?.createView();
 
       this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
@@ -389,6 +399,7 @@ export class WebGPUBackend implements IRendererBackend {
     }
 
     // End any active render pass
+    const tPassEnd = performance.now();
     if (this.currentRenderPass) {
       this.currentRenderPass.end();
       this.currentRenderPass = null;
@@ -428,25 +439,47 @@ export class WebGPUBackend implements IRendererBackend {
         );
 
         // Submit commands
+        const tSubmitStart = performance.now();
         const commandBuffer = this.currentCommandEncoder.finish();
         this.device.queue.submit([commandBuffer]);
+        const tSubmitEnd = performance.now();
+        const submitTime = tSubmitEnd - tSubmitStart;
 
         this.currentCommandEncoder = null;
 
         // Start async read on the target buffer
         this.pendingTimestampReads.add(targetBuffer);
         this.readTimestamps(targetBuffer);
+
+        // Log slow submits
+        if (submitTime > 2.0) {
+          console.warn(`⚠️ Slow queue.submit(): ${submitTime.toFixed(2)}ms`);
+        }
       } else {
         // All buffers busy - skip this frame's timestamp read
+        const tSubmitStart = performance.now();
         const commandBuffer = this.currentCommandEncoder.finish();
         this.device.queue.submit([commandBuffer]);
+        const tSubmitEnd = performance.now();
+        const submitTime = tSubmitEnd - tSubmitStart;
         this.currentCommandEncoder = null;
+
+        if (submitTime > 2.0) {
+          console.warn(`⚠️ Slow queue.submit(): ${submitTime.toFixed(2)}ms`);
+        }
       }
     } else {
       // No timestamp queries - just submit
+      const tSubmitStart = performance.now();
       const commandBuffer = this.currentCommandEncoder.finish();
       this.device.queue.submit([commandBuffer]);
+      const tSubmitEnd = performance.now();
+      const submitTime = tSubmitEnd - tSubmitStart;
       this.currentCommandEncoder = null;
+
+      if (submitTime > 2.0) {
+        console.warn(`⚠️ Slow queue.submit(): ${submitTime.toFixed(2)}ms`);
+      }
     }
 
     // Epic 2.13: Release uniform buffers back to pool
@@ -1083,7 +1116,13 @@ export class WebGPUBackend implements IRendererBackend {
 
     // Begin render pass if not already active
     if (!this.currentRenderPass) {
+      const tSwapStart = performance.now();
       const textureView = this.context.getCurrentTexture().createView();
+      const tSwapEnd = performance.now();
+      const swapTime = tSwapEnd - tSwapStart;
+      if (swapTime > 1.0) {
+        console.warn(`⚠️ Slow swap chain acquisition: ${swapTime.toFixed(2)}ms`);
+      }
 
       // Check if depth texture needs to be recreated (canvas size changed)
       if (this.depthTexture && this.canvas &&
