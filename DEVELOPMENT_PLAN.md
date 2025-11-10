@@ -123,7 +123,7 @@ See [HLD.md - Architecture Decision Records](./HLD.md#architecture-decision-reco
 ### Frontend (Electron Renderer)
 - **Platform:** Electron (Chromium + Node.js)
 - **Language:** TypeScript 5.0+
-- **Graphics:** WebGPU
+- **Graphics:** WebGPUd
 - **Build:** Vite, Webpack 5
 - **Target:** 60 FPS on mid-range hardware
 
