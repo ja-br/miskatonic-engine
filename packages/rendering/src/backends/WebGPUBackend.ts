@@ -205,9 +205,11 @@ export class WebGPUBackend implements IRendererBackend {
   // GPU timestamp queries for measuring actual GPU execution time
   private timestampQuerySet: GPUQuerySet | null = null;
   private timestampBuffer: GPUBuffer | null = null;
-  private timestampReadBuffer: GPUBuffer | null = null;
+  private timestampReadBuffers: GPUBuffer[] = []; // Triple buffering for safe async reads
+  private currentReadBufferIndex: number = 0;
   private gpuTimeMs: number = 0; // Last measured GPU time in milliseconds
   private hasTimestampQuery: boolean = false;
+  private pendingTimestampReads: Set<GPUBuffer> = new Set(); // Track which buffers are busy
 
   // Render state
   private currentRenderPass: GPURenderPassEncoder | null = null;
@@ -292,15 +294,24 @@ export class WebGPUBackend implements IRendererBackend {
           usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
         });
 
-        this.timestampReadBuffer = this.device.createBuffer({
-          size: 16,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        });
+        // Triple buffering: create 3 read buffers for safe async reads
+        // This prevents "buffer used in submit while mapped" errors
+        for (let i = 0; i < 3; i++) {
+          this.timestampReadBuffers.push(this.device.createBuffer({
+            size: 16,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+          }));
+        }
       }
 
       // Set up device lost handler
       this.device.lost.then((info) => {
         console.error(`WebGPU device lost: ${info.message}`);
+        // Clean up timestamp resources on device lost
+        this.timestampQuerySet = null;
+        this.timestampBuffer = null;
+        this.timestampReadBuffers = [];
+        this.pendingTimestampReads.clear();
       });
 
       return true;
@@ -384,7 +395,7 @@ export class WebGPUBackend implements IRendererBackend {
     }
 
     // Resolve timestamp queries if available
-    if (this.hasTimestampQuery && this.timestampQuerySet && this.timestampBuffer && this.timestampReadBuffer) {
+    if (this.hasTimestampQuery && this.timestampQuerySet && this.timestampBuffer && this.timestampReadBuffers.length > 0) {
       this.currentCommandEncoder.resolveQuerySet(
         this.timestampQuerySet,
         0, // first query
@@ -393,25 +404,49 @@ export class WebGPUBackend implements IRendererBackend {
         0  // destination offset
       );
 
-      // Copy to read buffer
-      this.currentCommandEncoder.copyBufferToBuffer(
-        this.timestampBuffer,
-        0,
-        this.timestampReadBuffer,
-        0,
-        16
-      );
-    }
+      // Use round-robin buffer selection with triple buffering
+      // Find a buffer that's not currently being read
+      let targetBuffer: GPUBuffer | null = null;
+      for (let i = 0; i < this.timestampReadBuffers.length; i++) {
+        const bufferIndex = (this.currentReadBufferIndex + i) % this.timestampReadBuffers.length;
+        const buffer = this.timestampReadBuffers[bufferIndex];
+        if (!this.pendingTimestampReads.has(buffer)) {
+          targetBuffer = buffer;
+          this.currentReadBufferIndex = (bufferIndex + 1) % this.timestampReadBuffers.length;
+          break;
+        }
+      }
 
-    // Submit commands
-    const commandBuffer = this.currentCommandEncoder.finish();
-    this.device.queue.submit([commandBuffer]);
+      // Copy to the selected buffer (if one is available)
+      if (targetBuffer) {
+        this.currentCommandEncoder.copyBufferToBuffer(
+          this.timestampBuffer,
+          0,
+          targetBuffer,
+          0,
+          16
+        );
 
-    this.currentCommandEncoder = null;
+        // Submit commands
+        const commandBuffer = this.currentCommandEncoder.finish();
+        this.device.queue.submit([commandBuffer]);
 
-    // Read back timestamp queries asynchronously
-    if (this.hasTimestampQuery && this.timestampReadBuffer) {
-      this.readTimestamps();
+        this.currentCommandEncoder = null;
+
+        // Start async read on the target buffer
+        this.pendingTimestampReads.add(targetBuffer);
+        this.readTimestamps(targetBuffer);
+      } else {
+        // All buffers busy - skip this frame's timestamp read
+        const commandBuffer = this.currentCommandEncoder.finish();
+        this.device.queue.submit([commandBuffer]);
+        this.currentCommandEncoder = null;
+      }
+    } else {
+      // No timestamp queries - just submit
+      const commandBuffer = this.currentCommandEncoder.finish();
+      this.device.queue.submit([commandBuffer]);
+      this.currentCommandEncoder = null;
     }
 
     // Epic 2.13: Release uniform buffers back to pool
@@ -423,22 +458,32 @@ export class WebGPUBackend implements IRendererBackend {
 
   /**
    * Read timestamp query results asynchronously
+   * Uses triple buffering to avoid race conditions
    */
-  private async readTimestamps(): Promise<void> {
-    if (!this.timestampReadBuffer) return;
-
+  private async readTimestamps(buffer: GPUBuffer): Promise<void> {
     try {
-      await this.timestampReadBuffer.mapAsync(GPUMapMode.READ);
-      const arrayBuffer = this.timestampReadBuffer.getMappedRange();
+      await buffer.mapAsync(GPUMapMode.READ);
+      const arrayBuffer = buffer.getMappedRange();
       const timestamps = new BigUint64Array(arrayBuffer);
 
       // Calculate GPU time in nanoseconds, then convert to milliseconds
       const gpuTimeNs = Number(timestamps[1] - timestamps[0]);
       this.gpuTimeMs = gpuTimeNs / 1_000_000;
-
-      this.timestampReadBuffer.unmap();
     } catch (error) {
-      console.warn('Failed to read timestamp queries:', error);
+      // Log occasional failures for debugging (1% sampling)
+      if (Math.random() < 0.01) {
+        console.warn('Timestamp read failed (expected occasionally):', error);
+      }
+    } finally {
+      // CRITICAL: Always unmap and remove from busy set
+      // Buffer must be unmapped before it can be used in another submit
+      try {
+        buffer.unmap();
+      } catch (e) {
+        // Buffer might not be mapped if mapAsync failed
+      }
+      // Mark this buffer as available again
+      this.pendingTimestampReads.delete(buffer);
     }
   }
 
@@ -962,6 +1007,21 @@ export class WebGPUBackend implements IRendererBackend {
 
     this.shaders.clear();
     this.framebuffers.clear();
+
+    // Clean up timestamp query resources
+    if (this.timestampQuerySet) {
+      this.timestampQuerySet.destroy();
+      this.timestampQuerySet = null;
+    }
+    if (this.timestampBuffer) {
+      this.timestampBuffer.destroy();
+      this.timestampBuffer = null;
+    }
+    for (const buffer of this.timestampReadBuffers) {
+      buffer.destroy();
+    }
+    this.timestampReadBuffers = [];
+    this.pendingTimestampReads.clear();
 
     // Epic 2.13: Clean up performance optimization resources
     this.uniformBufferPool.clear();
