@@ -43,35 +43,25 @@ await engine.shutdown();
 
 ```typescript
 const engine = await MiskatonicEngine.create({
-  // Physics configuration
   physics: {
     gravity: [0, -9.81, 0],
     fixedTimestep: 1 / 60,
     backend: 'rapier', // or 'cannon' or 'box2d'
   },
-
-  // Rendering configuration
   rendering: {
     backend: 'webgpu', // or 'webgl2'
     targetFPS: 60,
     vsync: true,
   },
-
-  // Network configuration
   network: {
     enabled: true,
     tickRate: 60,
     useDeltaCompression: true,
   },
-
-  // Debug configuration
   debug: {
     enabled: true,
     showStats: true,
-    showPhysics: false,
   },
-
-  // Performance budgets
   performance: {
     targetFPS: 60,
     maxDeltaTime: 0.1,
@@ -85,23 +75,14 @@ const engine = await MiskatonicEngine.create({
 ### Engine Lifecycle
 
 ```typescript
-// Create engine
 const engine = await MiskatonicEngine.create(config);
-
-// Initialize systems
 await engine.initialize();
 
-// Start running
-engine.start();
+engine.start();   // Start running
+engine.pause();   // Pause execution
+engine.resume();  // Resume after pause
 
-// Pause execution
-engine.pause();
-
-// Resume after pause
-engine.resume();
-
-// Clean shutdown
-await engine.shutdown();
+await engine.shutdown(); // Clean shutdown
 ```
 
 ### System Access
@@ -116,126 +97,67 @@ engine.events.on('game:event', (event) => {
   console.log('Event received:', event);
 });
 
-engine.events.emit({
-  type: 'game:event',
-  timestamp: Date.now(),
-});
-
 // Resource Manager
 const texture = await engine.resources.load('texture', 'player.png');
 
-// Physics World (if initialized)
+// Physics (if initialized)
 if (engine.physics) {
   const bodyId = engine.physics.createRigidBody({
     type: 'dynamic',
     position: { x: 0, y: 10, z: 0 },
   });
 }
-
-// Network (if enabled)
-if (engine.network) {
-  engine.network.registerEntity(entity);
-  const batch = engine.network.createStateBatch(observerId);
-}
 ```
 
 ### Custom Systems
 
 ```typescript
-// Register a custom system
 engine.registerSystem({
   name: 'movement-system',
   priority: 10, // Lower runs first
-  initialize: async () => {
-    console.log('Movement system initialized');
-  },
   update: (deltaTime) => {
     // Update logic runs every frame
   },
-  shutdown: async () => {
-    console.log('Movement system shutdown');
-  },
 });
 
-// Unregister a system
 engine.unregisterSystem('movement-system');
 ```
 
-### Engine State
+### Engine State & Statistics
 
 ```typescript
 import { EngineState } from '@miskatonic/core';
 
-console.log(engine.state);
-// EngineState.INITIALIZING
-// EngineState.READY
-// EngineState.RUNNING
-// EngineState.PAUSED
-// EngineState.STOPPING
-// EngineState.STOPPED
-// EngineState.ERROR
-```
+// Check current state
+console.log(engine.state); // INITIALIZING, READY, RUNNING, PAUSED, etc.
 
-### Statistics
-
-```typescript
+// Get performance stats
 const stats = engine.getStats();
-
-console.log(stats.fps); // Current FPS
-console.log(stats.frameTime); // Frame time in ms
-console.log(stats.averageFrameTime); // Average frame time
-console.log(stats.totalFrames); // Total frames rendered
-console.log(stats.entityCount); // Number of entities
-console.log(stats.memoryUsage); // Memory usage in MB
+console.log(stats.fps, stats.frameTime, stats.entityCount);
 ```
-
-## Design Philosophy
-
-The engine follows the "batteries included, swappable preferred" philosophy:
-
-- **Batteries Included**: Works out of the box with sensible defaults
-- **Swappable Preferred**: Every system can be replaced with custom implementation
-- **Progressive Enhancement**: Minimal config works, deep customization available
-- **Fail-Safe**: Validates configuration, graceful degradation
 
 ## Command System
 
-The engine includes a comprehensive command system for:
-- Debug console commands
-- Scripting and automation
-- UI action handling
-- Command history and undo/redo
+Execute commands for debugging, scripting, and automation. See [COMMANDS.md](./COMMANDS.md) for full documentation.
 
-### Using Built-in Commands
+### Basic Usage
 
 ```typescript
-const engine = await MiskatonicEngine.create();
-await engine.initialize();
-
-// Execute commands
-await engine.commands.execute('help', {}); // List all commands
-await engine.commands.execute('echo', { message: 'Hello!' }); // Echo a message
-await engine.commands.execute('stats', {}); // Get engine stats
-await engine.commands.execute('state', {}); // Get engine state
-
-// Commands with aliases
-await engine.commands.execute('print', { message: 'test' }); // 'print' is alias for 'echo'
-
-// Pause/resume engine
+// Execute built-in commands
+await engine.commands.execute('help', {});
+await engine.commands.execute('stats', {});
 await engine.commands.execute('pause', {});
-await engine.commands.execute('resume', {});
 
 // Undo undoable commands
-await engine.commands.undo(); // Undo last pause/resume
+await engine.commands.undo();
 ```
 
-### Registering Custom Commands
+### Custom Commands
 
 ```typescript
 import { z } from 'zod';
 import type { CommandDefinition } from '@miskatonic/core';
 
-// Define a custom command
 const spawnCommand: CommandDefinition = {
   name: 'entity.spawn',
   description: 'Spawn a new entity at position',
@@ -248,128 +170,30 @@ const spawnCommand: CommandDefinition = {
   }),
   handler: async (input, context) => {
     const entity = engine.world.createEntity();
-    // Add components based on input.type
-    // Set position to (input.x, input.y, input.z)
-
+    // Add components and set position
     return {
       success: true,
       output: { entityId: entity },
       executionTime: 0,
     };
   },
-  undoable: true,
-  undo: async (input, context) => {
-    // Remove the spawned entity
-    return { success: true, executionTime: 0 };
-  },
 };
 
-// Register the command
 engine.commands.register(spawnCommand);
 
-// Execute it
 const result = await engine.commands.execute('entity.spawn', {
   type: 'player',
   x: 0,
   y: 10,
   z: 0,
 });
-
-if (result.success) {
-  console.log('Entity spawned:', result.output.entityId);
-}
 ```
 
-### Command Queue
+See [COMMANDS.md](./COMMANDS.md) for command queuing, history, introspection, and events.
 
-Commands can be queued for execution on the next frame:
+## Advanced Usage
 
-```typescript
-// Queue command (won't execute immediately)
-const promise = engine.commands.execute('entity.spawn', {
-  type: 'enemy',
-  x: 10,
-  y: 0,
-  z: 5,
-}, { queued: true });
-
-// Command will be processed during PRE_UPDATE phase
-// when engine is running
-
-engine.start();
-
-// Wait for result
-const result = await promise;
-```
-
-### Command History
-
-```typescript
-// Get command history
-const history = engine.commands.getHistory(10); // Last 10 commands
-
-for (const entry of history) {
-  console.log(`${entry.command}: ${entry.result.success ? 'OK' : 'FAIL'}`);
-}
-
-// Clear history
-engine.commands.clearHistory();
-```
-
-### Command Introspection
-
-```typescript
-// List all commands
-const commands = engine.commands.listCommands();
-
-// Get commands by category
-const entityCommands = engine.commands.getCommandsByCategory('entity');
-
-// Get command info
-const info = engine.commands.getCommandInfo('entity.spawn');
-console.log(info.name, info.description, info.aliases);
-
-// Check if command exists
-if (engine.commands.has('entity.spawn')) {
-  // Execute it
-}
-```
-
-### Command Events
-
-The command system emits events for monitoring:
-
-```typescript
-engine.events.on('command:executed', (event) => {
-  console.log(`Command ${event.commandName} executed in ${event.executionTime}ms`);
-});
-
-engine.events.on('command:failed', (event) => {
-  console.error(`Command ${event.commandName} failed: ${event.error}`);
-});
-
-engine.events.on('command:validation-failed', (event) => {
-  console.warn(`Invalid input for ${event.commandName}: ${event.error}`);
-});
-```
-
-## Examples
-
-### Basic Game Loop (Epic 2.8)
-
-```typescript
-const engine = await MiskatonicEngine.create({
-  physics: { gravity: [0, -9.81, 0] },
-});
-
-await engine.initialize();
-engine.start();
-
-// Game loop is now running with phase-based execution:
-// PRE_UPDATE → UPDATE → POST_UPDATE → PHYSICS → RENDER
-```
-
-### With Physics
+### With Physics and Networking
 
 ```typescript
 const engine = await MiskatonicEngine.create({
@@ -377,11 +201,16 @@ const engine = await MiskatonicEngine.create({
     gravity: [0, -9.81, 0],
     fixedTimestep: 1 / 60,
   },
+  network: {
+    enabled: true,
+    tickRate: 60,
+    useDeltaCompression: true,
+  },
 });
 
 await engine.initialize();
 
-// Create a falling sphere
+// Create physics body
 const bodyId = engine.physics!.createRigidBody({
   type: 'dynamic',
   position: { x: 0, y: 10, z: 0 },
@@ -392,33 +221,17 @@ engine.physics!.addCollider(bodyId, {
   radius: 1.0,
 });
 
-// Physics updates happen during engine loop
-engine.start();
-```
-
-### With Networking
-
-```typescript
-const engine = await MiskatonicEngine.create({
-  network: {
-    enabled: true,
-    tickRate: 60,
-    useDeltaCompression: true,
-    useInterestManagement: true,
-  },
-});
-
-await engine.initialize();
-
+// Register for network replication
 const entity = engine.world.createEntity();
 engine.network!.registerEntity(entity);
 
 // Server: Create and send state batches
 const batch = engine.network!.createStateBatch(observerId);
-// Send batch over network...
 
 // Client: Apply received batch
 engine.network!.applyStateBatch(receivedBatch);
+
+engine.start();
 ```
 
 ## Architecture
@@ -434,31 +247,12 @@ The MiskatonicEngine coordinates these subsystems:
 ## Testing
 
 ```bash
-# Run all tests
-npm test
-
-# Watch mode
-npm run test:watch
-
-# With coverage
-npm run test:coverage
+npm test                # Run all tests
+npm run test:watch      # Watch mode
+npm run test:coverage   # With coverage
 ```
 
 Current test coverage: **128/128 tests passing** (100%)
-
-Test breakdown:
-- MiskatonicEngine: 44 tests
-- GameLoop: 18 tests
-- CommandRegistry: 19 tests
-- CommandBus: 20 tests
-- CommandSystem Integration: 27 tests
-
-## Roadmap
-
-- ✅ Epic 2.7: Main Engine Class (COMPLETE)
-- ✅ Epic 2.8: Game Loop Architecture (COMPLETE)
-- ✅ Epic 2.9: Command System (COMPLETE)
-- ⏭️ Epic 2.10-2.11: Cache-Efficient ECS Refactoring (Next)
 
 ## License
 

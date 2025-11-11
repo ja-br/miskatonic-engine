@@ -215,8 +215,8 @@ Performance optimization, profiling, and benchmarking across all systems.
 
 ## Navigation
 
-- **Back to:** [Main Development Plan](../../DEVELOPMENT_PLAN.md)
-- **Architecture:** [HLD.md](../../HLD.md)
+- **Back to:** [Main Development Plan](../DEVELOPMENT_PLAN.md)
+- **Architecture:** [HLD.md](../HLD.md)
 - **Project Instructions:** [CLAUDE.md](../../CLAUDE.md)
 
 ---

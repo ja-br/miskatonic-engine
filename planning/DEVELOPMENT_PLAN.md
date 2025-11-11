@@ -12,20 +12,20 @@ This development plan has been **split by initiative** for better maintainabilit
 
 ### Quick Links
 
-**📖 [Complete Initiative Index](./planning/initiatives/INDEX.md)** - Start here for full overview
+**📖 [Complete Initiative Index](initiatives/INDEX.md)** - Start here for full overview
 
 ### Individual Initiatives
 
-1. **[INIT-001: Platform Foundation](./planning/initiatives/INIT-001-Platform-Foundation.md)** - Electron, OS integration, updates, builds
-2. **[INIT-002: Core Engine Systems](./planning/initiatives/INIT-002-Core-Engine-Systems.md)** - ECS, events, resources, plugins
-3. **[INIT-003: Rendering & Graphics](./planning/initiatives/INIT-003-Rendering-Graphics.md)** - WebGPU, PBR, post-processing
-4. **[INIT-004: Physics & Simulation](./planning/initiatives/INIT-004-Physics-Simulation.md)** - Rapier/Cannon/Box2D, determinism, replay
-5. **[INIT-005: Networking & Multiplayer](./planning/initiatives/INIT-005-Networking-Multiplayer.md)** - State sync, prediction, server-authoritative
-6. **[INIT-006: Development Tools](./planning/initiatives/INIT-006-Development-Tools.md)** - Debug console, inspector, profiler
-7. **[INIT-007: Asset Pipeline](./planning/initiatives/INIT-007-Asset-Pipeline.md)** - Processing, packaging, hot-reload
-8. **[INIT-008: Backend Services](./planning/initiatives/INIT-008-Backend-Services.md)** - NestJS, matchmaking, social, analytics
-9. **[INIT-009: Security & Anti-Cheat](./planning/initiatives/INIT-009-Security-Anti-Cheat.md)** - Security hardening, anti-cheat
-10. **[INIT-010: Performance & Optimization](./planning/initiatives/INIT-010-Performance-Optimization.md)** - Profiling, memory, rendering, network
+1. **[INIT-001: Platform Foundation](initiatives/INIT-001-Platform-Foundation.md)** - Electron, OS integration, updates, builds
+2. **[INIT-002: Core Engine Systems](initiatives/INIT-002-Core-Engine-Systems.md)** - ECS, events, resources, plugins
+3. **[INIT-003: Rendering & Graphics](initiatives/INIT-003-Rendering-Graphics.md)** - WebGPU, PBR, post-processing
+4. **[INIT-004: Physics & Simulation](initiatives/INIT-004-Physics-Simulation.md)** - Rapier/Cannon/Box2D, determinism, replay
+5. **[INIT-005: Networking & Multiplayer](initiatives/INIT-005-Networking-Multiplayer.md)** - State sync, prediction, server-authoritative
+6. **[INIT-006: Development Tools](initiatives/INIT-006-Development-Tools.md)** - Debug console, inspector, profiler
+7. **[INIT-007: Asset Pipeline](initiatives/INIT-007-Asset-Pipeline.md)** - Processing, packaging, hot-reload
+8. **[INIT-008: Backend Services](initiatives/INIT-008-Backend-Services.md)** - NestJS, matchmaking, social, analytics
+9. **[INIT-009: Security & Anti-Cheat](initiatives/INIT-009-Security-Anti-Cheat.md)** - Security hardening, anti-cheat
+10. **[INIT-010: Performance & Optimization](initiatives/INIT-010-Performance-Optimization.md)** - Profiling, memory, rendering, network
 
 ---
 
@@ -87,27 +87,27 @@ Before diving into initiatives, review these key documents:
 
 ### Core Architecture Documents
 
-- **[HLD.md](./HLD.md)** - High-Level Design Document (v4.0)
+- **[HLD.md](HLD.md)** - High-Level Design Document (v4.0)
   - System architecture, ECS design, rendering pipeline, physics system
   - Performance budgets (60 FPS, 500MB RAM, 256MB VRAM, <5ms GC)
   - Cache optimization strategy (SoA typed arrays, sequential iteration)
   - Memory management (GC mitigation, object pooling, frame allocators)
   - 14 Architecture Decision Records (ADRs)
 
-- **[CLAUDE.md](./CLAUDE.md)** - Development Guidelines
+- **[CLAUDE.md](../CLAUDE.md)** - Development Guidelines
   - Breaking changes policy (alpha = no backward compatibility)
   - Tech stack and workspace structure
   - Testing strategy (>80% coverage required)
   - Development commands and troubleshooting
 
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Detailed Technical Architecture
+- **[ARCHITECTURE.md](../docs/ARCHITECTURE.md)** - Detailed Technical Architecture
   - Package-by-package breakdown
   - Integration patterns
   - Development workflow
 
 ### Key Architectural Decisions
 
-See [HLD.md - Architecture Decision Records](./HLD.md#architecture-decision-records) for complete list. Highlights:
+See [HLD.md - Architecture Decision Records](HLD.md#architecture-decision-records) for complete list. Highlights:
 
 - **ADR-002:** ECS Architecture (archetype-based for cache efficiency)
 - **ADR-003:** Server-Authoritative Multiplayer (anti-cheat)
@@ -211,9 +211,9 @@ An epic is complete when:
 
 ### For Developers
 
-1. **Start Here:** [Initiative Index](./planning/initiatives/INDEX.md)
-2. **Review Architecture:** [HLD.md](./HLD.md)
-3. **Setup Environment:** Follow [CLAUDE.md](./CLAUDE.md) setup instructions
+1. **Start Here:** [Initiative Index](initiatives/INDEX.md)
+2. **Review Architecture:** [HLD.md](HLD.md)
+3. **Setup Environment:** Follow [CLAUDE.md](../CLAUDE.md) setup instructions
 4. **Pick an Epic:** Choose from initiative files based on priority
 5. **Follow Guidelines:** Adhere to Definition of Done
 
@@ -226,7 +226,7 @@ An epic is complete when:
 
 ### For Architects
 
-1. **Review ADRs:** See [HLD.md](./HLD.md#architecture-decision-records) for architectural decisions
+1. **Review ADRs:** See [HLD.md](HLD.md#architecture-decision-records) for architectural decisions
 2. **Update HLD:** Modify HLD.md when making significant architectural changes
 3. **Document Decisions:** Add new ADRs for major technical choices
 4. **Maintain Consistency:** Ensure new epics align with established patterns
@@ -244,7 +244,7 @@ An epic is complete when:
 
 ## 📞 Support
 
-- **Documentation:** See [HLD.md](./HLD.md), [CLAUDE.md](./CLAUDE.md), [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Documentation:** See [HLD.md](HLD.md), [CLAUDE.md](../CLAUDE.md), [ARCHITECTURE.md](../docs/ARCHITECTURE.md)
 - **Issues:** Report at https://github.com/anthropics/claude-code/issues
 - **Help:** Run `/help` in Claude Code
 

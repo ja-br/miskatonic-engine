@@ -33,7 +33,9 @@ interface PlayerMovedEvent extends BaseEvent {
 }
 
 // Create event bus
-const eventBus = new EventBus();
+const eventBus = new EventBus({
+  batchDelay: 16, // Optional: batch delay in ms (default: 16ms for ~60fps)
+});
 
 // Subscribe to events
 const subscription = eventBus.on<PlayerMovedEvent>('player:moved', (event) => {
@@ -53,9 +55,7 @@ await eventBus.dispatch({
 subscription.unsubscribe();
 ```
 
-## Core Concepts
-
-### Events
+### Event Definition
 
 All events must extend the `BaseEvent` interface:
 
@@ -65,11 +65,8 @@ interface BaseEvent {
   readonly timestamp: number;  // When the event was created
   readonly namespace?: string; // Optional namespace for filtering
 }
-```
 
-Example event definition:
-
-```typescript
+// Example custom event
 interface GameStartEvent extends BaseEvent {
   type: 'game:start';
   difficulty: 'easy' | 'medium' | 'hard';
@@ -77,34 +74,7 @@ interface GameStartEvent extends BaseEvent {
 }
 ```
 
-### Event Bus
-
-The `EventBus` class is the central hub for all event communication:
-
-```typescript
-const eventBus = new EventBus({
-  batchDelay: 16, // Batch delay in ms (default: 16ms for ~60fps)
-});
-```
-
-## Usage Examples
-
-### Basic Subscription
-
-```typescript
-// Subscribe to an event
-eventBus.on('game:start', (event: GameStartEvent) => {
-  console.log(`Game starting with ${event.playerCount} players`);
-});
-
-// Dispatch an event
-await eventBus.emit({
-  type: 'game:start',
-  difficulty: 'medium',
-  playerCount: 4,
-  timestamp: Date.now(),
-});
-```
+## Usage
 
 ### One-Time Subscriptions
 
@@ -117,53 +87,39 @@ eventBus.once('player:spawn', (event) => {
 
 ### Priority-Based Ordering
 
-Control the execution order of event handlers:
+Control handler execution order with priorities:
 
 ```typescript
-// Critical handler runs first
 eventBus.on('entity:damaged', handleCriticalDamage, {
-  priority: EventPriority.CRITICAL,
+  priority: EventPriority.CRITICAL, // -1000 (runs first)
 });
 
-// Normal handler runs second
 eventBus.on('entity:damaged', updateHealthBar, {
-  priority: EventPriority.NORMAL,
+  priority: EventPriority.NORMAL, // 0 (default)
 });
 
-// Low priority handler runs last
 eventBus.on('entity:damaged', playDamageSound, {
-  priority: EventPriority.LOW,
+  priority: EventPriority.LOW, // 100 (runs last)
 });
 ```
 
-Priority levels:
-- `EventPriority.CRITICAL = -1000`
-- `EventPriority.HIGH = -100`
-- `EventPriority.NORMAL = 0` (default)
-- `EventPriority.LOW = 100`
-- `EventPriority.LOWEST = 1000`
+Available priorities: `CRITICAL` (-1000), `HIGH` (-100), `NORMAL` (0), `LOW` (100), `LOWEST` (1000)
 
 ### Namespace Filtering
 
-Organize events by namespace:
+Organize events by namespace for better separation:
 
 ```typescript
-// Subscribe to UI events only
-eventBus.on('button:click', handleUIClick, {
-  namespace: 'ui',
-});
+// Subscribe to specific namespace
+eventBus.on('button:click', handleUIClick, { namespace: 'ui' });
+eventBus.on('button:click', handleGameClick, { namespace: 'game' });
 
-// Subscribe to game logic events only
-eventBus.on('button:click', handleGameClick, {
-  namespace: 'game',
-});
-
-// Dispatch with namespace
+// Dispatch with namespace - only matching subscribers receive it
 await eventBus.dispatch({
   type: 'button:click',
   buttonId: 'start-button',
   timestamp: Date.now(),
-  namespace: 'ui', // Only UI subscribers will receive this
+  namespace: 'ui',
 });
 ```
 
@@ -172,24 +128,17 @@ await eventBus.dispatch({
 Apply complex filtering logic:
 
 ```typescript
-// Only handle events for specific entities
+// Only handle events matching specific criteria
 eventBus.on('entity:damaged', (event: DamageEvent) => {
   console.log(`Player took ${event.damage} damage`);
 }, {
-  filter: (event) => event.entityType === 'player',
-});
-
-// Only handle high-damage events
-eventBus.on('entity:damaged', (event: DamageEvent) => {
-  console.log('Critical damage!');
-}, {
-  filter: (event) => event.damage > 50,
+  filter: (event) => event.entityType === 'player' && event.damage > 50,
 });
 ```
 
 ### Event Batching
 
-Queue events for optimized batch processing:
+Queue high-frequency events for optimized batch processing:
 
 ```typescript
 // Queue events (won't dispatch immediately)
@@ -197,14 +146,11 @@ eventBus.queue(particleSpawnEvent1);
 eventBus.queue(particleSpawnEvent2);
 eventBus.queue(particleSpawnEvent3);
 
-// Events will auto-flush after batchDelay (default: 16ms)
-// Or manually flush:
+// Events auto-flush after batchDelay, or manually:
 await eventBus.flushBatch();
 ```
 
 ### Async Event Handlers
-
-Full support for async handlers:
 
 ```typescript
 eventBus.on('save:game', async (event: SaveGameEvent) => {
@@ -214,7 +160,6 @@ eventBus.on('save:game', async (event: SaveGameEvent) => {
 
 // dispatch() waits for all async handlers
 await eventBus.dispatch(saveGameEvent);
-console.log('All handlers completed');
 ```
 
 ### Subscription Management
@@ -222,45 +167,34 @@ console.log('All handlers completed');
 ```typescript
 const subscription = eventBus.on('game:update', handleUpdate);
 
-// Check if subscription is active
-if (subscription.isActive()) {
-  console.log('Still subscribed');
-}
-
-// Unsubscribe
-subscription.unsubscribe();
-
-// Unsubscribe all listeners for an event type
-eventBus.off('game:update');
-
-// Clear all listeners
-eventBus.clear();
+subscription.unsubscribe();              // Unsubscribe this listener
+eventBus.off('game:update');             // Unsubscribe all for this type
+eventBus.clear();                        // Clear all listeners
 ```
 
 ### Statistics and Monitoring
 
-Track event bus performance:
-
 ```typescript
 const stats = eventBus.getStats();
 
-console.log(`Total events dispatched: ${stats.totalDispatched}`);
-console.log(`Active listeners: ${stats.totalListeners}`);
-console.log(`Average dispatch time: ${stats.avgDispatchTime}ms`);
+console.log(stats.totalDispatched);      // Total events dispatched
+console.log(stats.totalListeners);       // Active listeners
+console.log(stats.avgDispatchTime);      // Average dispatch time (ms)
 
-// Events by type
+// Per-event-type statistics
 stats.byType.forEach((count, type) => {
   console.log(`${type}: ${count} dispatches`);
 });
 
-// Check listener count for specific event
-const listenerCount = eventBus.listenerCount('player:moved');
-console.log(`${listenerCount} listeners for player:moved`);
+// Check listener count
+const count = eventBus.listenerCount('player:moved');
 ```
 
 ## Best Practices
 
-### 1. Define Strong Event Types
+### Define Strong Event Types
+
+Use specific, well-typed events instead of generic ones:
 
 ```typescript
 // ❌ BAD: Weak typing
@@ -278,36 +212,20 @@ interface PlayerDamagedEvent extends BaseEvent {
 }
 ```
 
-### 2. Use Namespaces for Organization
+### Prevent Memory Leaks
 
-```typescript
-// ✅ GOOD: Organize by namespace
-await eventBus.dispatch({
-  type: 'click',
-  namespace: 'ui',
-  ...
-});
-
-await eventBus.dispatch({
-  type: 'click',
-  namespace: 'game',
-  ...
-});
-```
-
-### 3. Avoid Memory Leaks
+Always unsubscribe when cleaning up:
 
 ```typescript
 class GameScene {
   private subscription: EventSubscription;
 
   init() {
-    // Subscribe on init
     this.subscription = eventBus.on('game:update', this.handleUpdate);
   }
 
   cleanup() {
-    // IMPORTANT: Unsubscribe on cleanup
+    // CRITICAL: Unsubscribe to prevent memory leaks
     this.subscription?.unsubscribe();
   }
 
@@ -317,81 +235,56 @@ class GameScene {
 }
 ```
 
-### 4. Use Priorities Wisely
+### Use Priorities for Control Flow
 
-```typescript
-// Critical: Must run first (e.g., validation)
-eventBus.on('transaction:process', validateTransaction, {
-  priority: EventPriority.CRITICAL,
-});
+- **CRITICAL**: Must run first (validation, safety checks)
+- **NORMAL**: Main logic (default)
+- **LOW**: Side effects (notifications, logging, analytics)
 
-// Normal: Main logic
-eventBus.on('transaction:process', processTransaction, {
-  priority: EventPriority.NORMAL,
-});
+### Batch High-Frequency Events
 
-// Low: Side effects (e.g., notifications)
-eventBus.on('transaction:process', notifyUser, {
-  priority: EventPriority.LOW,
-});
-```
+For events that fire many times per frame (particles, input, physics updates), use `queue()` to reduce dispatch overhead.
 
-### 5. Batch High-Frequency Events
+### Organize with Namespaces
 
-```typescript
-// For events that fire many times per frame
-function onParticleSpawn(position: Vector3) {
-  eventBus.queue({
-    type: 'particle:spawn',
-    position,
-    timestamp: Date.now(),
-  });
-}
+Use namespaces to separate concerns (`ui`, `game`, `physics`, `network`) and avoid handler collisions.
 
-// Batched events will flush automatically at 60fps
-```
-
-## Performance Considerations
+## Performance Tips
 
 - **Event batching**: Use `queue()` for high-frequency events to reduce overhead
 - **Listener cleanup**: Inactive listeners are automatically removed during dispatch
 - **Filter performance**: Complex filters are only evaluated for matching event types
-- **Async handlers**: `dispatch()` waits for all async handlers; use `queue()` for fire-and-forget
+- **Async vs sync**: `dispatch()` waits for all async handlers; use `queue()` for fire-and-forget
 - **Statistics overhead**: Minimal (<1% performance impact)
 
 ## API Reference
 
-### EventBus
-
-#### Constructor
-```typescript
-constructor(options?: { batchDelay?: number })
-```
-
-#### Methods
+### EventBus Methods
 
 - `on<T>(eventType, handler, options?): EventSubscription` - Subscribe to events
-- `once<T>(eventType, handler, options?): EventSubscription` - Subscribe once
-- `off(eventType): void` - Unsubscribe all listeners for type
-- `dispatch<T>(event): Promise<void>` - Dispatch event immediately
+- `once<T>(eventType, handler, options?): EventSubscription` - Subscribe once, auto-unsubscribe
+- `off(eventType): void` - Unsubscribe all listeners for event type
+- `dispatch<T>(event): Promise<void>` - Dispatch event immediately (waits for async)
 - `emit<T>(event): Promise<void>` - Alias for dispatch
 - `queue<T>(event): void` - Queue event for batch dispatch
 - `flushBatch(): Promise<void>` - Flush all queued events
 - `clear(): void` - Remove all listeners
-- `getStats(): EventBusStats` - Get statistics
-- `listenerCount(eventType): number` - Count listeners for type
-- `hasListeners(eventType): boolean` - Check if type has listeners
+- `getStats(): EventBusStats` - Get performance statistics
+- `listenerCount(eventType): number` - Count listeners for event type
+- `hasListeners(eventType): boolean` - Check if event type has listeners
 
 ### EventListenerOptions
 
 ```typescript
 interface EventListenerOptions {
-  priority?: EventPriority;           // Execution priority
-  once?: boolean;                     // Auto-unsubscribe after first trigger
-  filter?: (event: BaseEvent) => boolean;  // Custom filter function
-  namespace?: string;                 // Namespace filter
+  priority?: EventPriority;                    // Execution priority
+  once?: boolean;                              // Auto-unsubscribe after first trigger
+  filter?: (event: BaseEvent) => boolean;      // Custom filter function
+  namespace?: string;                          // Namespace filter
 }
 ```
+
+For detailed API documentation, see TypeDoc output or TypeScript definitions.
 
 ## License
 

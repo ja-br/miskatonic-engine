@@ -131,4 +131,4 @@ npm run build
 
 - Read [IPC Protocol](../architecture/ipc-protocol.md) to understand communication
 - Read [Electron Processes](../architecture/electron-processes.md) for architecture
-- See [DEVELOPMENT_PLAN.md](../../DEVELOPMENT_PLAN.md) for roadmap
+- See [DEVELOPMENT_PLAN.md](../../planning/DEVELOPMENT_PLAN.md) for roadmap

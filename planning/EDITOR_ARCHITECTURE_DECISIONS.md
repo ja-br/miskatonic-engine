@@ -295,7 +295,7 @@ class Transform {
 
 ## Related Documentation
 
-- [ARCHITECTURE.md](../ARCHITECTURE.md) - Current implementation status
-- [DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md) - Epic roadmap
-- [ENGINE_DESIGN.md](../ENGINE_DESIGN.md) - Core design principles
-- [HLD.md](../HLD.md) - High-Level Design
+- [ARCHITECTURE.md](../docs/ARCHITECTURE.md) - Current implementation status
+- [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) - Epic roadmap
+- [ENGINE_DESIGN.md](ENGINE_DESIGN.md) - Core design principles
+- [HLD.md](HLD.md) - High-Level Design

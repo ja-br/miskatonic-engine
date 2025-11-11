@@ -7,10 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **THIS IS ALPHA SOFTWARE (v0.x.x). BREAKING CHANGES ARE EXPECTED AND NECESSARY.**
 
 ### Alpha Development Philosophy
-- Version 0.x.x (v0.0.1 through v0.999.999) means NO stability guarantees
+- Version 0.x.x means NO stability guarantees
 - Break APIs freely to discover the right design
 - Remove technical debt immediately, don't accumulate it
-- If something doesn't break during alpha, it has no visibility and won't improve
+- If something doesn't break during alpha, it won't improve
 
 ### What This Means
 - **NO backward compatibility layers or shims**
@@ -19,32 +19,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Update all call sites** when APIs change
 - **Remove old code** that no longer compiles
 
-### Code Examples
-
-```typescript
-// ❌ REJECTED IN ALPHA - backward compatibility code
-class Renderer {
-  render() { /* new implementation */ }
-
-  /** @deprecated Use render() instead */
-  draw() {
-    console.warn('draw() is deprecated, use render()');
-    return this.render();
-  }
-}
-
-// ✅ CORRECT FOR ALPHA - just break it
-class Renderer {
-  render() { /* new implementation */ }
-  // draw() deleted entirely
-  // Update all call sites to use render()
-}
-```
-
 ### Code Review Guidelines
 - Breaking changes that improve design are GOOD
 - Maintaining backward compatibility in alpha is a BUG
-- "This maintains backward compatibility" should trigger rejection
 - Focus on getting the API right, not keeping it stable
 
 ### Enforcement
@@ -55,50 +32,13 @@ Code reviews MUST reject any PR that:
 - Uses `@deprecated` JSDoc tags
 - Has patterns like `legacyFoo()`, `oldBar()`, `compatibilityMode`
 
-### When We Hit v1.0
-At that point (and only then), we'll adopt semantic versioning and stability guarantees. Until then, assume everything can and will change.
-
 ---
 
 ## Project Overview
 
-Miskatonic Engine is a comprehensive game engine built on Electron, designed for creating high-quality desktop 3D games with sophisticated multiplayer capabilities, social features, and metagame systems. This is a full-stack solution that integrates client and server architecture, combining the flexibility of web technologies with the power of native desktop applications.
+Miskatonic Engine is a comprehensive game engine built on Electron for creating high-quality desktop 3D games with sophisticated multiplayer capabilities. Full-stack solution integrating client and server architecture, combining web technologies with native desktop applications.
 
-## Tech Stack
-
-### Frontend (Electron Renderer)
-- **Platform**: Electron (Chromium + Node.js)
-- **Language**: TypeScript
-- **Graphics**: WebGPU
-- **Build Tools**: Vite, Webpack 5
-- **Target**: 60 FPS on mid-range devices with 1000+ rendered objects
-- **Native Integration**: Access to filesystem, native menus, system tray, hardware APIs
-
-### Backend (Game Server)
-- **Runtime**: Node.js
-- **Framework**: NestJS
-- **Networking**: Socket.io (WebSocket), WebRTC for P2P
-- **Target**: Support 100+ concurrent players per session, <50ms latency
-
-### Electron Main Process
-- **IPC**: Communication between renderer and main process
-- **Native APIs**: File system, native dialogs, auto-updater
-- **Process Management**: Window management, system integration
-
-### Databases
-- **MongoDB**: Player data, game state (100k+ QPS target)
-- **Redis**: Caching, sessions, leaderboards (sub-ms latency)
-- **Elasticsearch**: Analytics, search, logging
-- **DynamoDB**: Alternative cloud-native option
-
-### Infrastructure
-- **Containers**: Docker, Kubernetes
-- **Cloud**: AWS/GCP
-- **CDN**: CloudFlare
-
-## Core Architecture
-
-The engine follows a layered architecture:
+## Architecture
 
 ```
 Electron Main Process (Native APIs, Window Management, IPC)
@@ -114,439 +54,97 @@ Network Layer (WebSocket/WebRTC)
     ↓
 Game Server (NestJS)
     ├─ Game State (Authoritative)
-    ├─ Matchmaking
-    ├─ Social Systems
-    ├─ Economy
+    ├─ Matchmaking, Social, Economy
     └─ Analytics
     ↓
 Database Layer (MongoDB, Redis, Elasticsearch)
 ```
 
-### Key Architectural Patterns
-- **ECS (Entity Component System)**: Core architecture pattern for the game engine
+### Key Patterns
+- **ECS (Entity Component System)**: Core architecture pattern
 - **Server-Authoritative**: Game state managed on server for cheat prevention
-- **Client Prediction**: Responsive controls with lag compensation for multiplayer
+- **Client Prediction**: Responsive controls with lag compensation
 - **Delta Compression**: Efficient state synchronization at 60 tick rate
+
+### Tech Stack
+- **Frontend**: Electron, TypeScript, WebGPU, Vite/Webpack 5
+- **Backend**: Node.js, NestJS, Socket.io, WebRTC
+- **Databases**: MongoDB, Redis, Elasticsearch
+- **Infrastructure**: Docker, Kubernetes, AWS/GCP, CloudFlare CDN
+- **Target**: 60 FPS on mid-range devices, 100+ concurrent players, <50ms latency
 
 ## Workspace Structure
 
-This is a **monorepo** using npm workspaces. Each package is independently testable and buildable:
+Monorepo using npm workspaces. Each package is independently testable and buildable:
 
 ```
 miskatonic-engine/
 ├── packages/
-│   ├── main/          # Electron main process (window management, native APIs)
-│   ├── preload/       # Security boundary (contextBridge for IPC)
-│   ├── renderer/      # Game UI and client-side engine
+│   ├── main/          # Electron main process
+│   ├── preload/       # Security boundary (contextBridge)
+│   ├── renderer/      # Game UI and client engine
 │   ├── shared/        # Shared types and constants
-│   ├── core/          # Core engine integration (✅ complete)
-│   ├── ecs/           # Entity Component System core (✅ complete)
-│   ├── physics/       # Physics abstraction (Rapier/Cannon/Box2D) (✅ complete)
-│   ├── rendering/     # Rendering pipeline (WebGPU) (✅ complete)
-│   ├── network/       # State synchronization and networking (✅ complete)
-│   ├── events/        # Event bus system (✅ complete)
-│   ├── resources/     # Asset management (✅ complete)
-│   └── debug-console/ # In-game developer console (✅ complete - Epic 6.1)
-├── config/            # Build configurations (Webpack, Vite)
-├── scripts/           # Development scripts (dev.js, build.js, clean.js)
+│   ├── core/          # Core engine integration
+│   ├── ecs/           # Entity Component System
+│   ├── physics/       # Physics abstraction layer
+│   ├── rendering/     # Rendering pipeline (WebGPU)
+│   ├── network/       # State synchronization
+│   ├── events/        # Event bus system
+│   ├── resources/     # Asset management
+│   └── debug-console/ # In-game developer console
+├── config/            # Build configurations
+├── scripts/           # Development scripts
 ├── tests/             # Integration and E2E tests
-└── docs/              # Architecture and API documentation
+└── docs/              # Architecture and API docs
 ```
 
-### Working with Packages
+## Development Commands
 
-Each package has its own:
-- `package.json` with local scripts
-- `tsconfig.json` extending from root
-- `src/` directory for source code
-- `tests/` directory for package-specific tests (some packages)
+### Essential Commands
 
-**Common package commands:**
 ```bash
-# From root, run command in specific workspace
-npm test --workspace=@miskatonic/physics
-npm run build --workspace=@miskatonic/network
+# Installation
+npm install              # Install all dependencies
 
-# From package directory, run directly
+# Development
+npm run dev              # Start full dev environment
+npm run build            # Build all packages for production
+
+# Testing
+npm test                 # Run all tests (Vitest)
+npm test -- --coverage   # Run with coverage report
+npm test --workspace=@miskatonic/physics  # Test specific package
+
+# Code Quality
+npm run lint             # Lint TypeScript
+npm run format           # Format with Prettier
+npm run typecheck        # Check TypeScript types
+
+# Utilities
+npm run clean            # Clean build artifacts
+```
+
+### Package-Specific Work
+
+```bash
+# Test specific package
+npm test --workspace=@miskatonic/<package>
+
+# Build specific package
+npm run build --workspace=@miskatonic/<package>
+
+# Work from package directory
 cd packages/physics
 npm test
 npm run build
 ```
 
-## Development Commands
-
-### Root-Level Commands (from project root)
-
-```bash
-# Installation
-npm install              # Install all dependencies for all workspaces
-
-# Development
-npm run dev              # Start full dev environment (main + preload + renderer)
-npm run build            # Build all packages for production
-
-# Testing
-npm test                 # Run all tests (uses Vitest)
-npm run test:unit        # Run unit tests only (tests/unit/)
-npm run test:integration # Run integration tests (tests/integration/)
-npm run test:e2e         # Run E2E tests with Playwright
-npm test -- --coverage   # Run tests with coverage report
-
-# Code Quality
-npm run lint             # Lint all TypeScript files
-npm run format           # Format code with Prettier
-npm run typecheck        # Check TypeScript types across all packages
-
-# Utilities
-npm run clean            # Clean all build artifacts
-npm run docs             # Generate API documentation with TypeDoc
-```
-
-### Package-Specific Testing
-
-**Note:** Not all packages have test suites yet. The following packages have tests:
-- `@miskatonic/ecs`: 65/65 tests passing (Epic 2.1)
-- `@miskatonic/events`: 49/49 tests passing (Epic 2.3)
-- `@miskatonic/resources`: 91/91 tests passing (Epic 2.4)
-- `@miskatonic/core`: 62 tests passing (Epics 2.7-2.9) - MiskatonicEngine, GameLoop, Commands
-- `@miskatonic/physics`: Integration tests passing (Epics 4.1-4.5)
-- `@miskatonic/network`: 89 tests, 94.82% coverage (Epic 5.2)
-- `@miskatonic/debug-console`: 69/69 tests passing (Epic 6.1)
-
-For packages without tests, running `npm test --workspace=@miskatonic/<package>` will show "No test files found."
-
-```bash
-# Test a specific package
-npm test --workspace=@miskatonic/core
-npm test --workspace=@miskatonic/ecs
-npm test --workspace=@miskatonic/events
-npm test --workspace=@miskatonic/resources
-npm test --workspace=@miskatonic/physics
-npm test --workspace=@miskatonic/network
-npm test --workspace=@miskatonic/debug-console
-
-# Run specific test files from root
-npm test -- tests/unit/physics/serialization.test.ts
-npm test -- tests/unit/network/DeltaCompression.test.ts
-
-# Test with coverage for specific package (from package directory)
-cd packages/physics
-npm run test:coverage
-
-# Watch mode for development (from package directory)
-cd packages/network
-npm run test:watch
-```
-
-### Build Commands
-
-```bash
-# Build individual components
-npm run build:main       # Build main process only (Webpack)
-npm run build:preload    # Build preload script only (Webpack)
-npm run build:renderer   # Build renderer only (Vite)
-
-# Build specific package
-npm run build --workspace=@miskatonic/physics
-npm run build --workspace=@miskatonic/network
-```
-
-### Performance Benchmarking
-
-```bash
-# Run ECS benchmarks
-node packages/ecs/benchmark-runner.js
-
-# Run with GC exposure (recommended for accurate memory profiling)
-node --expose-gc packages/ecs/benchmark-runner.js
-```
-
-## Current Project Status
-
-**Completed Epics (18 of 70+ planned):**
-
-✅ **Epic 1.1-1.2: Electron Foundation** - COMPLETE
-- Secure multi-process architecture (main, preload, renderer)
-- Type-safe IPC communication with Zod validation
-- Security-first design (context isolation, sandboxing, CSP)
-- Process monitoring and crash recovery
-- Native OS integration (file dialogs, menus, tray, shortcuts, notifications)
-
-✅ **Epic 2.1 + 2.10-2.11: ECS Core with Cache Optimization** - COMPLETE (65/65 tests)
-- Archetype-based ECS with generation validation
-- Query system with component filtering
-- Structure of Arrays (SoA) with typed arrays for cache efficiency
-- **Performance**: 4.16x faster iteration than object arrays (validated in Epic 2.10)
-
-✅ **Epic 2.3: Event System** - COMPLETE (49/49 tests)
-- Production-ready event bus with critical fixes
-
-✅ **Epic 2.4: Resource Management** - COMPLETE (91/91 tests)
-- Async loading, reference counting, hot-reload, memory profiling
-
-✅ **Epic 2.7-2.9: Main Engine Class & Game Loop** - COMPLETE (62 tests passing)
-- MiskatonicEngine class with lifecycle management
-- Phase-based game loop (PRE_UPDATE, UPDATE, POST_UPDATE, RENDER)
-- Fixed timestep physics, variable timestep rendering
-- Command system with built-in commands
-- System registration and priority-based execution
-
-✅ **Epic 4.1-4.5: Physics Engine** - COMPLETE
-- Physics abstraction layer (supports Rapier, Cannon-es, Box2D)
-- Collision detection with continuous collision
-- Rigid body dynamics with 6 joint types
-- Deterministic simulation with state serialization
-- Replay system for debugging
-- All critical bugs fixed (Epic 4.5)
-
-✅ **Epic 5.2: State Synchronization** - COMPLETE
-- Delta compression implementation (94.82% test coverage)
-- Interest management (spatial, grid, and always-interested policies)
-- State replication with bandwidth optimization
-
-✅ **Epic 6.1: Debug Console** - COMPLETE (69 tests passing)
-- In-game developer console with ~ key toggle
-- Command execution via CommandSystem integration
-- Command history with up/down arrow navigation (100 entries)
-- Tab autocomplete with prefix matching
-- console.log/warn/error capture and redirection
-- History persistence via localStorage
-- Comprehensive test coverage
-
-**Rendering Foundation Complete! (Epics 3.1-3.3, 3.9-3.13)**
-
-✅ **Epic 3.1: Rendering Pipeline** - COMPLETE
-- WebGPU renderer with command buffers
-- Draw call batching and multi-pass rendering
-- Render state caching and statistics
-
-✅ **Epic 3.2: WebGPU Backend** - COMPLETE
-- WebGPU backend implementation
-- Compute shader support
-
-✅ **Epic 3.3: PBR Material System** - COMPLETE
-- Cook-Torrance BRDF with physically-based shading
-- Material properties and texture support
-- MaterialManager with validation
-
-✅ **Epic 3.9: Shader Management** - COMPLETE (59 tests)
-- Hot-reload with file watching (<100ms)
-- Include system with circular dependency detection
-- WGSL shader support
-
-✅ **Epic 3.10: Camera System** - COMPLETE (52 tests)
-- ECS Camera component with perspective/orthographic projection
-- View/projection matrix generation
-- Orbit and first-person camera controllers
-
-✅ **Epic 3.11: Transform System** - COMPLETE
-- Cache-efficient SoA matrix storage
-- Hierarchical transforms with linked list
-- Zero-allocation matrix operations
-- ~185 bytes per transform
-
-✅ **Epic 3.12: Render Queue** - COMPLETE (35 tests)
-- Opaque/transparent/alpha-test sorting
-- Front-to-back/back-to-front optimization
-- State change minimization
-- <1ms sorting for 1000 objects
-
-✅ **Epic 3.13: Draw Call Batching & Instancing** - COMPLETE (264 tests)
-- Instance buffer management with GPU instancing
-- Automatic instance detection and grouping
-- 96.7% draw call reduction achieved (60 objects → 2 draw calls)
-- Material state hashing (shader + textures + render state only)
-
-**Critical Next Priorities (P0):**
-
-1. **Epic 3.14-3.15: Advanced Rendering** (HIGH PRIORITY)
-   - Transparency & blending (back-to-front sorting) ✅ (done in Epic 3.12)
-   - Multi-light system with Forward+ culling
-   - Shadow mapping with cascaded shadow maps
-   - PBR lighting integration
-
-2. **Epic 2.13-2.14: Memory Management** (HIGH PRIORITY)
-   - GC mitigation strategies
-   - Object pooling and frame allocators
-   - Memory profiling integration
-   - GPU memory management (Epic 3.8)
-
-### Key Documentation Files
-- **[planning/initiatives/INDEX.md](planning/initiatives/INDEX.md)**: Epic status index (17 of 70+ complete)
-- **[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)**: Detailed epics, user stories, and task breakdowns (organized by initiative)
-- **[ARCHITECTURE.md](ARCHITECTURE.md)**: System architecture overview with implementation status (November 2025 update)
-- **[HLD.md](HLD.md)**: High-Level Design with subsystem architectures and performance budgets
-- **[ENGINE_DESIGN.md](ENGINE_DESIGN.md)**: Core design principles (batteries included, swappable preferred)
-- **[PRD.md](PRD.md)**: Product Requirements Document
-- **[GAME_DESIGN.md](GAME_DESIGN.md)**: Sample game design demonstrating capabilities
-- **planning/EPIC_CONSOLIDATION_SUMMARY.md**: Epic organization cleanup (November 2025)
-- **planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md**: Architecture analysis
-- **planning/CACHE_ARCHITECTURE_ANALYSIS.md**: Cache-efficient ECS deep dive
-
-### When Starting Development
-
-1. **Read these docs first** (in order):
-   - [ENGINE_DESIGN.md](ENGINE_DESIGN.md) - Understand core design principles
-   - [ARCHITECTURE.md](ARCHITECTURE.md) - Current implementation status and critical priorities
-   - [HLD.md](HLD.md) - Review the technical architecture
-   - [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md) - See the implementation roadmap (organized by initiative)
-   - [planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md](planning/COMPREHENSIVE_ANALYSIS_SUMMARY_NOVEMBER_2025.md) - Recent analysis of architectural gaps
-
-2. **Critical Context** (November 2025):
-   - ECS Core OPTIMIZED (Epic 2.1 + 2.10-2.11): Cache-efficient SoA with typed arrays, 4.16x faster iteration
-   - Main engine class EXISTS (Epic 2.7-2.9 complete): MiskatonicEngine, GameLoop, CommandSystem all implemented
-   - **Rendering foundation COMPLETE** (Epics 3.1-3.3, 3.9-3.12): Shader system, camera, transforms, render queue all production-ready
-   - Physics engine COMPLETE (Epics 4.1-4.5): Rapier/Cannon/Box2D abstraction, deterministic simulation
-   - Network sync COMPLETE (Epic 5.2): Delta compression, interest management
-   - Debug console COMPLETE (Epic 6.1): In-game developer console with command execution
-
-3. **Recommended Next Steps**:
-   - **If working on rendering**: Start with Epic 3.13 (Batching/Instancing) or Epic 3.14-3.15 (Advanced rendering, lighting)
-   - **If working on memory**: Start with Epic 2.13-2.14 (Memory Management - GC mitigation, pooling)
-   - **If working on new features**: Check ARCHITECTURE.md for dependencies first
-   - **Epic Organization**: See [planning/initiatives/INDEX.md](planning/initiatives/INDEX.md) for complete epic status
-
-## Known Architectural Issues
-
-**⚠️ Note: Most critical gaps have been resolved (November 2025)**
-
-### 1. ✅ RESOLVED: Rendering Foundation (Epic 3.9-3.12)
-**Was:** No rendering foundation (shader system, camera, transforms, render queue)
-**Now:** ✅ All foundation epics complete and production-ready
-- ✅ Epic 3.9: Shader Management (hot-reload, includes, WGSL)
-- ✅ Epic 3.10: Camera System (ECS component, orbit/FPS controllers)
-- ✅ Epic 3.11: Transform System (cache-efficient SoA, zero allocations)
-- ✅ Epic 3.12: Render Queue (sorting, batching, state minimization)
-
-### 2. Memory Management Not Optimized (Epic 2.13-2.14) - **MEDIUM PRIORITY**
-**Issue:** No GC mitigation strategies in place
-- **Impact:** Potential frame drops from garbage collection
-- **Status:** Basic implementations work, but not optimized for 60 FPS
-- **Resolution:** Implement object pooling, frame allocators, GC profiling
-- **Timeline:** Medium priority, affects frame stability
-- **Reference:** planning/MEMORY_MANAGEMENT_ANALYSIS.md
-
-### 3. GPU Memory Management (Epic 3.8) - **IMPORTANT**
-**Issue:** No buffer pooling or texture atlasing
-- **Impact:** Excessive GPU reallocation, potential VRAM exhaustion
-- **Status:** Planned but not started
-- **Resolution:** Implement GPUBufferPool, TextureAtlas, VRAM budgets
-- **Target:** <256MB VRAM usage, <5 buffer reallocations/frame
-
-**When working on the codebase:** Check [planning/initiatives/INDEX.md](planning/initiatives/INDEX.md) for current epic status.
-
----
-
-## Critical Architectural Decisions
-
-### ECS Architecture
-The engine uses **archetype-based ECS** (not sparse set).
-
-**Current Implementation (Epic 2.1):**
-- Completed and tested (65/65 tests passing)
-- Uses object arrays: `Array<{entity, component1, component2}>`
-- Works correctly but is NOT cache-efficient
-
-**Required Refactoring (Epic 2.10-2.11):**
-- Must migrate to SoA (Structure of Arrays) with typed arrays
-- Target format: `{entity: Uint32Array, position: Float32Array, velocity: Float32Array}`
-- Expected 10x performance improvement from cache-friendly sequential iteration
-- See [HLD.md](HLD.md) section 2.1 and planning/CACHE_ARCHITECTURE_ANALYSIS.md for details
-
-### Physics Determinism
-**All physics must be deterministic** for competitive multiplayer:
-- Use fixed timestep (16.67ms via accumulator pattern)
-- Avoid floating-point non-determinism
-- Verify cross-platform consistency
-- State must be fully serializable
-- See packages/physics/src/PhysicsWorld.ts for implementation
-
-### Physics Package Architecture
-Located in `packages/physics/`:
-- **Abstraction Layer**: Physics engine interface for swapping backends
-- **Backends**: Located in `src/engines/` directory
-  - RapierPhysicsEngine (default, production-ready)
-  - CannonPhysicsEngine (alternative)
-  - Box2DPhysicsEngine (2D physics)
-- **World Management**: PhysicsWorld handles simulation loop with fixed timestep
-- **Serialization**: Complete state serialization including bodies, colliders, joints
-- **Replay System**: PhysicsReplayPlayer for deterministic replay debugging
-- **Determinism Verification**: PhysicsDeterminismVerifier for cross-platform testing
-
-Key files:
-- `src/types.ts` - Core physics types and interfaces
-- `src/PhysicsWorld.ts` - Main simulation loop and world management (16.4KB)
-- `src/PhysicsReplayPlayer.ts` - Replay system for debugging (10.9KB)
-- `src/PhysicsSnapshotManager.ts` - Snapshot management for rollback
-- `src/PhysicsDeterminismVerifier.ts` - Determinism testing utilities
-- `src/engines/` - Physics engine implementations
-- `src/index.ts` - Public API exports
-
-### Network Package Architecture
-Located in `packages/network/`:
-- **Delta Compression**: Path-based diffing for bandwidth optimization (60-80% reduction)
-- **State Replication**: Automatic entity synchronization with tick-based updates
-- **Interest Management**: Spatial, grid-based, and custom policies for scalability
-- **Security**: Input validation, error handling, no remote code execution
-
-Key files:
-- `src/DeltaCompression.ts` - Delta compression algorithm with history
-- `src/StateReplicationManager.ts` - Entity registration and batch creation
-- `src/InterestManagement.ts` - Relevance-based entity filtering
-- `src/types.ts` - Complete type system for network state
-
-**Network constraints:**
-- MTU: 1200 bytes per batch (safe for most networks)
-- Tick rate: 60Hz default (configurable)
-- Delta compression: enabled by default
-- Interest management: spatial policy with 100-unit radius default
-
-### Rendering Backend Strategy
-- **WebGPU-only**: This engine uses WebGPU exclusively
-- **No WebGL2**: WebGL2 support has been removed (December 2024)
-- **Target platforms**: Electron (Chromium-based), Chrome/Edge 113+, Firefox 133+, Safari 18+
-- **Rationale**: All modern browsers and Electron support WebGPU; dual backend maintenance caused repeated implementation errors
-- See DEVELOPMENT_PLAN.md Epic 3.2 for implementation details
-
-### Network Architecture Constraints
-- **Server-authoritative**: All gameplay state validated on server (Epic 5.4)
-- **Client prediction**: Required for responsive controls (Epic 5.3)
-- **State synchronization**: Delta compression at 60 tick rate (Epic 5.2) ✅ DONE
-- **Target**: <50ms latency, support 100+ players per session
-
-### Plugin Security Model
-Plugins run in **sandboxed environments** (Epic 2.2). User scripts must never have unrestricted access to:
-- Native Node.js APIs
-- File system (except approved directories)
-- Network APIs (except through engine proxy)
-- Other plugins' memory space
-
-## Code Organization Patterns
-
-When implementing, follow these patterns from [ENGINE_DESIGN.md](ENGINE_DESIGN.md):
-
-### API Design Philosophy
+Example:
 ```typescript
-// ✅ GOOD: Simple, ergonomic API for common cases
-engine.physics.createBody({...});
+// Use defaults
+const engine = new MiskatonicEngine();
 
-// ❌ BAD: Exposing internal complexity
-engine.getSystemManager().getSystem('PhysicsSystem').getWorld().createBody({...});
-
-// ✅ GOOD: Advanced control still available when needed
-engine.systems.get(PhysicsSystem).world.setGravity(0, -9.81, 0);
-```
-
-### Swappable Systems Pattern
-```typescript
-// Default configuration (batteries included)
-const engine = new MiskatonicEngine({
-  physics: new RapierPhysics(),      // default
-  renderer: new WebGPURenderer(),    // default
-  network: new SocketIOTransport()   // default
-});
-
-// Custom configuration (swappable preferred)
+// Or swap implementations
 const engine = new MiskatonicEngine({
   physics: new CustomPhysicsEngine(),
   renderer: new CustomRenderer(),
@@ -554,32 +152,147 @@ const engine = new MiskatonicEngine({
 });
 ```
 
-### Package Patterns
-
-**Each package should:**
-1. Export a clean public API through `index.ts`
-2. Hide implementation details (use internal/ directory if needed)
+### Package Standards
+1. Export clean public API through `index.ts`
+2. Hide implementation details (use internal/ directory)
 3. Provide TypeScript types for all public APIs
 4. Include comprehensive tests (>80% coverage required)
-5. Follow the "batteries included, swappable preferred" philosophy
+5. Follow "batteries included, swappable preferred" philosophy
 
-**Example package structure:**
+### Documentation Standards
+
+**CRITICAL: Package directories should contain ONLY code and minimal documentation.**
+
+#### Package Documentation Rules
+
+1. **Allowed in packages/**:
+   - `README.md` - Package overview and API usage (max 250 lines)
+   - `COMMANDS.md` or similar - Package-specific API reference (if needed)
+   - Source code and tests only
+
+2. **NEVER add to packages/**:
+   - Epic tracking files (EPIC_*.md) → Goes in `planning/epics/`
+   - Design documents → Goes in `planning/` or `docs/`
+   - Migration guides → Goes in `docs/migrations/`
+   - Architecture documents → Goes in `docs/` or root
+   - Progress/status reports → Goes in `planning/`
+   - Phase summaries → Goes in `planning/`
+   - Roadmaps → Goes in `planning/`
+   - Performance analysis → Goes in `planning/`
+   - Usage guides (non-API) → Goes in `docs/guides/`
+
+3. **If you're about to create a .md file in packages/**, ask yourself:
+   - Is this tracking progress? → `planning/`
+   - Is this a design doc? → `planning/` or `docs/`
+   - Is this a migration guide? → `docs/migrations/`
+   - Is this a usage guide? → `docs/guides/`
+   - Is this API documentation? → Can stay IF under 100 lines, otherwise `docs/api/`
+
+#### What NOT to Include in READMEs
+
+1. **Engineering History**
+   - ❌ "Critical Fixes Applied" sections with implementation details
+   - ❌ Detailed test coverage breakdowns (just show total)
+   - ❌ Roadmap/epic tracking (belongs in project docs)
+   - ❌ "Production Readiness" sections with architectural notes
+   - ✅ Keep: High-level feature list, essential usage patterns
+
+2. **Redundant API Documentation**
+   - ❌ Listing every method with brief descriptions
+   - ❌ Showing full TypeScript signatures (IDE provides this)
+   - ❌ Documenting obvious methods (getStats(), clear(), etc.)
+   - ✅ Keep: Link to TypeDoc, ultra-brief grouped list if needed
+
+3. **Excessive Code Examples**
+   - ❌ Complete game loops with requestAnimationFrame boilerplate
+   - ❌ Full GLSL shader source code in Quick Start
+   - ❌ Multiple examples showing the same pattern
+   - ❌ Examples that repeat Quick Start in different sections
+   - ✅ Keep: One minimal Quick Start, one advanced example, link to full examples
+
+4. **Verbose Subsections**
+   - ❌ 6+ subsections in "Usage Examples" or "Architecture"
+   - ❌ Every subsection with full code example
+   - ❌ Showing every configuration option inline
+   - ✅ Keep: Group related concepts, show representative examples only
+
+5. **Over-Explained Concepts**
+   - ❌ "How X Works" with numbered implementation details
+   - ❌ Multiple subsections explaining one feature (e.g., 4 subsections on query caching)
+   - ❌ Repetitive good/bad comparisons (one is enough)
+   - ✅ Keep: Brief explanation, one clear example, move deep-dives to guides
+
+#### README Structure Guidelines
+
+**Optimal structure:**
 ```
-packages/example/
-├── src/
-│   ├── index.ts              # Public API exports only
-│   ├── types.ts              # Public type definitions
-│   ├── ExampleManager.ts     # Main implementation
-│   └── internal/             # Private implementation details
-├── tests/
-│   ├── ExampleManager.test.ts
-│   └── integration.test.ts
-├── package.json
-├── tsconfig.json
-└── vitest.config.ts          # If package has custom test config
+# Package Name
+Brief description
+
+## Features (bullet list)
+## Installation
+## Quick Start (minimal working example, <50 lines)
+## Core Concepts (describe WHAT, not HOW)
+## Usage (show HOW with concise examples)
+## Performance/Best Practices (bullets + minimal code)
+## API Reference (grouped list or link to TypeDoc)
+## License
 ```
 
-## Testing Strategy
+**Length targets:**
+- Quick Start: 30-50 lines
+- Total README: 150-250 lines
+- If >300 lines, extract content to separate guides
+
+#### Specific Anti-Patterns to Avoid
+
+1. **The "Complete Game Loop" Bloat**
+   - Don't show full render loops, game loops, or application scaffolding
+   - Show just the package-specific parts
+   - Reference complete examples in separate files
+
+2. **The "Show Every Field" Bloat**
+   - Don't console.log every stat field with comments
+   - Show 2-3 key examples, list the rest
+
+3. **The "Explain Implementation" Bloat**
+   - Don't explain internal caching mechanisms in detail
+   - Don't list all implementation features (mutex-protected, bounded timers, etc.)
+   - Focus on user-facing behavior
+
+4. **The "Repeat in Multiple Places" Bloat**
+   - Don't show the same API pattern 3+ times (Quick Start, Core Concepts, Examples)
+   - Show once, reference from elsewhere
+
+5. **The "Configuration Showcase" Bloat**
+   - Don't show 20+ lines of config with inline comments on every field
+   - Show minimal config, reference TypeScript types for full options
+
+#### When to Extract Content
+
+Move to separate files when:
+- Command system documentation >50 lines → COMMANDS.md
+- Production configuration details → DEPLOYMENT.md or Production.md
+- Detailed performance tuning → PERFORMANCE.md
+- Multiple complete examples → examples/ directory
+- Architecture deep-dives → ARCHITECTURE.md
+- Migration guides → MIGRATION.md
+
+#### README Review Checklist
+
+Before finalizing a README, check:
+- [ ] Quick Start is <50 lines
+- [ ] Total length is <300 lines
+- [ ] No redundant examples (same pattern shown 2+ times)
+- [ ] No engineering history or "how we built it"
+- [ ] No full API method listings (link to TypeDoc instead)
+- [ ] No complete application scaffolding (game loops, etc.)
+- [ ] Configuration examples are minimal
+- [ ] Each code example teaches something new
+- [ ] All subsections are necessary (not just "nice to have")
+- [ ] Content that could be separate guides has been extracted
+
+## Testing Requirements
 
 From DEVELOPMENT_PLAN.md "Definition of Done":
 - **Code coverage**: >80% required (enforced)
@@ -589,39 +302,19 @@ From DEVELOPMENT_PLAN.md "Definition of Done":
 - **Cross-platform testing**: Windows, macOS, Linux
 
 ### Testing Best Practices
-
-1. **Unit tests** should be fast and isolated
-2. **Integration tests** can use real backends (e.g., Rapier physics)
-3. **Mock external dependencies** in unit tests
-4. **Use descriptive test names** that explain what's being tested
-5. **Test edge cases**: null values, empty arrays, malformed input
-6. **Test error handling**: verify graceful degradation
-
-Example test structure:
-```typescript
-describe('ComponentName', () => {
-  describe('methodName', () => {
-    it('should handle normal case', () => {
-      // Test happy path
-    });
-
-    it('should handle edge case', () => {
-      // Test boundaries
-    });
-
-    it('should handle errors gracefully', () => {
-      // Test error conditions
-    });
-  });
-});
-```
+1. Unit tests should be fast and isolated
+2. Integration tests can use real backends (e.g., Rapier physics)
+3. Mock external dependencies in unit tests
+4. Use descriptive test names that explain what's being tested
+5. Test edge cases: null values, empty arrays, malformed input
+6. Test error handling: verify graceful degradation
 
 ## Electron-Specific Considerations
 
-### Main Process vs Renderer Process
+### Process Separation
 - **Main Process**: Window management, native APIs, file system, IPC, auto-updater
 - **Renderer Process**: Game engine, ECS, rendering, physics, game logic
-- **Communication**: Typed IPC channel with contextBridge for security (Epic 1.1)
+- **Communication**: Typed IPC channel with contextBridge for security
 
 ### Security Boundaries
 - Context isolation: ALWAYS enabled
@@ -629,12 +322,11 @@ describe('ComponentName', () => {
 - Remote module: NEVER use (deprecated and insecure)
 - WebSecurity: NEVER disable (even in development)
 
-### Native Integration Features
-Per [ENGINE_DESIGN.md](ENGINE_DESIGN.md):
+### Native Features
 - Native file dialogs for save/load
 - System tray integration
 - Global keyboard shortcuts
-- Auto-updater with delta patches (Epic 1.3)
+- Auto-updater with delta patches
 - Custom protocol handler (miskatonic://)
 
 ## Performance Budgets (60 FPS target)
@@ -649,7 +341,7 @@ Critical thresholds:
 
 **Any PR that violates critical thresholds must be rejected.**
 
-## Common Development Workflows
+## Common Workflows
 
 ### Adding a New Package
 
@@ -658,7 +350,7 @@ Critical thresholds:
 3. Create `tsconfig.json` extending from root
 4. Implement in `src/` with clean `index.ts` export
 5. Add tests in `tests/` directory
-6. Ensure >80% coverage: `npm run test:coverage`
+6. Verify coverage: `npm run test:coverage`
 
 ### Running Tests During Development
 
@@ -670,91 +362,27 @@ npm run test:watch
 # Run specific test file
 npm test -- tests/unit/physics/serialization.test.ts
 
-# Debug failing test with verbose output
-npm test -- tests/unit/physics/serialization.test.ts --reporter=verbose
+# Debug with verbose output
+npm test -- --reporter=verbose
 ```
 
-### Working with Physics System
-
-```typescript
-// Create physics world with Rapier backend (default)
-const world = new PhysicsWorld(new RapierPhysicsEngine());
-
-// Configure simulation
-world.setGravity(0, -9.81, 0);
-world.setFixedTimestep(1/60); // 60 FPS
-
-// Create rigid body
-const bodyId = world.createRigidBody({
-  type: 'dynamic',
-  position: { x: 0, y: 10, z: 0 }
-});
-
-// Add collider
-world.addCollider(bodyId, {
-  type: 'sphere',
-  radius: 1.0
-});
-
-// Update in game loop
-const deltaTime = 0.016; // 16ms
-world.step(deltaTime);
-
-// Serialize state for networking
-const state = world.serialize();
-
-// Deserialize on client
-world.deserialize(state);
-```
-
-### Working with Network System
-
-```typescript
-// Create replication manager
-const replication = new StateReplicationManager({
-  tickRate: 60,
-  useDeltaCompression: true,
-  useInterestManagement: true
-});
-
-// Register entity for replication
-replication.registerEntity(entity);
-
-// Server: Create state batch
-const batch = replication.createStateBatch(observerId);
-network.send(batch);
-
-// Client: Apply received batch
-replication.applyStateBatch(receivedBatch);
-```
-
-### Working with Core Engine (Epic 2.7-2.9 Complete)
+### Quick Start Example
 
 ```typescript
 import { MiskatonicEngine, SystemPhase } from '@miskatonic/core';
 
-// Create engine instance
+// Create engine
 const engine = new MiskatonicEngine({
   fixedTimestep: 1/60,  // 60 FPS for physics
   maxFrameTime: 0.25    // Cap delta to avoid spiral of death
 });
 
-// Register systems with phases
+// Register systems
 engine.registerSystem({
   name: 'MyGameSystem',
   phase: SystemPhase.UPDATE,
   update(dt: number) {
     // Game logic here
-  }
-});
-
-// Register commands
-engine.commands.register({
-  name: 'spawn',
-  description: 'Spawn an entity',
-  execute(args: string[]) {
-    const [x, y, z] = args.map(Number);
-    // Spawn entity at position
   }
 });
 
@@ -768,49 +396,9 @@ engine.resources;  // Resource manager
 engine.commands;   // Command system
 ```
 
-## Troubleshooting
+## Key Documentation
 
-### Build Errors
-
-```bash
-# Clean everything and rebuild
-npm run clean
-npm install
-npm run build
-```
-
-### Test Failures
-
-```bash
-# Run with verbose output to see details
-npm test -- --reporter=verbose
-
-# Check specific test file
-npm test -- tests/unit/path/to/test.test.ts
-```
-
-### TypeScript Errors
-
-```bash
-# Check types across all packages
-npm run typecheck
-
-# Check specific package
-cd packages/physics
-npx tsc --noEmit
-```
-
-### Physics Simulation Issues
-
-- Verify fixed timestep is set: `world.setFixedTimestep(1/60)`
-- Check determinism: serialize/deserialize state should be identical
-- Use replay system for debugging: `PhysicsReplayPlayer`
-- Ensure colliders are properly attached to bodies
-
-### Network Synchronization Issues
-
-- Check MTU limits: batches must be <1200 bytes
-- Verify delta compression is enabled
-- Use interest management to reduce entity count
-- Check for serialization errors in console
-- Validate state structure before sending
+- **ENGINE_DESIGN.md**: Detailed architecture and design decisions
+- **DEVELOPMENT_PLAN.md**: Epic tracking and roadmap
+- **Package READMEs**: Specific usage examples and API docs
+- **TypeDoc**: Generated API documentation (`npm run docs`)

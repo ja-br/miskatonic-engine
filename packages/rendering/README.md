@@ -35,40 +35,19 @@ const renderer = new Renderer({
 
 // Create shader
 renderer.createShader('basic', {
-  vertex: `#version 300 es
-    in vec3 position;
-    uniform mat4 modelViewProjection;
-
-    void main() {
-      gl_Position = modelViewProjection * vec4(position, 1.0);
-    }
-  `,
-  fragment: `#version 300 es
-    precision highp float;
-    out vec4 fragColor;
-
-    void main() {
-      fragColor = vec4(1.0, 0.0, 0.0, 1.0);
-    }
-  `
+  vertex: vertexShaderSource,   // GLSL ES 3.0
+  fragment: fragmentShaderSource,
 });
 
 // Create vertex buffer
-const vertices = new Float32Array([
-  -1, -1, 0,
-   1, -1, 0,
-   0,  1, 0,
-]);
+const vertices = new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]);
 renderer.createVertexBuffer('triangle', vertices);
 
 // Render loop
 function render() {
   renderer.beginFrame();
-
-  // Clear screen
   renderer.clear([0, 0, 0, 1], 1, 0);
 
-  // Draw triangle
   const commandBuffer = renderer.getCommandBuffer();
   commandBuffer.draw({
     shader: 'basic',
@@ -77,31 +56,24 @@ function render() {
     vertexCount: 3,
     vertexLayout: {
       attributes: [
-        {
-          name: 'position',
-          size: 3, // vec3
-          type: 'float',
-          stride: 12, // 3 * 4 bytes
-          offset: 0,
-        },
+        { name: 'position', size: 3, type: 'float', stride: 12, offset: 0 },
       ],
     },
   });
 
-  // Execute and get stats
   const stats = renderer.endFrame();
-  console.log(`Draw calls: ${stats.drawCalls}, Frame time: ${stats.frameTime}ms`);
-
   requestAnimationFrame(render);
 }
 
 render();
 ```
 
-## Architecture
+For a complete example with shaders, see [examples/basic-triangle.ts](./examples/basic-triangle.ts).
+
+## Core Concepts
 
 ### Renderer
-Main orchestrator that manages all rendering subsystems.
+Main orchestrator that manages all rendering subsystems. Handles initialization, frame management, and resource coordination.
 
 ```typescript
 const renderer = new Renderer({
@@ -115,42 +87,44 @@ const renderer = new Renderer({
 ```
 
 ### RenderContext
-WebGPU context wrapper with state caching and lazy updates.
-
-```typescript
-const context = renderer.getContext();
-context.setState({
-  blendMode: 'alpha',
-  depthTest: 'less',
-  depthWrite: true,
-  cullMode: 'back',
-});
-```
+WebGPU context wrapper with state caching and lazy updates to minimize GPU state changes.
 
 ### ShaderManager
-Handles shader compilation, linking, and LRU caching (max 1000 programs by default).
+Handles shader compilation, linking, and LRU caching (max 1000 programs by default). Least recently used programs are automatically evicted when the limit is reached.
+
+### BufferManager
+Manages vertex and index buffers with memory tracking. Supports static and dynamic usage patterns.
+
+### TextureManager
+Handles texture creation, updates, and management with support for mipmaps and anisotropic filtering.
+
+### CommandBuffer
+Records and executes render commands with automatic batching and state sorting for optimal performance.
+
+## Usage
+
+### Creating Shaders
 
 ```typescript
-const shaderManager = renderer.getShaderManager();
-const program = shaderManager.createProgram('myShader', {
+renderer.createShader('myShader', {
   vertex: vertexSource,
   fragment: fragmentSource,
 });
-
-// Note: Least recently used programs are automatically evicted when limit is reached
 ```
 
-### BufferManager
-Manages vertex and index buffers with memory tracking.
+### Creating Buffers
 
 ```typescript
-const bufferManager = renderer.getBufferManager();
-const buffer = bufferManager.createBuffer('myBuffer', 'vertex', data, 'static_draw');
-console.log(`Total memory: ${bufferManager.getTotalMemory()} bytes`);
+// Vertex buffer
+const vertices = new Float32Array([...]);
+renderer.createVertexBuffer('myBuffer', vertices);
+
+// Index buffer
+const indices = new Uint16Array([...]);
+renderer.createIndexBuffer('myIndices', indices);
 ```
 
-### TextureManager
-Handles texture creation, updates, and management.
+### Creating Textures
 
 ```typescript
 const textureManager = renderer.getTextureManager();
@@ -165,14 +139,12 @@ const texture = textureManager.createTexture('myTexture', width, height, imageDa
 });
 ```
 
-### CommandBuffer
-Records and executes render commands with automatic batching.
+### Drawing
 
 ```typescript
-const commandBuffer = renderer.getCommandBuffer();
-
 renderer.beginFrame();
-commandBuffer.clear([0, 0, 0, 1]);
+
+const commandBuffer = renderer.getCommandBuffer();
 commandBuffer.draw({
   shader: 'myShader',
   mode: 4, // TRIANGLES
@@ -190,45 +162,50 @@ commandBuffer.draw({
     ['color', { name: 'color', type: 'vec4', value: [1, 0, 0, 1] }],
   ]),
 });
+
 const stats = renderer.endFrame();
 ```
 
-## Performance Features
+### Setting Render State
 
-### State Caching
-All GPU state changes are cached to minimize redundant calls:
-- Program binding
-- Texture binding
-- Buffer binding
-- Render state (blend, depth, cull)
+```typescript
+const context = renderer.getContext();
+context.setState({
+  blendMode: 'alpha',
+  depthTest: 'less',
+  depthWrite: true,
+  cullMode: 'back',
+});
+```
 
-### Command Sorting
-Commands are automatically sorted for optimal rendering:
-- Clear commands first
-- Grouped by shader to minimize switches
-- Sorted by state changes
+## Performance
+
+### Automatic Optimizations
+
+- **State Caching**: All GPU state changes cached (program, texture, buffer binding, render state)
+- **Command Sorting**: Automatically sorted by shader and state to minimize switches
+- **Lazy Updates**: State changes only applied when necessary
+- **LRU Eviction**: Shader programs automatically evicted to prevent unbounded memory growth
 
 ### Memory Tracking
-Built-in memory tracking for buffers and textures:
+
 ```typescript
+const bufferManager = renderer.getBufferManager();
+const textureManager = renderer.getTextureManager();
+
 console.log(`Buffer memory: ${bufferManager.getTotalMemory()} bytes`);
 console.log(`Texture memory: ${textureManager.getEstimatedMemory()} bytes`);
 ```
 
 ### Render Statistics
-Comprehensive statistics for each frame:
+
 ```typescript
 const stats = renderer.getStats();
-console.log({
-  drawCalls: stats.drawCalls,
-  triangles: stats.triangles,
-  vertices: stats.vertices,
-  shaderSwitches: stats.shaderSwitches,
-  textureBinds: stats.textureBinds,
-  stateChanges: stats.stateChanges,
-  frameTime: stats.frameTime,
-});
+console.log(`Draw calls: ${stats.drawCalls}, Frame time: ${stats.frameTime}ms`);
+console.log(`Shader switches: ${stats.shaderSwitches}, State changes: ${stats.stateChanges}`);
 ```
+
+Available stats: `drawCalls`, `triangles`, `vertices`, `shaderSwitches`, `textureBinds`, `stateChanges`, `frameTime`
 
 ## Context Loss Handling
 
@@ -238,14 +215,41 @@ The renderer automatically handles GPU context loss:
 if (renderer.isContextLost()) {
   console.error('Context lost, waiting for restore...');
 }
-
-// Context is automatically restored when available
-// All resources need to be recreated after context restore
+// Context is automatically restored; recreate resources when ready
 ```
 
 ## API Reference
 
-See the [API documentation](./docs/api.md) for complete API reference.
+### Renderer
+
+**Initialization:**
+- `constructor(config)` - Create renderer with configuration
+- `beginFrame()` - Start frame rendering
+- `endFrame()` - Execute commands and return stats
+- `clear(color, depth, stencil)` - Clear buffers
+
+**Resource Management:**
+- `createShader(id, sources)` - Create shader program
+- `createVertexBuffer(id, data)` - Create vertex buffer
+- `createIndexBuffer(id, data)` - Create index buffer
+- `getCommandBuffer()` - Get command buffer for drawing
+- `getContext()` - Get render context
+- `getShaderManager()` - Get shader manager
+- `getBufferManager()` - Get buffer manager
+- `getTextureManager()` - Get texture manager
+
+**State:**
+- `getStats()` - Get render statistics
+- `isContextLost()` - Check for context loss
+
+### CommandBuffer
+
+- `draw(command)` - Record draw command
+- `clear(color)` - Record clear command
+- `setViewport(x, y, width, height)` - Set viewport
+- `setScissor(x, y, width, height)` - Set scissor rectangle
+
+For detailed API documentation, see TypeScript definitions or [API docs](./docs/api.md).
 
 ## License
 

@@ -4,7 +4,7 @@ Archetype-based Entity Component System (ECS) for the Miskatonic Engine.
 
 ## Overview
 
-This package provides a high-performance, cache-efficient ECS implementation using the archetype pattern. Entities with the same set of components are stored together in contiguous memory, enabling fast iteration and efficient cache utilization.
+High-performance, cache-efficient ECS implementation using the archetype pattern. Entities with the same set of components are stored together in contiguous memory, enabling fast iteration and efficient cache utilization.
 
 ## Key Features
 
@@ -53,35 +53,11 @@ world.cleanup();
 
 ### World
 
-The `World` is the central container that owns all entities, components, and systems. It provides the main API for interacting with the ECS.
-
-```typescript
-const world = new World();
-
-// Entity management
-const entity = world.createEntity();
-world.destroyEntity(entity);
-world.hasEntity(entity);
-
-// Component management
-world.addComponent(entity, Transform, new Transform());
-world.removeComponent(entity, Transform);
-world.getComponent(entity, Transform);
-world.hasComponent(entity, Transform);
-
-// System management
-world.registerSystem(new MovementSystem());
-world.unregisterSystem('MovementSystem');
-
-// Lifecycle
-world.init();
-world.update(deltaTime);
-world.cleanup();
-```
+The `World` is the central container that owns all entities, components, and systems. It provides the main API for managing the ECS lifecycle and querying entities.
 
 ### Components
 
-Components are pure data containers. They should not contain logic.
+Components are pure data containers with no logic.
 
 ```typescript
 import type { Component } from '@miskatonic/ecs';
@@ -106,11 +82,16 @@ import { System, SystemPriority, World } from '@miskatonic/ecs';
 export class HealthRegenerationSystem implements System {
   readonly name = 'HealthRegenerationSystem';
   readonly priority = SystemPriority.UPDATE;
+  private query: Query;
+
+  init(world: World): void {
+    // Build query once during initialization
+    this.query = world.query().with(Health).build();
+  }
 
   update(world: World, deltaTime: number): void {
-    const query = world.query().with(Health).build();
-
-    query.forEach(world.getArchetypeManager(), (entityId, components) => {
+    // Reuse the cached query every frame
+    this.query.forEach(world.getArchetypeManager(), (entityId, components) => {
       const health = components.get(Health) as Health;
       if (health.current < health.max) {
         health.current = Math.min(health.max, health.current + 10 * deltaTime);
@@ -125,7 +106,7 @@ export class HealthRegenerationSystem implements System {
 Queries allow you to iterate over entities that match specific component requirements.
 
 ```typescript
-// Query for entities with specific components
+// Build a query
 const query = world
   .query()
   .with(Transform)      // Must have Transform
@@ -138,7 +119,6 @@ const query = world
 query.forEach(world.getArchetypeManager(), (entityId, components) => {
   const transform = components.get(Transform) as Transform;
   const velocity = components.get(Velocity) as Velocity;
-
   // Update entity...
 });
 
@@ -149,11 +129,53 @@ for (const { entity, components } of results) {
 }
 ```
 
-## Performance Considerations
+## Performance Best Practices
 
-### Archetype Transitions
+### Query Caching
 
-Adding or removing components causes an entity to move to a different archetype. This is an O(n) operation where n is the number of components on the entity. Avoid frequent component additions/removals during gameplay.
+**CRITICAL:** Store Query objects as instance variables to avoid rebuilding them every frame. This is the most common ECS performance mistake.
+
+```typescript
+// ❌ WRONG: Rebuilds query every frame (wasteful!)
+class BadSystem implements System {
+  update(world: World, deltaTime: number): void {
+    const query = world.query().with(Transform).with(Velocity).build();
+    query.forEach(world.getArchetypeManager(), (entity, components) => {
+      // ...
+    });
+  }
+}
+
+// ✅ CORRECT: Store Query object as instance variable
+class GoodSystem implements System {
+  private movableEntities: Query;
+
+  init(world: World): void {
+    // Build query once during initialization
+    this.movableEntities = world.query()
+      .with(Transform)
+      .with(Velocity)
+      .build();
+  }
+
+  update(world: World, deltaTime: number): void {
+    // Reuse the cached query object every frame
+    this.movableEntities.forEach(world.getArchetypeManager(), (entity, components) => {
+      // Update logic...
+    });
+  }
+}
+```
+
+**Why this matters:**
+- Query objects internally cache which archetypes match
+- Rebuilding queries every frame wastes 0.5-2ms per query
+- At 60 FPS with multiple queries, this wastes 60-120ms per second
+- Store queries in `init()` or as class properties
+
+### Avoid Frequent Archetype Transitions
+
+Adding or removing components causes an entity to move to a different archetype (O(n) operation). Avoid doing this every frame.
 
 ```typescript
 // ❌ BAD: Adding/removing components every frame
@@ -174,83 +196,7 @@ update(world, deltaTime) {
 }
 ```
 
-### Query Caching
-
-**CRITICAL:** Queries are automatically cached internally, but you must store Query objects as instance variables to avoid rebuilding the query chain every frame. This is the most common ECS performance mistake.
-
-#### How Query Caching Works
-
-1. When you call `.build()`, you get a `Query` object
-2. The `Query` object internally caches which archetypes match your query
-3. The cache is automatically invalidated when entities change composition (add/remove components)
-4. Reusing the same Query object avoids rebuilding the QueryBuilder chain
-
-#### The Right Way
-
-```typescript
-// ✅ CORRECT: Store Query object as instance variable
-class MySystem implements System {
-  private movableEntities: Query;
-
-  init(world: World): void {
-    // Build query once during initialization
-    this.movableEntities = world.query()
-      .with(Transform)
-      .with(Velocity)
-      .build();
-  }
-
-  update(world: World, deltaTime: number): void {
-    // Reuse the cached query object every frame
-    this.movableEntities.forEach(world.getArchetypeManager(), (entity, components) => {
-      const transform = components.get(Transform);
-      const velocity = components.get(Velocity);
-      // Update logic...
-    });
-  }
-}
-```
-
-#### Common Mistakes
-
-```typescript
-// ❌ WRONG: Rebuilds query every frame (wasteful!)
-class BadSystem implements System {
-  update(world: World, deltaTime: number): void {
-    // This creates a new QueryBuilder AND Query object every frame
-    const query = world.query().with(Transform).with(Velocity).build();
-    query.forEach(world.getArchetypeManager(), (entity, components) => {
-      // ...
-    });
-  }
-}
-
-// ❌ WRONG: Unnecessary null-check pattern
-class RedundantSystem implements System {
-  private query: Query | null = null;
-
-  update(world: World, deltaTime: number): void {
-    // The Query object already caches - this null-check adds no value
-    if (!this.query) {
-      this.query = world.query().with(Transform).build();
-    }
-    this.query.forEach(/* ... */);
-  }
-}
-```
-
-#### Performance Impact
-
-Building a query every frame causes:
-- Unnecessary `QueryBuilder` object allocation
-- Unnecessary `Query` object allocation
-- Rebuilding the component type lists
-
-**Measured overhead:** ~0.5-2ms per query rebuild for complex queries, ~60-120ms wasted per second at 60 FPS.
-
-**Best practice:** Store Query objects in `init()` or as class properties initialized at construction time.
-
-### Memory Usage
+### Memory Efficiency
 
 - Each entity costs ~48 bytes of metadata
 - Components are stored in dense arrays per archetype
@@ -270,89 +216,33 @@ export enum SystemPriority {
 }
 ```
 
-## Example: Complete Game Loop
-
-```typescript
-import {
-  World,
-  Transform,
-  Velocity,
-  MovementSystem,
-  SystemPriority,
-} from '@miskatonic/ecs';
-
-// Custom components
-class Sprite {
-  readonly __componentType = 'Sprite';
-  constructor(public texture: string) {}
-}
-
-class Player {
-  readonly __componentType = 'Player';
-}
-
-// Custom system
-class RenderSystem {
-  readonly name = 'RenderSystem';
-  readonly priority = SystemPriority.POST_UPDATE;
-
-  update(world: World, deltaTime: number): void {
-    const query = world.query().with(Transform).with(Sprite).build();
-
-    query.forEach(world.getArchetypeManager(), (entityId, components) => {
-      const transform = components.get(Transform);
-      const sprite = components.get(Sprite);
-      // Render sprite at transform position...
-    });
-  }
-}
-
-// Setup
-const world = new World();
-world.registerSystem(new MovementSystem());
-world.registerSystem(new RenderSystem());
-world.init();
-
-// Create player
-const player = world.createEntity();
-world.addComponent(player, Player, new Player());
-world.addComponent(player, Transform, new Transform(0, 0, 0));
-world.addComponent(player, Velocity, new Velocity(5, 0, 0));
-world.addComponent(player, Sprite, new Sprite('player.png'));
-
-// Game loop
-let lastTime = performance.now();
-function gameLoop() {
-  const now = performance.now();
-  const deltaTime = (now - lastTime) / 1000; // Convert to seconds
-  lastTime = now;
-
-  world.update(deltaTime);
-
-  requestAnimationFrame(gameLoop);
-}
-
-gameLoop();
-```
-
 ## API Reference
 
 ### World
 
-- `createEntity(): EntityId` - Create a new entity
-- `destroyEntity(entityId: EntityId): void` - Destroy an entity
-- `hasEntity(entityId: EntityId): boolean` - Check if entity exists
-- `addComponent<T>(entityId, type, component): void` - Add component to entity
-- `removeComponent<T>(entityId, type): void` - Remove component from entity
-- `getComponent<T>(entityId, type): T | undefined` - Get component from entity
-- `hasComponent<T>(entityId, type): boolean` - Check if entity has component
-- `query(): QueryBuilder` - Create a new query builder
-- `registerSystem(system): void` - Register a system
-- `unregisterSystem(name): void` - Unregister a system
+**Entity Management:**
+- `createEntity(): EntityId`
+- `destroyEntity(entityId: EntityId): void`
+- `hasEntity(entityId: EntityId): boolean`
+
+**Component Management:**
+- `addComponent<T>(entityId, type, component): void`
+- `removeComponent<T>(entityId, type): void`
+- `getComponent<T>(entityId, type): T | undefined`
+- `hasComponent<T>(entityId, type): boolean`
+
+**System Management:**
+- `registerSystem(system): void`
+- `unregisterSystem(name): void`
+
+**Lifecycle:**
 - `init(): void` - Initialize all systems
 - `update(deltaTime): void` - Update all systems
 - `cleanup(): void` - Cleanup all systems
 - `clear(): void` - Clear the entire world
+
+**Queries:**
+- `query(): QueryBuilder` - Create a new query builder
 - `getStats()` - Get debugging statistics
 
 ### QueryBuilder
@@ -366,7 +256,9 @@ gameLoop();
 
 - `forEach(archetypeManager, callback): void` - Iterate over matching entities
 - `getEntities(archetypeManager): Array<{entity, components}>` - Get all matching entities
-- `invalidateCache(): void` - Force cache rebuild
+- `invalidateCache(): void` - Force cache rebuild (rarely needed)
+
+For detailed API documentation, see TypeScript definitions or generated TypeDoc.
 
 ## License
 
