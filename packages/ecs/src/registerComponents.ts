@@ -10,6 +10,7 @@ import { createFieldDescriptor } from './ComponentStorage';
 import { Transform } from './components/Transform';
 import { Velocity } from './components/Velocity';
 import { Camera } from './components/Camera';
+import { Light } from './components/Light';
 import type { ComponentType } from './types';
 
 // Register Transform component
@@ -83,4 +84,38 @@ ComponentRegistry.register(Camera as ComponentType<Camera>, [
 
   // Active flag
   createFieldDescriptor('active', 1, Uint8Array),
+]);
+
+// Register Light component (Epic 3.15)
+ComponentRegistry.register(Light as ComponentType<Light>, [
+  // Light type and enabled flag
+  createFieldDescriptor('type', 0, Uint8Array), // 0=directional, 1=point, 2=spot, 3=ambient
+  createFieldDescriptor('enabled', 1, Uint8Array),
+
+  // Color and intensity
+  createFieldDescriptor('colorR', 1.0),
+  createFieldDescriptor('colorG', 1.0),
+  createFieldDescriptor('colorB', 1.0),
+  createFieldDescriptor('intensity', 1.0),
+
+  // Direction (for directional/spot lights)
+  createFieldDescriptor('directionX', 0.0),
+  createFieldDescriptor('directionY', -1.0),
+  createFieldDescriptor('directionZ', 0.0),
+
+  // Position (for point/spot lights)
+  createFieldDescriptor('positionX', 0.0),
+  createFieldDescriptor('positionY', 0.0),
+  createFieldDescriptor('positionZ', 0.0),
+
+  // Radius (for point/spot lights)
+  createFieldDescriptor('radius', 10.0),
+
+  // Spot light parameters
+  createFieldDescriptor('spotAngle', Math.PI / 4),
+  createFieldDescriptor('spotPenumbra', 0.1),
+
+  // Shadow configuration
+  createFieldDescriptor('castsShadows', 0, Uint8Array),
+  createFieldDescriptor('shadowBias', 0.005),
 ]);

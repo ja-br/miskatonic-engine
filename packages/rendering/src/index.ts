@@ -8,6 +8,17 @@ export { Camera, OrbitControls } from './Camera';  // Standalone (legacy)
 export { CameraSystem } from './CameraSystem';      // ECS system (Epic 3.10)
 export { OrbitCameraController, FirstPersonCameraController } from './CameraControllers';
 export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
+
+// Epic 3.15: Light Component & Integration
+export { LightCollection, LightType, type LightData } from './LightCollection';
+export { LightSystem } from './LightSystem';
+export type { LightComponentData, TransformComponentData } from './LightTypes';
+export {
+  createLightingDemo,
+  animateLightingDemo,
+  getLightingStats,
+  type LightingDemo,
+} from './lighting-demo';
 // ShaderLoader is Node.js-only (uses fs/promises), not for browser use
 // export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';

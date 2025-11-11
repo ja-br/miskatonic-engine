@@ -159,9 +159,9 @@
 - State change minimization through grouping
 
 ### ✅ Epic 3.13: Draw Call Batching & Instancing
-**Status:** COMPLETE  
-**Priority:** P0  
-**Tests:** 264 passing  
+**Status:** COMPLETE
+**Priority:** P0
+**Tests:** 264 passing
 **Performance:** 96.7% draw call reduction (60 objects → 2 calls)
 
 **Deliverables:**
@@ -171,20 +171,77 @@
 - Material state hashing (shader + textures + render state)
 - Dynamic instance buffer resizing
 
+### ✅ Epic 3.15: Light Component & Integration
+**Status:** COMPLETE (Nov 11, 2025) - Code Review Fixes Applied ✅
+**Priority:** P0 - BLOCKING
+**Dependencies:** Epic 3.3 (PBR) ✅
+**Tests:** 133 passing (52 Light, 46 LightCollection, 35 LightSystem)
+
+**Deliverables:**
+- Light ECS component (directional, point, spot, ambient) ✅
+- LightCollection manager with type-specific queries ✅
+- LightSystem for ECS integration ✅
+- Transform-based positioning for point/spot lights ✅
+- Lighting demo with animation ✅
+- Comprehensive test coverage (133/200+ tests, 66.5%)
+- Type-safe interfaces (LightComponentData, TransformComponentData) ✅
+- Parameter validation (intensity, radius, angles, direction) ✅
+- Performance optimizations (cached arrays, zero allocations) ✅
+
+**Implementation:**
+```typescript
+// Light component (packages/ecs/src/components/Light.ts)
+const sun = Light.directional([1, 1, 1], 1.0, [0, -1, 0]);
+const lamp = Light.point([1, 0.8, 0.6], 2.0, 15.0);
+const spotlight = Light.spot([1, 1, 1], 3.0, [0, -1, 0], Math.PI/4);
+const ambient = Light.ambient([0.2, 0.2, 0.25], 0.5);
+
+// LightSystem (packages/rendering/src/LightSystem.ts)
+const lightSystem = new LightSystem(world);
+lightSystem.update(); // Sync with ECS
+const pointLights = lightSystem.getPointLights();
+const directionalLights = lightSystem.getDirectionalLights();
+```
+
+**Files Added:**
+- `packages/ecs/src/components/Light.ts` (318 lines, +70 for validation)
+- `packages/rendering/src/LightCollection.ts` (345 lines, +22 for optimization)
+- `packages/rendering/src/LightSystem.ts` (153 lines, +8 for types)
+- `packages/rendering/src/LightTypes.ts` (81 lines, NEW - type interfaces)
+- `packages/rendering/src/lighting-demo.ts` (201 lines)
+- `packages/ecs/tests/Light.test.ts` (450 lines, 52 tests, +9 validation tests)
+- `packages/rendering/tests/LightCollection.test.ts` (487 lines, 46 tests)
+- `packages/rendering/tests/LightSystem.test.ts` (525 lines, 35 tests)
+
+**Performance:**
+- Incremental updates (only rebuilds when dirty)
+- Type-specific caching for fast iteration
+- Zero allocations in hot path (cached arrays, readonly results)
+- Input validation prevents rendering bugs
+
+**Code Quality Improvements (Post-Review):**
+- Eliminated all `any` types - full TypeScript type safety ✅
+- Added comprehensive parameter validation with clear error messages ✅
+- Optimized `getActiveLights()` - cached array, no per-frame allocations ✅
+- Proper direction vector validation (throws on zero-length) ✅
+- 9 additional validation tests for edge cases ✅
+
+**Next Steps:**
+- Epic 3.16: Light Culling (Forward+ for WebGPU, Frustum for WebGL2)
+- Epic 3.17: Shadow Mapping (CSM + atlas)
+- PBR shader integration with multiple lights
+
 ---
 
 ## In Progress Epics
 
-### 🚧 Epic 3.14-3.15: Advanced Rendering
-**Status:** Partially Complete  
-**Priority:** P0 - HIGH PRIORITY  
-**Dependencies:** Epic 3.1-3.3, 3.9-3.13 ✅
-
-**Completed:**
-- Transparency sorting (Epic 3.12)
+### 🚧 Epic 3.16-3.18: Advanced Lighting Features
+**Status:** Not Started
+**Priority:** P0 - HIGH PRIORITY
+**Dependencies:** Epic 3.15 ✅
 
 **Remaining:**
-- Multi-light system with Forward+ culling
+- Multi-light culling (Forward+ / Frustum)
 - Shadow mapping with cascaded shadow maps
 - PBR lighting integration
 - Performance target: <5ms lighting pass with 100+ lights

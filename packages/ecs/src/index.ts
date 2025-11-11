@@ -45,6 +45,7 @@ export { createFieldDescriptor, inferArrayType } from './ComponentStorage';
 export { Transform } from './components/Transform';
 export { Velocity } from './components/Velocity';
 export { Camera } from './components/Camera';
+export { Light } from './components/Light';
 
 // Example systems
 export { MovementSystem } from './systems/MovementSystem';
