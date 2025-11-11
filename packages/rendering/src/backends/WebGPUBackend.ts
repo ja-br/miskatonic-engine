@@ -32,6 +32,7 @@ import type {
 
 import { RenderCommandType } from '../types';
 import { VRAMProfiler, VRAMCategory, type VRAMStats } from '../VRAMProfiler';
+import { GPUBufferPool, BufferUsageType, type BufferPoolStats } from '../GPUBufferPool';
 
 /**
  * Uniform Buffer Pool - Epic 2.13
@@ -153,6 +154,9 @@ interface WebGPUBuffer {
   buffer: GPUBuffer;
   type: 'vertex' | 'index' | 'uniform';
   size: number;
+  pooled: boolean; // Epic 3.8: Track if buffer came from pool
+  bufferUsageType?: BufferUsageType; // Epic 3.8: For releasing back to pool
+  requestedSize?: number; // Epic 3.8: Original requested size for pooling
 }
 
 interface WebGPUTexture {
@@ -190,9 +194,10 @@ export class WebGPUBackend implements IRendererBackend {
   // Epic 3.13: Pipeline cache for (shader, vertexLayout) variants
   private pipelineCache = new Map<string, PipelineCacheEntry>();
 
-  // Epic 2.13: Performance optimizations
+  // Epic 2.13 & 3.8: Performance optimizations
   private uniformBufferPool = new UniformBufferPool();
   private frameUniformBuffers: GPUBuffer[] = []; // Track buffers for release at end of frame
+  private gpuBufferPool = new GPUBufferPool(); // Epic 3.8: GPU buffer pooling
   private bindGroupCache = new Map<string, GPUBindGroup>();
   private vramProfiler: VRAMProfiler;
 
@@ -482,11 +487,12 @@ export class WebGPUBackend implements IRendererBackend {
       }
     }
 
-    // Epic 2.13: Release uniform buffers back to pool
+    // Epic 2.13 & 3.8: Release uniform buffers back to pool and advance buffer pool frame
     for (const buffer of this.frameUniformBuffers) {
       this.uniformBufferPool.release(buffer);
     }
     this.frameUniformBuffers = [];
+    this.gpuBufferPool.nextFrame(); // Epic 3.8: Advance frame counter and cleanup old buffers
   }
 
   /**
@@ -799,33 +805,53 @@ export class WebGPUBackend implements IRendererBackend {
 
     const dataArray = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer);
 
-    let gpuUsage = GPUBufferUsage.COPY_DST;
-    if (type === 'vertex') {
-      gpuUsage |= GPUBufferUsage.VERTEX;
-    } else if (type === 'index') {
-      gpuUsage |= GPUBufferUsage.INDEX;
-    } else if (type === 'uniform') {
-      gpuUsage |= GPUBufferUsage.UNIFORM;
-    }
-
     // Epic 2.13: Track VRAM allocation before creating buffer
     const category = type === 'vertex' ? VRAMCategory.VERTEX_BUFFERS
                    : type === 'index' ? VRAMCategory.INDEX_BUFFERS
                    : VRAMCategory.UNIFORM_BUFFERS;
 
-    if (!this.vramProfiler.allocate(id, category, dataArray.byteLength)) {
-      throw new Error(`VRAM budget exceeded: cannot allocate ${dataArray.byteLength} bytes for ${id}`);
-    }
+    // Epic 3.8: Use GPUBufferPool for vertex/index buffers
+    const shouldPool = type === 'vertex' || type === 'index';
+    let buffer: GPUBuffer;
+    let bufferUsageType: BufferUsageType | undefined;
 
-    const buffer = this.device.createBuffer({
-      label: `Buffer: ${id}`,
-      size: dataArray.byteLength,
-      usage: gpuUsage,
-    });
+    if (shouldPool) {
+      // Use buffer pool
+      bufferUsageType = type === 'vertex' ? BufferUsageType.VERTEX : BufferUsageType.INDEX;
+      buffer = this.gpuBufferPool.acquire(this.device, bufferUsageType, dataArray.byteLength);
+
+      // Report actual allocated size (bucket size) to VRAM profiler
+      const bucketSize = buffer.size;
+      if (!this.vramProfiler.allocate(id, category, bucketSize)) {
+        // Failed to allocate - release buffer back to pool and throw
+        this.gpuBufferPool.release(buffer, bufferUsageType, dataArray.byteLength);
+        throw new Error(`VRAM budget exceeded: cannot allocate ${bucketSize} bytes for ${id}`);
+      }
+    } else {
+      // Direct allocation for uniform buffers (they have their own pool)
+      if (!this.vramProfiler.allocate(id, category, dataArray.byteLength)) {
+        throw new Error(`VRAM budget exceeded: cannot allocate ${dataArray.byteLength} bytes for ${id}`);
+      }
+
+      const gpuUsage = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+      buffer = this.device.createBuffer({
+        label: `Buffer: ${id}`,
+        size: dataArray.byteLength,
+        usage: gpuUsage,
+      });
+    }
 
     this.device.queue.writeBuffer(buffer, 0, dataArray);
 
-    const bufferData: WebGPUBuffer = { id, buffer, type, size: dataArray.byteLength };
+    const bufferData: WebGPUBuffer = {
+      id,
+      buffer,
+      type,
+      size: dataArray.byteLength,
+      pooled: shouldPool,
+      bufferUsageType,
+      requestedSize: dataArray.byteLength,
+    };
     this.buffers.set(id, bufferData);
 
     return { __brand: 'BackendBuffer', id } as BackendBufferHandle;
@@ -853,7 +879,13 @@ export class WebGPUBackend implements IRendererBackend {
       // Epic 2.13: Deallocate from VRAM profiler
       this.vramProfiler.deallocate(handle.id);
 
-      bufferData.buffer.destroy();
+      // Epic 3.8: Release pooled buffers back to pool, destroy non-pooled
+      if (bufferData.pooled && bufferData.bufferUsageType && bufferData.requestedSize) {
+        this.gpuBufferPool.release(bufferData.buffer, bufferData.bufferUsageType, bufferData.requestedSize);
+      } else {
+        bufferData.buffer.destroy();
+      }
+
       this.buffers.delete(handle.id);
     }
   }
@@ -1056,8 +1088,9 @@ export class WebGPUBackend implements IRendererBackend {
     this.timestampReadBuffers = [];
     this.pendingTimestampReads.clear();
 
-    // Epic 2.13: Clean up performance optimization resources
+    // Epic 2.13 & 3.8: Clean up performance optimization resources
     this.uniformBufferPool.clear();
+    this.gpuBufferPool.clear(); // Epic 3.8: Clean up buffer pool
     this.bindGroupCache.clear();
 
     if (this.device) {

@@ -343,6 +343,21 @@ Critical thresholds:
 
 ## Common Workflows
 
+### Completing an Epic
+
+When an epic is complete:
+
+1. **Update the initiative file** in `planning/initiatives/INIT-XXX-*.md`
+2. Change `**Status:** Not Started` to `**Status:** ✅ COMPLETE (Date)`
+3. Check all task boxes `- [ ]` → `- [x]`
+4. Add a completion summary with:
+   - Test coverage metrics
+   - Performance metrics vs targets
+   - Files added/modified with line counts
+   - Key accomplishments
+5. **DO NOT** create separate EPIC_*.md files in packages/ or planning/
+6All epic tracking happens in `planning/initiatives/` only
+
 ### Adding a New Package
 
 1. Create package directory: `packages/my-package/`

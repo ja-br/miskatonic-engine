@@ -31,21 +31,25 @@ export interface BufferPoolStats {
 }
 
 interface PooledBuffer {
-  buffer: ArrayBuffer;
+  buffer: GPUBuffer;
   sizeBytes: number;
   usage: BufferUsageType;
   lastUsedFrame: number;
+  bufferId: number; // Track buffer ID for debugging
 }
 
 /**
- * GPUBufferPool - Reusable buffer allocation with power-of-2 bucketing
+ * GPUBufferPool - Reusable GPU buffer allocation with power-of-2 bucketing
  *
  * Usage:
  * ```typescript
  * const pool = new GPUBufferPool();
- * const buffer = pool.acquire(BufferUsageType.VERTEX, 1024);
+ * const buffer = pool.acquire(device, BufferUsageType.VERTEX, 1024);
  * // ... use buffer ...
- * pool.release(buffer);
+ * pool.release(buffer, BufferUsageType.VERTEX, 1024);
+ *
+ * // Device loss handling:
+ * device.lost.then(() => pool.handleDeviceLoss());
  * ```
  */
 export class GPUBufferPool {
@@ -71,6 +75,11 @@ export class GPUBufferPool {
   private readonly MIN_BUCKET_SIZE = 256;
   private readonly MAX_BUCKET_SIZE = 16 * 1024 * 1024; // 16MB
 
+  // Track buffer IDs and device loss
+  private nextBufferId = 1;
+  private bufferToId = new Map<GPUBuffer, number>(); // Regular Map instead of WeakMap
+  private deviceLost = false;
+
   constructor() {
     // Initialize usage stats
     for (const usage of Object.values(BufferUsageType)) {
@@ -87,7 +96,11 @@ export class GPUBufferPool {
    * Acquire a buffer from the pool
    * Returns a buffer >= requestedSize (rounded up to power-of-2)
    */
-  acquire(usage: BufferUsageType, requestedSize: number): ArrayBuffer {
+  acquire(device: GPUDevice, usage: BufferUsageType, requestedSize: number): GPUBuffer {
+    if (this.deviceLost) {
+      throw new Error('GPUBufferPool: Cannot acquire buffer after device loss');
+    }
+
     const bucketSize = this.findBucket(requestedSize);
 
     // Get or create usage pool
@@ -112,8 +125,19 @@ export class GPUBufferPool {
       return pooled.buffer;
     }
 
-    // Allocate new buffer
-    const buffer = new ArrayBuffer(bucketSize);
+    // Allocate new GPUBuffer
+    const gpuUsage = this.getGPUBufferUsage(usage);
+    const buffer = device.createBuffer({
+      label: `Pool: ${usage} (${bucketSize} bytes)`,
+      size: bucketSize,
+      usage: gpuUsage,
+    });
+
+    // Track buffer ID
+    const bufferId = this.nextBufferId++;
+    this.bufferToId.set(buffer, bufferId);
+
+    // Update stats
     this.stats.totalBuffers++;
     this.stats.totalBytes += bucketSize;
     this.stats.reallocationsThisFrame++;
@@ -125,28 +149,64 @@ export class GPUBufferPool {
   }
 
   /**
+   * Convert BufferUsageType to GPUBufferUsage flags
+   */
+  private getGPUBufferUsage(usage: BufferUsageType): GPUBufferUsageFlags {
+    switch (usage) {
+      case BufferUsageType.VERTEX:
+        return GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+      case BufferUsageType.INDEX:
+        return GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST;
+      case BufferUsageType.UNIFORM:
+        return GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+      case BufferUsageType.STORAGE:
+        return GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+      case BufferUsageType.INSTANCE:
+        return GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST; // Instance buffers are vertex buffers
+      default:
+        throw new Error(`Unknown buffer usage type: ${usage}`);
+    }
+  }
+
+  /**
    * Release a buffer back to the pool for reuse
    */
-  release(buffer: ArrayBuffer, usage: BufferUsageType): void {
-    const bucketSize = this.findBucket(buffer.byteLength);
+  release(buffer: GPUBuffer, usage: BufferUsageType, requestedSize: number): void {
+    if (this.deviceLost) {
+      // Device lost - just destroy the buffer, don't pool it
+      try {
+        buffer.destroy();
+      } catch (e) {
+        // Buffer may already be destroyed
+      }
+      return;
+    }
 
-    const usagePool = this.pools.get(usage);
+    const bucketSize = this.findBucket(requestedSize);
+
+    // Ensure usage pool exists
+    let usagePool = this.pools.get(usage);
     if (!usagePool) {
-      console.warn(`GPUBufferPool: Cannot release buffer with unknown usage: ${usage}`);
-      return;
+      usagePool = new Map();
+      this.pools.set(usage, usagePool);
     }
 
-    const bucketPool = usagePool.get(bucketSize);
+    // Ensure bucket pool exists
+    let bucketPool = usagePool.get(bucketSize);
     if (!bucketPool) {
-      console.warn(`GPUBufferPool: Cannot release buffer with unknown bucket: ${bucketSize}`);
-      return;
+      bucketPool = [];
+      usagePool.set(bucketSize, bucketPool);
     }
+
+    // Get buffer ID (should exist if this buffer came from acquire())
+    const bufferId = this.bufferToId.get(buffer) ?? 0;
 
     bucketPool.push({
       buffer,
       sizeBytes: bucketSize,
       usage,
       lastUsedFrame: this.currentFrame,
+      bufferId,
     });
   }
 
@@ -172,11 +232,32 @@ export class GPUBufferPool {
       for (const [bucketSize, bucketPool] of usagePool.entries()) {
         const before = bucketPool.length;
 
-        // Filter out old buffers
-        const kept = bucketPool.filter(pooled => pooled.lastUsedFrame >= threshold);
-        const removed = before - kept.length;
+        // Separate old buffers from kept buffers
+        const kept: PooledBuffer[] = [];
+        const toDestroy: PooledBuffer[] = [];
+
+        for (const pooled of bucketPool) {
+          if (pooled.lastUsedFrame >= threshold) {
+            kept.push(pooled);
+          } else {
+            toDestroy.push(pooled);
+          }
+        }
+
+        const removed = toDestroy.length;
 
         if (removed > 0) {
+          // Destroy old GPU buffers
+          for (const pooled of toDestroy) {
+            try {
+              pooled.buffer.destroy();
+              this.bufferToId.delete(pooled.buffer);
+            } catch (e) {
+              // Buffer may already be destroyed
+              console.warn('GPUBufferPool: Error destroying buffer during cleanup', e);
+            }
+          }
+
           // Update stats
           this.stats.totalBuffers -= removed;
           this.stats.totalBytes -= removed * bucketSize;
@@ -225,7 +306,23 @@ export class GPUBufferPool {
    * Use sparingly (e.g., when switching scenes)
    */
   clear(): void {
+    // Destroy all pooled GPU buffers
+    for (const [_usage, usagePool] of this.pools.entries()) {
+      for (const [_bucketSize, bucketPool] of usagePool.entries()) {
+        for (const pooled of bucketPool) {
+          try {
+            pooled.buffer.destroy();
+            this.bufferToId.delete(pooled.buffer);
+          } catch (e) {
+            // Buffer may already be destroyed
+            console.warn('GPUBufferPool: Error destroying buffer during clear', e);
+          }
+        }
+      }
+    }
+
     this.pools.clear();
+    this.bufferToId.clear();
     this.stats.totalBuffers = 0;
     this.stats.totalBytes = 0;
     this.stats.reallocationsThisFrame = 0;
@@ -250,5 +347,21 @@ export class GPUBufferPool {
    */
   getMemoryByUsage(usage: BufferUsageType): number {
     return this.stats.byUsage.get(usage)?.bytes ?? 0;
+  }
+
+  /**
+   * Handle device loss - mark pool as invalid and clear all buffers
+   * Call this when GPUDevice.lost promise resolves
+   */
+  handleDeviceLoss(): void {
+    this.deviceLost = true;
+    this.clear(); // Destroys all buffers and clears tracking
+  }
+
+  /**
+   * Get buffer ID for debugging
+   */
+  getBufferId(buffer: GPUBuffer): number | undefined {
+    return this.bufferToId.get(buffer);
   }
 }
