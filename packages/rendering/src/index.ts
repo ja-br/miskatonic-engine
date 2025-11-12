@@ -59,6 +59,11 @@ export {
   type LightingBenchmarkConfig,
 } from './profiling/LightingBenchmark';
 
+// Epic 3.18 Phase 3: Light Animation Systems
+export { FlickeringLightSystem } from './systems/FlickeringLightSystem';
+export { PulsingLightSystem } from './systems/PulsingLightSystem';
+export { OrbitingLightSystem } from './systems/OrbitingLightSystem';
+
 // Epic 3.13: Instance rendering and batching
 export { InstanceBuffer, InstanceBufferPool, globalInstanceBufferPool, type InstanceData } from './InstanceBuffer';
 export { InstanceDetector, type InstanceGroup, type InstanceDetectorConfig } from './InstanceDetector';

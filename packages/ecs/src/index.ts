@@ -47,6 +47,11 @@ export { Velocity } from './components/Velocity';
 export { Camera } from './components/Camera';
 export { Light } from './components/Light';
 
+// Epic 3.18 Phase 3: Light animation components
+export { FlickeringLight, type FlickeringLightData } from './components/FlickeringLight';
+export { PulsingLight, type PulsingLightData } from './components/PulsingLight';
+export { OrbitingLight, type OrbitingLightData } from './components/OrbitingLight';
+
 // Example systems
 export { MovementSystem } from './systems/MovementSystem';
 export { TransformSystem } from './systems/TransformSystem';

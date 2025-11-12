@@ -403,4 +403,428 @@ describe('ShadowDebugVisualizer', () => {
       expect(info).not.toBe('');
     });
   });
+
+  // Epic 3.18 Phase 4 - New Visualization Modes
+  describe('Light Volume Visualization', () => {
+    it('should generate icosphere wireframe for point lights', () => {
+      const lights = [
+        {
+          type: 'point' as const,
+          position: [0, 0, 0] as [number, number, number],
+          radius: 10,
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+
+      expect(volumes).toHaveLength(1);
+      expect(volumes[0].type).toBe('point');
+      expect(volumes[0].position).toEqual([0, 0, 0]);
+      expect(volumes[0].radius).toBe(10);
+    });
+
+    it('should generate icosphere vertices in line-list format', () => {
+      const lights = [
+        {
+          type: 'point' as const,
+          position: [5, 10, 15] as [number, number, number],
+          radius: 8,
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+      const vertices = volumes[0].vertices;
+
+      // Icosahedron has 30 edges × 2 vertices × 3 components = 180 floats
+      expect(vertices.length).toBe(180);
+
+      // Verify vertices are Float32Array
+      expect(vertices).toBeInstanceOf(Float32Array);
+
+      // Verify vertices are centered around position with correct radius
+      // Check a few sample vertices
+      for (let i = 0; i < vertices.length; i += 3) {
+        const x = vertices[i];
+        const y = vertices[i + 1];
+        const z = vertices[i + 2];
+
+        const dx = x - 5;
+        const dy = y - 10;
+        const dz = z - 15;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        // All vertices should be on sphere surface (radius 8)
+        expect(dist).toBeCloseTo(8, 2);
+      }
+    });
+
+    it('should generate cone wireframe for spot lights', () => {
+      const lights = [
+        {
+          type: 'spot' as const,
+          position: [0, 5, 0] as [number, number, number],
+          radius: 10,
+          direction: [0, -1, 0] as [number, number, number],
+          coneAngle: Math.PI / 4,
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+
+      expect(volumes).toHaveLength(1);
+      expect(volumes[0].type).toBe('spot');
+      expect(volumes[0].position).toEqual([0, 5, 0]);
+      expect(volumes[0].radius).toBe(10);
+    });
+
+    it('should generate cone vertices with correct structure', () => {
+      const lights = [
+        {
+          type: 'spot' as const,
+          position: [0, 10, 0] as [number, number, number],
+          radius: 10,
+          direction: [0, -1, 0] as [number, number, number],
+          coneAngle: Math.PI / 6,
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+      const vertices = volumes[0].vertices;
+
+      // Cone with 16 segments: 16 base edges + 4 apex lines = 20 lines × 2 vertices × 3 components = 120 floats
+      expect(vertices.length).toBe(120);
+
+      // Verify vertices are Float32Array
+      expect(vertices).toBeInstanceOf(Float32Array);
+    });
+
+    it('should skip directional lights (infinite bounds)', () => {
+      const lights = [
+        {
+          type: 'directional' as const,
+          position: [0, 0, 0] as [number, number, number],
+          direction: [0, -1, 0] as [number, number, number],
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+
+      // Directional lights should be skipped
+      expect(volumes).toHaveLength(0);
+    });
+
+    it('should handle mixed light types', () => {
+      const lights = [
+        {
+          type: 'point' as const,
+          position: [0, 0, 0] as [number, number, number],
+          radius: 5,
+        },
+        {
+          type: 'directional' as const,
+          position: [0, 10, 0] as [number, number, number],
+          direction: [0, -1, 0] as [number, number, number],
+        },
+        {
+          type: 'spot' as const,
+          position: [10, 0, 0] as [number, number, number],
+          radius: 8,
+          direction: [0, 0, 1] as [number, number, number],
+          coneAngle: Math.PI / 3,
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+
+      // Should have point and spot, but not directional
+      expect(volumes).toHaveLength(2);
+      expect(volumes[0].type).toBe('point');
+      expect(volumes[1].type).toBe('spot');
+    });
+
+    it('should use correct colors for light types', () => {
+      const lights = [
+        {
+          type: 'point' as const,
+          position: [0, 0, 0] as [number, number, number],
+          radius: 5,
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+
+      // Point lights should use blue color
+      expect(volumes[0].color).toEqual([0.2, 0.7, 1.0, 0.7]);
+    });
+  });
+
+  describe('Tile Culling Heatmap', () => {
+    it('should generate heatmap data from tile light counts', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([0, 4, 8, 12, 16, 20]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(
+        tileData,
+        3, // 3x2 grid
+        2,
+        64
+      );
+
+      expect(heatmap.tileCountX).toBe(3);
+      expect(heatmap.tileCountY).toBe(2);
+      expect(heatmap.tileSize).toBe(64);
+      expect(heatmap.lightCounts).toBe(tileData.lightCounts);
+      expect(heatmap.maxLights).toBe(20);
+    });
+
+    it('should calculate max light count correctly', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([5, 1, 0, 42, 8, 3]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(tileData, 3, 2, 64);
+
+      expect(heatmap.maxLights).toBe(42);
+    });
+
+    it('should provide color gradient function', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([0, 8, 16]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(tileData, 3, 1, 64);
+
+      expect(heatmap.getColor).toBeInstanceOf(Function);
+    });
+
+    it('should map 0.0 (no lights) to blue', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([0]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(tileData, 1, 1, 64);
+      const color = heatmap.getColor(0.0);
+
+      // Blue: [0, 0, 1, 0.7]
+      expect(color[0]).toBeCloseTo(0, 2);
+      expect(color[1]).toBeCloseTo(0, 2);
+      expect(color[2]).toBeCloseTo(1.0, 2);
+      expect(color[3]).toBe(0.7);
+    });
+
+    it('should map 0.5 (medium lights) to green', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([8]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(tileData, 1, 1, 64);
+      const color = heatmap.getColor(0.5);
+
+      // Green: [0, 1, 0, 0.7]
+      expect(color[0]).toBeCloseTo(0, 2);
+      expect(color[1]).toBeCloseTo(1.0, 2);
+      expect(color[2]).toBeCloseTo(0, 2);
+      expect(color[3]).toBe(0.7);
+    });
+
+    it('should map 1.0 (max lights) to red', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([16]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(tileData, 1, 1, 64);
+      const color = heatmap.getColor(1.0);
+
+      // Red: [1, 0, 0, 0.7]
+      expect(color[0]).toBeCloseTo(1.0, 2);
+      expect(color[1]).toBeCloseTo(0, 2);
+      expect(color[2]).toBeCloseTo(0, 2);
+      expect(color[3]).toBe(0.7);
+    });
+
+    it('should handle empty tile data', () => {
+      const tileData = {
+        lightCounts: new Uint16Array([0, 0, 0, 0]),
+      };
+
+      const heatmap = visualizer.generateTileHeatmapData(tileData, 2, 2, 64);
+
+      expect(heatmap.maxLights).toBe(0);
+    });
+  });
+
+  describe('Performance Overlay', () => {
+    it('should generate performance overlay data', () => {
+      const overlay = visualizer.generatePerformanceOverlayData(
+        {
+          frameTime: 16.67,
+          timings: [
+            { label: 'Shadow Rendering', durationMs: 3.5 },
+            { label: 'Light Culling', durationMs: 1.2 },
+          ],
+        },
+        {
+          total: 50,
+          culled: 30,
+          rendered: 20,
+        }
+      );
+
+      expect(overlay.frameTime).toBe(16.67);
+      expect(overlay.lightStats.total).toBe(50);
+      expect(overlay.lightStats.culled).toBe(30);
+      expect(overlay.lightStats.rendered).toBe(20);
+    });
+
+    it('should calculate timing percentages', () => {
+      const overlay = visualizer.generatePerformanceOverlayData(
+        {
+          frameTime: 10.0,
+          timings: [
+            { label: 'Shadow', durationMs: 2.0 },
+            { label: 'Lighting', durationMs: 3.0 },
+          ],
+        },
+        {
+          total: 10,
+          culled: 5,
+          rendered: 5,
+        }
+      );
+
+      expect(overlay.timings).toHaveLength(2);
+      expect(overlay.timings[0].percentage).toBeCloseTo(20.0, 1); // 2/10 = 20%
+      expect(overlay.timings[1].percentage).toBeCloseTo(30.0, 1); // 3/10 = 30%
+    });
+
+    it('should include optional tile statistics', () => {
+      const overlay = visualizer.generatePerformanceOverlayData(
+        {
+          frameTime: 16.67,
+          timings: [],
+        },
+        {
+          total: 20,
+          culled: 10,
+          rendered: 10,
+        },
+        {
+          totalTiles: 256,
+          avgLightsPerTile: 4.5,
+          maxLightsPerTile: 12,
+        }
+      );
+
+      expect(overlay.tileStats).toBeDefined();
+      expect(overlay.tileStats?.totalTiles).toBe(256);
+      expect(overlay.tileStats?.avgLightsPerTile).toBe(4.5);
+      expect(overlay.tileStats?.maxLightsPerTile).toBe(12);
+    });
+
+    it('should handle no tile statistics', () => {
+      const overlay = visualizer.generatePerformanceOverlayData(
+        {
+          frameTime: 16.67,
+          timings: [],
+        },
+        {
+          total: 20,
+          culled: 10,
+          rendered: 10,
+        }
+      );
+
+      expect(overlay.tileStats).toBeUndefined();
+    });
+
+    it('should preserve timing labels', () => {
+      const overlay = visualizer.generatePerformanceOverlayData(
+        {
+          frameTime: 16.67,
+          timings: [
+            { label: 'Shadow Pass', durationMs: 2.5 },
+            { label: 'Light Pass', durationMs: 3.5 },
+          ],
+        },
+        {
+          total: 10,
+          culled: 5,
+          rendered: 5,
+        }
+      );
+
+      expect(overlay.timings[0].label).toBe('Shadow Pass');
+      expect(overlay.timings[1].label).toBe('Light Pass');
+    });
+  });
+
+  describe('New Visualization Modes - Mode Cycling', () => {
+    it('should include new modes in cycle', () => {
+      visualizer.setMode(DebugVisualizationMode.CACHE_STATS);
+
+      visualizer.cycleMode();
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.LIGHT_VOLUMES);
+
+      visualizer.cycleMode();
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.TILE_HEATMAP);
+
+      visualizer.cycleMode();
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.PERFORMANCE_OVERLAY);
+
+      visualizer.cycleMode();
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.NONE); // Wrap around
+    });
+
+    it('should set new modes directly', () => {
+      visualizer.setMode(DebugVisualizationMode.LIGHT_VOLUMES);
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.LIGHT_VOLUMES);
+
+      visualizer.setMode(DebugVisualizationMode.TILE_HEATMAP);
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.TILE_HEATMAP);
+
+      visualizer.setMode(DebugVisualizationMode.PERFORMANCE_OVERLAY);
+      expect(visualizer.getMode()).toBe(DebugVisualizationMode.PERFORMANCE_OVERLAY);
+    });
+  });
+
+  // Edge Case Tests - Code Critic Feedback
+  describe('Edge Cases', () => {
+    it('should handle empty light array', () => {
+      const volumes = visualizer.generateLightVolumeData([]);
+
+      expect(volumes).toHaveLength(0);
+    });
+
+    it('should handle lights with missing optional parameters', () => {
+      const lights = [
+        {
+          type: 'point' as const,
+          position: [0, 0, 0] as [number, number, number],
+          // Missing radius - should skip
+        },
+      ];
+
+      const volumes = visualizer.generateLightVolumeData(lights);
+
+      expect(volumes).toHaveLength(0);
+    });
+
+    it('should handle zero frameTime in performance overlay', () => {
+      const overlay = visualizer.generatePerformanceOverlayData(
+        {
+          frameTime: 0,
+          timings: [{ label: 'Test', durationMs: 5.0 }],
+        },
+        {
+          total: 10,
+          culled: 5,
+          rendered: 5,
+        }
+      );
+
+      // Should not crash with division by zero
+      expect(overlay.timings[0].percentage).toBe(0);
+    });
+  });
 });
