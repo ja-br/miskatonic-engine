@@ -41,6 +41,24 @@ export { GPUBufferPool, BufferUsageType, type BufferPoolStats } from './GPUBuffe
 export { TextureAtlas, type AtlasRegion, type TextureAtlasStats } from './TextureAtlas';
 export { VRAMProfiler, VRAMCategory, type VRAMBudget, type VRAMUsage, type VRAMStats } from './VRAMProfiler';
 
+// Epic 3.18: Lighting Performance & Utilities (Profiling)
+export {
+  GPUTimingProfiler,
+  type GPUTimingConfig,
+  type TimingMeasurement,
+  type TimingStatistics,
+} from './profiling/GPUTimingProfiler';
+export {
+  LightingBenchmark,
+  BenchmarkScenarios,
+  DefaultPerformanceTargets,
+  type BenchmarkScenario,
+  type BenchmarkResult,
+  type OperationTiming,
+  type PerformanceTargets,
+  type LightingBenchmarkConfig,
+} from './profiling/LightingBenchmark';
+
 // Epic 3.13: Instance rendering and batching
 export { InstanceBuffer, InstanceBufferPool, globalInstanceBufferPool, type InstanceData } from './InstanceBuffer';
 export { InstanceDetector, type InstanceGroup, type InstanceDetectorConfig } from './InstanceDetector';

@@ -690,35 +690,571 @@ interface ShadowBias {
 - Memory: 64MB max (HIGH), 16MB (MEDIUM), 4MB (LOW)
 
 ### Epic 3.18: Lighting Performance & Utilities
-**Status:** 📋 PLANNED  
-**Priority:** P0  
-**Dependencies:** Epic 3.15, 3.16, 3.17
+**Status:** 📋 PLANNED
+**Priority:** P0 - VALIDATION
+**Dependencies:** Epic 3.15 ✅, Epic 3.16 ✅, Epic 3.17 ✅
 
-**Deliverables:**
-- Performance validation (5 benchmark configurations)
-- Light animation components (Flickering, Pulsing, Orbiting)
-- Debug visualization (volumes, frustums, heatmaps, tiles, cascades)
-- Demo integration (8+ dynamic lights with shadows)
-- Quality tier UI toggle
+---
 
-**Performance Benchmarks:**
-1. Best case: 1 directional, no shadows (60 FPS)
-2. Typical: 1 directional + 8 point + 2 spot, all shadowed (60 FPS)
-3. Heavy: 16 point, 4 shadowed (60 FPS WebGPU)
-4. Pathological: 1 directional + 100 point, culled to 16 (60 FPS)
-5. Stress: 1000 point with tile culling (measure perf)
+#### Problem Statement
 
-**Hardware Validation:**
-- Mid-range GPU: RTX 3060 / RX 6600
-- Integrated GPU: Intel Iris Xe (LOW quality)
+The lighting system (Epics 3.15-3.17) is feature-complete but unvalidated for production use. We need:
+1. **Performance Validation**: Verify that all 5 benchmark scenarios meet 60 FPS targets
+2. **Debugging Tools**: Developers need visual feedback for lighting/shadow tuning
+3. **Demo Integration**: Showcase the full lighting pipeline with dynamic content
+4. **Quality Tier Validation**: Ensure LOW/MEDIUM/HIGH tiers scale correctly across hardware
 
-**Tests:** 55+ (Performance: 30, Animation: 15, Debug: 10)
+Without this epic, the lighting system cannot be confidently used in production games.
 
-**Performance Targets:**
-- Lighting pass: <4ms GPU
-- Culling: <1ms CPU
-- 60 FPS on mid-range GPU
-- 60 FPS on integrated GPU (LOW quality)
+---
+
+#### Acceptance Criteria
+
+**Performance Benchmarks (ALL must achieve 60 FPS on target hardware):**
+1. ✅ Best case: 1 directional light, no shadows (baseline)
+2. ✅ Typical game: 1 directional + 8 point + 2 spot, all shadowed
+3. ✅ Heavy load: 16 point lights, 4 with shadows (WebGPU tile culling)
+4. ✅ Pathological: 1 directional + 100 point lights, culled to 16 visible
+5. ✅ Stress test: 1000 point lights with GPU tile culling (document degradation)
+
+**Automated Performance Validation:**
+- GPU timing infrastructure using timestamp queries
+- Automated benchmark suite that fails CI if <60 FPS on reference hardware
+- Per-configuration memory profiling (must stay within tier budgets)
+
+**Animation Components:**
+- FlickeringLight: Random intensity variation (torches, fire)
+- PulsingLight: Smooth sine-wave intensity (magic effects, indicators)
+- OrbitingLight: Circular motion around point (celestial bodies, patrols)
+- All components integrated with ECS and Transform system
+
+**Debug Visualization:**
+- Light volume wireframes (spheres for point, cones for spot)
+- Shadow cascade frustum visualization (colored wireframes)
+- Tile-based culling heatmap (shows lights per tile)
+- Shadow atlas utilization overlay
+- Real-time performance overlay (GPU/CPU timings)
+
+**Demo Scene:**
+- Interactive 3D environment with 8+ dynamic lights
+- Mix of directional, point, and spot lights with shadows
+- Animated lights using new components
+- UI for quality tier switching (LOW/MEDIUM/HIGH)
+- FPS counter and performance metrics display
+
+**Cross-Platform Validation:**
+- Test on mid-range GPU: RTX 3060 / RX 6600 (HIGH tier)
+- Test on integrated GPU: Intel Iris Xe (LOW tier)
+- Document performance characteristics on both
+
+**Test Coverage:**
+- 55+ tests minimum (>80% coverage)
+- Performance tests: 30+ (benchmark validation, timing infrastructure)
+- Animation tests: 15+ (component behavior, ECS integration)
+- Debug visualization tests: 10+ (rendering correctness, data extraction)
+
+---
+
+#### User Stories
+
+**US1: Performance Validation**
+As a game developer, I want automated benchmarks that verify my lighting configuration meets 60 FPS targets, so I can confidently ship my game without performance regressions.
+
+**Acceptance:**
+- Run `npm run benchmark:lighting` to execute all 5 configurations
+- Benchmark suite reports FPS, frame time, GPU/CPU breakdown, memory usage
+- CI/CD integration fails builds that regress below 60 FPS
+
+**US2: Dynamic Light Animation**
+As a game developer, I want reusable light animation components (flickering torches, pulsing magic, orbiting planets), so I can create atmospheric scenes without writing custom update loops.
+
+**Acceptance:**
+- Add `FlickeringLight`, `PulsingLight`, or `OrbitingLight` components to entities
+- Components automatically update light intensity or position each frame
+- Parameters are configurable (flicker speed, pulse frequency, orbit radius)
+
+**US3: Visual Debugging**
+As a graphics programmer, I want to visualize light volumes, shadow cascades, and tile culling data, so I can debug lighting artifacts and optimize culling efficiency.
+
+**Acceptance:**
+- Press `F3` to cycle debug visualization modes
+- See light sphere/cone wireframes in world space
+- See cascade frustums color-coded by distance
+- See tile heatmap showing lights per screen region
+- See shadow atlas with allocated regions highlighted
+
+**US4: Quality Tier Selection**
+As a player, I want to adjust shadow quality (LOW/MEDIUM/HIGH) based on my hardware capabilities, so I can maintain smooth framerates on my machine.
+
+**Acceptance:**
+- UI dropdown or slider for quality selection
+- Changes take effect immediately (atlas resize, resolution adjustment)
+- LOW tier maintains 60 FPS on integrated GPUs
+- HIGH tier utilizes full 64MB atlas on discrete GPUs
+
+**US5: Demo Scene Showcase**
+As a stakeholder, I want a visually impressive demo scene showcasing the lighting system, so I can evaluate the engine's rendering capabilities.
+
+**Acceptance:**
+- Demo scene with day/night cycle (directional light animation)
+- Multiple point lights (torches, lamps) with flickering
+- Spot lights (flashlight, stage lights) with shadows
+- Interactive camera controls (orbit, pan, zoom)
+- Real-time performance overlay showing FPS and timings
+
+---
+
+#### Technical Approach
+
+**1. GPU Timing Infrastructure**
+- Implement GPU timestamp queries via WebGPU's `beginTimestampQuery` / `endTimestampQuery`
+- Measure discrete pipeline stages:
+  - Shadow rendering (directional, point, spot separately)
+  - Light culling (GPU tile-based or CPU frustum)
+  - Lighting pass (fragment shader execution)
+- Average over 60 frames to smooth out variance
+- Export timings to unified performance API
+
+**2. Benchmark Framework**
+- Create `LightingBenchmark` class with 5 predefined configurations
+- Each benchmark:
+  - Sets up scene with specific light counts and types
+  - Runs for 300 frames (5 seconds @ 60 FPS)
+  - Collects GPU/CPU timings, memory usage, frame times
+  - Compares against target thresholds (60 FPS = 16.67ms budget)
+  - Reports pass/fail with detailed breakdown
+- Integration with Vitest for CI/CD validation
+
+**3. Animation Components (ECS Pattern)**
+```typescript
+// FlickeringLight component
+interface FlickeringLight {
+  baseIntensity: number;    // Original intensity
+  flickerAmount: number;    // Max deviation (0-1)
+  flickerSpeed: number;     // Hz (cycles per second)
+  randomSeed: number;       // For determinism
+}
+
+// System updates Light.intensity based on time
+class FlickeringLightSystem {
+  update(dt: number) {
+    for (const [entity, light, flicker] of query(Light, FlickeringLight)) {
+      const noise = perlinNoise(time * flicker.flickerSpeed, flicker.randomSeed);
+      light.intensity = flicker.baseIntensity * (1 + noise * flicker.flickerAmount);
+    }
+  }
+}
+```
+
+**4. Debug Visualization (Extend ShadowDebugVisualizer)**
+- Add new visualization modes to existing `DebugVisualizationMode` enum:
+  - `LIGHT_VOLUMES`: Render sphere/cone wireframes using line geometry
+  - `TILE_HEATMAP`: Overlay 2D grid with color based on `tileLightIndices` count
+- Implement `LightVolumeRenderer`:
+  - Generate sphere wireframe (icosphere subdivision)
+  - Generate cone wireframe (apex + base circle)
+  - Render with flat-color shader (no lighting, alpha-blended)
+- Integrate with existing `ShadowDebugVisualizer` for unified API
+
+**5. Demo Scene Architecture**
+- Create `lighting-demo-advanced.ts` (replaces basic `lighting-demo.ts`)
+- Scene components:
+  - Ground plane with PBR material
+  - 3-5 static props (cubes, spheres) as shadow receivers
+  - Directional light (sun) with CSM shadows
+  - 4-6 point lights with flickering/pulsing animations
+  - 2 spot lights with orbital motion
+- UI overlay using HTML canvas:
+  - Quality tier selector (dropdown: LOW/MEDIUM/HIGH)
+  - Performance stats (FPS, frame time, GPU time breakdown)
+  - Debug mode selector (dropdown: NONE/ATLAS/CASCADES/HEATMAP/VOLUMES)
+  - Light animation toggles (checkboxes: enable/disable)
+
+**6. Quality Tier Validation**
+- Test matrix:
+  - RTX 3060 @ HIGH (64MB atlas, 1024x1024 cascades, Poisson PCF)
+  - Intel Iris Xe @ LOW (4MB atlas, 512x512 cascades, 2x2 PCF)
+  - Verify both achieve 60 FPS on "Typical game" benchmark
+- Document scaling characteristics:
+  - Memory usage per tier (measure actual VRAM consumption)
+  - Visual quality delta (screenshot comparisons)
+  - Performance delta (frame time breakdown)
+
+---
+
+#### Detailed Task Breakdown
+
+**Phase 1: GPU Timing Infrastructure (1-2 days)**
+- [ ] Research WebGPU timestamp query API (`GPUQuerySet`)
+- [ ] Create `GPUTimingProfiler` class
+  - [ ] Manage query set creation (timestamp type, max 64 queries)
+  - [ ] Implement `begin(label: string)` and `end(label: string)` API
+  - [ ] Async readback of query results to TypedArray
+  - [ ] Average over N frames (configurable, default 60)
+  - [ ] Handle query set overflow (circular buffer)
+- [ ] Integrate with `WebGPUBackend`
+  - [ ] Wrap shadow passes with timing queries
+  - [ ] Wrap lighting pass with timing queries
+  - [ ] Expose timing data via `getStats()` API
+- [ ] Unit tests: 10 tests
+  - [ ] Query set creation and lifecycle
+  - [ ] Begin/end pairing validation (throw on mismatch)
+  - [ ] Timestamp readback accuracy (mock GPU results)
+  - [ ] Frame averaging correctness
+  - [ ] Overflow handling (circular buffer behavior)
+
+**Phase 2: Benchmark Framework (2-3 days)**
+- [ ] Create `LightingBenchmark` class (`packages/rendering/benchmarks/LightingBenchmark.ts`)
+  - [ ] Constructor accepts scene configuration (light counts, shadow config)
+  - [ ] `run()` method executes benchmark and returns metrics
+  - [ ] Internal frame loop (300 frames minimum)
+  - [ ] Collect GPU timings, CPU timings, memory snapshots
+  - [ ] Calculate statistics (mean, min, max, p50, p95, p99)
+- [ ] Implement 5 benchmark configurations
+  - [ ] Config 1: Best case (1 directional, no shadows)
+  - [ ] Config 2: Typical (1 dir + 8 point + 2 spot, all shadowed)
+  - [ ] Config 3: Heavy (16 point, 4 shadowed)
+  - [ ] Config 4: Pathological (1 dir + 100 point, culling active)
+  - [ ] Config 5: Stress (1000 point, GPU tile culling)
+- [ ] Create Vitest test suite (`benchmarks/lighting.bench.test.ts`)
+  - [ ] Each config is a separate test case
+  - [ ] Assert `mean frame time < 16.67ms` (60 FPS)
+  - [ ] Assert `p99 frame time < 33.33ms` (30 FPS minimum)
+  - [ ] Assert memory within tier budgets
+  - [ ] Generate JSON report for CI artifacts
+- [ ] Performance tests: 20 tests
+  - [ ] 5 configurations × 4 assertions (FPS, p99, memory, GPU time)
+
+**Phase 3: Animation Components (2-3 days)**
+- [ ] Implement `FlickeringLight` component
+  - [ ] Component interface with baseIntensity, flickerAmount, flickerSpeed, seed
+  - [ ] `FlickeringLightSystem` using Perlin noise for smooth variation
+  - [ ] Register system with ECS world
+  - [ ] Performance: <0.1ms for 100 flickering lights
+- [ ] Implement `PulsingLight` component
+  - [ ] Component interface with baseIntensity, pulseAmount, frequency, phase
+  - [ ] `PulsingLightSystem` using sine wave
+  - [ ] Register system with ECS world
+- [ ] Implement `OrbitingLight` component
+  - [ ] Component interface with center, radius, speed, currentAngle
+  - [ ] `OrbitingLightSystem` updates Transform position (circular motion)
+  - [ ] Works with both point and spot lights
+- [ ] Animation tests: 15 tests
+  - [ ] FlickeringLight: 5 tests (noise generation, intensity bounds, determinism, speed scaling, zero flicker)
+  - [ ] PulsingLight: 5 tests (sine wave correctness, phase offset, frequency scaling, intensity bounds, zero pulse)
+  - [ ] OrbitingLight: 5 tests (circular motion, speed, radius, entity with Transform, spot light direction update)
+
+**Phase 4: Debug Visualization Extensions (2-3 days)**
+- [ ] Extend `DebugVisualizationMode` enum
+  - [ ] Add `LIGHT_VOLUMES`, `TILE_HEATMAP`, `PERFORMANCE_OVERLAY`
+- [ ] Implement `LightVolumeRenderer` class
+  - [ ] Generate icosphere wireframe (20 faces, 1-2 subdivisions)
+  - [ ] Generate cone wireframe (16-segment base circle + apex lines)
+  - [ ] Render using line list topology
+  - [ ] Color-code by light type (directional=red, point=blue, spot=magenta)
+  - [ ] Alpha blending for X-ray effect
+- [ ] Implement `TileCullingHeatmap` renderer
+  - [ ] 2D overlay using screen-space quads
+  - [ ] Sample `tileLightIndices` buffer from GPULightCuller
+  - [ ] Color gradient: 0 lights=blue → 8 lights=green → 16+ lights=red
+  - [ ] Render as post-process overlay (additive blending)
+- [ ] Extend `ShadowDebugVisualizer`
+  - [ ] Add `generateLightVolumeData()` method
+  - [ ] Add `generateTileHeatmapData()` method
+  - [ ] Add `generatePerformanceOverlayData()` method (GPU timings)
+- [ ] Debug visualization tests: 10 tests
+  - [ ] Light volume generation (sphere vertices, cone vertices)
+  - [ ] Heatmap color mapping (0/8/16+ light counts)
+  - [ ] Performance overlay formatting (ms precision, memory units)
+  - [ ] Integration with ShadowDebugVisualizer API
+
+**Phase 5: Demo Scene Integration (3-4 days)**
+- [ ] Create `lighting-demo-advanced.ts` scene
+  - [ ] Scene setup: Ground plane (20×20m), 5 props (cubes/spheres)
+  - [ ] Directional light (sun) with 3-cascade CSM
+  - [ ] 6 point lights: 3 flickering (torches), 3 pulsing (magic orbs)
+  - [ ] 2 spot lights: 1 static (stage light), 1 orbiting (searchlight)
+  - [ ] All lights configured with shadows (except ambient)
+- [ ] Implement quality tier UI
+  - [ ] HTML dropdown: LOW (4MB) / MEDIUM (16MB) / HIGH (64MB)
+  - [ ] On change: Resize shadow atlas, adjust cascade resolutions
+  - [ ] Apply changes immediately (no reload required)
+- [ ] Implement debug visualization UI
+  - [ ] HTML dropdown: NONE / ATLAS / CASCADES / HEATMAP / VOLUMES / PERFORMANCE
+  - [ ] Keyboard shortcut: F3 to cycle modes
+  - [ ] Integrate with ShadowDebugVisualizer and LightVolumeRenderer
+- [ ] Implement performance overlay
+  - [ ] Display: FPS (1s average), Frame Time (ms), GPU Time (ms breakdown)
+  - [ ] Display: Shadow Render (ms), Light Culling (ms), Lighting Pass (ms)
+  - [ ] Display: Memory (total VRAM, atlas usage, buffer usage)
+  - [ ] HTML canvas overlay (top-left corner, semi-transparent background)
+- [ ] Camera controls
+  - [ ] Orbit camera controller (existing CameraControllers.ts)
+  - [ ] Mouse: Left-drag to orbit, scroll to zoom
+  - [ ] Keyboard: WASD for pan, QE for vertical
+- [ ] Demo integration tests: 5 tests
+  - [ ] Scene initializes with correct light count
+  - [ ] Quality tier switching updates atlas size
+  - [ ] Debug visualization mode switching works
+  - [ ] Animation components update light properties
+  - [ ] Performance overlay displays valid metrics
+
+**Phase 6: Cross-Platform Validation (2-3 days)**
+- [ ] Test on RTX 3060 (or equivalent)
+  - [ ] Run all 5 benchmark configurations
+  - [ ] Verify HIGH tier achieves 60 FPS on "Typical game"
+  - [ ] Capture GPU timings and memory usage
+  - [ ] Screenshot visual quality
+- [ ] Test on Intel Iris Xe (or equivalent)
+  - [ ] Run all 5 benchmark configurations
+  - [ ] Verify LOW tier achieves 60 FPS on "Typical game"
+  - [ ] Document performance degradation on stress tests
+  - [ ] Screenshot visual quality (compare with HIGH)
+- [ ] Document scaling characteristics
+  - [ ] Create performance comparison table (FPS, frame time, memory)
+  - [ ] Visual quality comparison (screenshots side-by-side)
+  - [ ] Recommendations for quality tier selection
+  - [ ] Known limitations (e.g., integrated GPU can't handle 100+ lights)
+- [ ] Validation tests: 5 tests
+  - [ ] Benchmark results parsing (validate JSON schema)
+  - [ ] Performance regression detection (compare against baseline)
+  - [ ] Memory leak detection (run benchmark 10 times, check VRAM growth)
+  - [ ] Quality tier parity (LOW/MEDIUM/HIGH produce valid results)
+  - [ ] CI integration (benchmark runs on every commit)
+
+**Phase 7: Documentation & Polish (1-2 days)**
+- [ ] Update `packages/rendering/README.md`
+  - [ ] Add "Performance Benchmarking" section
+  - [ ] Add "Light Animation" section with examples
+  - [ ] Add "Debug Visualization" section
+  - [ ] Link to demo scene and benchmark suite
+- [ ] Create benchmark usage guide (`docs/guides/lighting-performance.md`)
+  - [ ] How to run benchmarks locally
+  - [ ] How to interpret results
+  - [ ] How to add custom benchmark configurations
+  - [ ] CI/CD integration instructions
+- [ ] Create debug visualization guide (`docs/guides/lighting-debugging.md`)
+  - [ ] Overview of visualization modes
+  - [ ] How to enable/configure each mode
+  - [ ] Common debugging scenarios (shadow acne, culling issues)
+  - [ ] Performance optimization tips
+- [ ] Create animation component guide (`docs/guides/light-animation.md`)
+  - [ ] Usage examples for each component type
+  - [ ] Parameter tuning recommendations
+  - [ ] Performance considerations
+  - [ ] Custom animation patterns
+- [ ] Final code review
+  - [ ] Ensure all tests pass (55+ tests, >80% coverage)
+  - [ ] Verify no performance regressions
+  - [ ] Check TypeScript types (no `any`)
+  - [ ] Verify documentation is complete
+
+---
+
+#### Success Criteria
+
+**Performance:**
+- ✅ All 5 benchmark configurations documented and automated
+- ✅ "Typical game" achieves 60 FPS on RTX 3060 @ HIGH tier
+- ✅ "Typical game" achieves 60 FPS on Intel Iris Xe @ LOW tier
+- ✅ GPU timing infrastructure measures <4ms for lighting pass
+- ✅ CI/CD integration fails builds that regress below 60 FPS
+
+**Features:**
+- ✅ FlickeringLight, PulsingLight, OrbitingLight components functional
+- ✅ Light volume wireframes render correctly
+- ✅ Tile culling heatmap visualizes GPU data
+- ✅ Shadow atlas overlay shows allocations
+- ✅ Performance overlay displays real-time metrics
+- ✅ Demo scene runs with 8+ lights, all features enabled
+
+**Quality:**
+- ✅ 55+ tests passing (>80% coverage)
+- ✅ Zero performance regressions vs. Epic 3.17 baseline
+- ✅ Cross-platform validation complete (mid-range + integrated GPU)
+- ✅ Documentation covers all new APIs and tools
+- ✅ Demo scene is visually impressive and stable
+
+---
+
+#### Risk Assessment
+
+**HIGH Priority Risks:**
+1. **WebGPU Timestamp Queries Unavailable**
+   - Some browsers/devices don't support timestamp queries
+   - **Mitigation:** Fallback to CPU-based `performance.now()` timings
+   - **Impact:** Less accurate GPU measurements, but still functional
+
+2. **Integrated GPU Performance Insufficient**
+   - Intel Iris Xe may not achieve 60 FPS even on LOW tier
+   - **Mitigation:** Document minimum hardware requirements
+   - **Impact:** May need to reduce "Typical game" complexity for LOW tier
+
+3. **Benchmark Variance**
+   - GPU timings can vary due to thermal throttling, background processes
+   - **Mitigation:** Average over 300 frames, run multiple iterations
+   - **Impact:** False positives in CI if variance too high
+
+**MEDIUM Priority Risks:**
+1. **Animation Component Performance**
+   - 100+ flickering lights may exceed <0.1ms budget
+   - **Mitigation:** Batch updates, use lookup tables for noise
+   - **Impact:** May need to limit animated lights per scene
+
+2. **Debug Visualization Overhead**
+   - Rendering light volumes and heatmaps adds draw calls
+   - **Mitigation:** Only render when debug mode active
+   - **Impact:** Debug mode may drop below 60 FPS (acceptable)
+
+**LOW Priority Risks:**
+1. **Demo Scene Complexity**
+   - Overly complex demo may not run on target hardware
+   - **Mitigation:** Test incrementally, profile frequently
+   - **Impact:** May need to simplify scene (fewer props, simpler materials)
+
+---
+
+#### Dependencies
+
+**Completed Epics:**
+- ✅ Epic 3.15: Light Component & Integration (133 tests, Light/LightCollection/LightSystem)
+- ✅ Epic 3.16: Light Culling (148 tests, CPU frustum + GPU tile-based culling)
+- ✅ Epic 3.17 Phase 1: Shadow Atlas & Directional Shadows (76 tests, CSM with 3 cascades)
+- ✅ Epic 3.17 Phase 2: Point/Spot Shadows & Advanced Features (174 tests, caching, LOD, Poisson PCF)
+
+**Existing Infrastructure:**
+- `ShadowDebugVisualizer` (Epic 3.17 Phase 2) - Extend with new modes
+- `LightCullingStrategy` (Epic 3.16 Phase 2) - Use for heatmap data
+- `ShadowAtlas`, `DirectionalShadowCascades`, `PointLightShadowCubemap`, `SpotLightShadowMapper` (Epic 3.17)
+- `LightSystem`, `LightCollection` (Epic 3.15)
+- `WebGPUBackend` (Epic 3.2) - Add timestamp query support
+
+**No Blocking Dependencies:** This epic can start immediately.
+
+---
+
+#### Deferred Features
+
+**Not included in Epic 3.18 (future work):**
+1. **Advanced Animation Patterns**
+   - Noise-based color shifting (fire flicker with color variation)
+   - Scripted animation sequences (cutscene lighting)
+   - Physics-based light motion (bouncing, swinging)
+   - **Reason:** Core animation components cover 80% use cases
+
+2. **Replay/Recording System**
+   - Capture benchmark runs for playback
+   - Compare performance across builds
+   - **Reason:** Useful but not critical for validation
+
+3. **Automated Visual Regression Testing**
+   - Screenshot comparison for visual quality
+   - Detect shadow artifacts automatically
+   - **Reason:** Requires significant infrastructure (image diffing)
+
+4. **Multi-GPU Profiling**
+   - Test on AMD, Intel Arc, older NVIDIA cards
+   - **Reason:** Limited hardware access, mid-range validation sufficient
+
+5. **Mobile/WebGL2 Validation**
+   - Test on mobile GPUs and WebGL2 fallback
+   - **Reason:** Desktop-first focus, mobile is future initiative
+
+---
+
+#### Files to Create/Modify
+
+**New Files (estimated):**
+- `packages/rendering/src/GPUTimingProfiler.ts` (~300 lines)
+- `packages/rendering/benchmarks/LightingBenchmark.ts` (~400 lines)
+- `packages/rendering/benchmarks/lighting.bench.test.ts` (~200 lines)
+- `packages/ecs/src/components/FlickeringLight.ts` (~100 lines)
+- `packages/ecs/src/components/PulsingLight.ts` (~80 lines)
+- `packages/ecs/src/components/OrbitingLight.ts` (~120 lines)
+- `packages/rendering/src/systems/FlickeringLightSystem.ts` (~150 lines)
+- `packages/rendering/src/systems/PulsingLightSystem.ts` (~100 lines)
+- `packages/rendering/src/systems/OrbitingLightSystem.ts` (~180 lines)
+- `packages/rendering/src/debug/LightVolumeRenderer.ts` (~350 lines)
+- `packages/rendering/src/debug/TileCullingHeatmap.ts` (~280 lines)
+- `packages/rendering/src/lighting-demo-advanced.ts` (~500 lines)
+- `tests/GPUTimingProfiler.test.ts` (~250 lines)
+- `tests/FlickeringLight.test.ts` (~150 lines)
+- `tests/PulsingLight.test.ts` (~120 lines)
+- `tests/OrbitingLight.test.ts` (~180 lines)
+- `tests/LightVolumeRenderer.test.ts` (~200 lines)
+- `tests/TileCullingHeatmap.test.ts` (~150 lines)
+- `docs/guides/lighting-performance.md` (~400 lines)
+- `docs/guides/lighting-debugging.md` (~350 lines)
+- `docs/guides/light-animation.md` (~300 lines)
+
+**Modified Files:**
+- `packages/rendering/src/backends/WebGPUBackend.ts` (+100 lines for timestamp queries)
+- `packages/rendering/src/shadows/ShadowDebugVisualizer.ts` (+150 lines for new modes)
+- `packages/rendering/README.md` (+80 lines for new sections)
+- `packages/ecs/src/index.ts` (export new components)
+- `packages/rendering/src/index.ts` (export new systems and debug tools)
+
+**Total Estimated Code:** ~4,500 lines (implementation + tests + docs)
+
+---
+
+#### Performance Targets
+
+**Frame Budget (60 FPS = 16.67ms total):**
+- Shadow Rendering: <4ms GPU (all lights combined)
+  - Directional CSM: <1.5ms (3 cascades)
+  - Point shadows: <2ms (4 lights × 6 faces with LOD)
+  - Spot shadows: <0.5ms (2 lights)
+- Light Culling: <1ms CPU (frustum) or <0.5ms GPU (tile-based)
+- Lighting Pass: <3ms GPU (PBR shading with shadows)
+- Animation Updates: <0.1ms CPU (100 animated lights)
+- Debug Visualization: <2ms GPU (when enabled, optional)
+- Other Systems: <8ms (physics, ECS, game logic, etc.)
+
+**Memory Budget:**
+- HIGH tier: 64MB shadow atlas + 20MB buffers = 84MB total
+- MEDIUM tier: 16MB shadow atlas + 10MB buffers = 26MB total
+- LOW tier: 4MB shadow atlas + 5MB buffers = 9MB total
+- Animation components: <1KB per entity (negligible)
+- Debug visualization: <10MB (wireframe geometry, heatmap texture)
+
+**Scalability Targets:**
+- RTX 3060 @ HIGH: 60 FPS with 10 shadowed lights
+- Intel Iris Xe @ LOW: 60 FPS with 4 shadowed lights
+- Graceful degradation: 30 FPS minimum on stress tests
+
+---
+
+#### Test Plan Summary
+
+**Total Tests: 55+ (>80% coverage required)**
+
+**Performance Tests (30):**
+- Benchmark validation: 20 tests (5 configs × 4 assertions)
+- GPU timing infrastructure: 10 tests (query lifecycle, accuracy, overflow)
+
+**Animation Tests (15):**
+- FlickeringLight: 5 tests
+- PulsingLight: 5 tests
+- OrbitingLight: 5 tests
+
+**Debug Visualization Tests (10):**
+- Light volume rendering: 3 tests
+- Tile culling heatmap: 3 tests
+- Performance overlay: 2 tests
+- ShadowDebugVisualizer extensions: 2 tests
+
+**Integration Tests (5):**
+- Demo scene initialization: 1 test
+- Quality tier switching: 1 test
+- Debug mode cycling: 1 test
+- Cross-platform validation: 2 tests
+
+**Coverage Targets:**
+- Benchmark framework: >85%
+- Animation components: >90%
+- Debug visualization: >80%
+- Overall Epic 3.18: >80%
 
 ---
 
