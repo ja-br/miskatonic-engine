@@ -427,35 +427,170 @@ interface Light {
 - Fallback: Automatic CPU culling if GPU unavailable ✅
 
 ### Epic 3.17: Shadow Mapping
-**Status:** 📋 PLANNED  
-**Priority:** P0 - BLOCKING  
-**Dependencies:** Epic 3.15, Epic 3.16
+**Status:** 📋 PLANNED (Phase 1 Ready, Phase 2 Needs Refinement)
+**Priority:** P0 - BLOCKING
+**Dependencies:** Epic 3.15 ✅, Epic 3.16 ✅
+**Estimated Duration:** 4-6 weeks (2-3 weeks per phase)
 
-**Shadow Map Atlas (CRITICAL: 2 bindings, not 12):**
-- Atlas Size: 4096x4096 R32F (5.5MB vs 27MB naive - 80% reduction)
-- Directional CSM: 3 cascades @ 1024x1024 (3.1MB, 75% reduction)
-- Point Cubemaps: 4 lights @ 256x256x6 (1.5MB, 75% reduction)
-- Spot Shadows: 4 lights @ 512x512 (1MB, 75% reduction)
+---
 
-**Shadow Quality Tiers:**
-- HIGH (desktop): 5.5MB atlas, 4 shadowed lights, PCF 2x2
-- MEDIUM (default): 2MB atlas, 2 shadowed lights, PCF 2x2
-- LOW (integrated): 0.5MB, single 512x512 directional, no PCF
-
-**Shadow Filtering:**
-- PCF 2x2 (4 samples, not 16 - 75% reduction)
-- Rotated Poisson disk for temporal AA
-- Optional PCSS (HIGH quality only)
+#### Phase 1: Shadow Atlas & Directional Shadows
+**Duration:** 2-3 weeks
+**Status:** 📋 READY FOR IMPLEMENTATION
 
 **Deliverables:**
-- Shadow atlas management
-- Directional shadows with CSM (3 cascades)
-- Point light shadows (cubemaps)
-- Spot light shadows
-- Quality tier system
-- Tests: 230+ (Atlas: 30, Directional: 50, CSM: 60, Point: 40, Spot: 30, Quality: 20)
+- Shadow atlas infrastructure with R32F depth texture
+- Dynamic tile allocation with best-fit algorithm
+- Directional light shadow mapping with 3-cascade CSM
+- Logarithmic cascade split calculation
+- Basic PCF 2x2 filtering
+- Shadow bias system (constant + slope-scale + normal offset)
+- Quality tier system (HIGH/MEDIUM/LOW)
+- Shadow fade-out at max distance
+- 80+ tests (Atlas: 15, CSM: 25, Directional: 20, Filtering: 10, Quality: 10)
 
-**Performance Target:** <4ms GPU time for shadow rendering
+**Technical Specifications:**
+
+**Memory Budgets (CORRECTED):**
+- HIGH: 64MB (4096x4096 R32F = 4096 × 4096 × 4 bytes)
+- MEDIUM: 16MB (2048x2048 R32F)
+- LOW: 4MB (1024x1024 R32F)
+
+**Cascade Split Scheme:**
+```typescript
+// Logarithmic split (recommended for balanced coverage)
+split[i] = nearPlane * Math.pow(farPlane/nearPlane, i/cascadeCount)
+// Cascade 0: near to ~10m
+// Cascade 1: ~10m to ~50m
+// Cascade 2: ~50m to far
+```
+
+**Shadow Bias Strategy:**
+```typescript
+interface ShadowBias {
+  constant: number;      // Base bias: 0.005 (configurable per light)
+  slopeScale: number;    // Slope-dependent: 1.0
+  normalOffset: number;  // Offset along surface normal: 0.01
+}
+// Adaptive bias = constant + slope * slopeScale + normalOffset
+```
+
+**Atlas Allocation (Phase 1):**
+- Directional CSM: 3 tiles @ 1024x1024 each (3MB on HIGH tier)
+- Fixed allocation for Phase 1 (dynamic allocation in Phase 2)
+
+**Phase 1 Tasks:**
+- [ ] Design shadow atlas texture layout (R32F depth array)
+- [ ] Implement ShadowAtlas class with WebGPU texture creation
+- [ ] Create fixed tile allocator for CSM (3 × 1024x1024)
+- [ ] Implement shadow matrix calculation utilities
+- [ ] Add depth-only render pass for shadow mapping
+- [ ] Create DirectionalShadowMapper class
+- [ ] Implement logarithmic CSM cascade split calculation
+- [ ] Add CSM frustum calculation for each cascade (view × projection)
+- [ ] Create shadow sampling utilities in fragment shaders
+- [ ] Implement PCF 2x2 filtering (4-tap box filter)
+- [ ] Add shadow receiver detection (cull non-receivers)
+- [ ] Create ShadowQualityTier enum and configuration
+- [ ] Implement shadow fade-out based on distance
+- [ ] Add slope-scale and normal offset bias calculation
+- [ ] Create unit tests for cascade splits (10 tests)
+- [ ] Create unit tests for shadow matrix math (15 tests)
+- [ ] Create integration tests for directional shadows (20 tests)
+- [ ] Add shadow atlas allocation tests (15 tests)
+- [ ] Create filtering quality tests (10 tests)
+- [ ] Add quality tier switching tests (10 tests)
+
+**Success Criteria:**
+- Directional lights cast shadows with 3 cascades
+- CSM transitions are smooth (no visible seams)
+- Shadow bias eliminates acne without peter-panning
+- Memory usage matches tier budgets (±5%)
+- 60 FPS maintained on mid-range GPU (RTX 3060)
+
+**Known Limitations (Phase 1):**
+- Only directional lights supported
+- Fixed 3-cascade configuration
+- No point or spot shadows
+- Basic PCF only (no advanced filtering)
+
+---
+
+#### Phase 2: Point/Spot Shadows & Advanced Features
+**Duration:** 2-3 weeks
+**Status:** 📋 PLANNED (Needs Technical Refinement)
+**Dependencies:** Phase 1 ✅
+
+**Deliverables:**
+- Point light cubemap shadow rendering (6 passes per light)
+- Spot light shadow mapping with projection
+- Dynamic atlas tile allocation with best-fit
+- Advanced filtering: Poisson disk sampling, optional PCSS
+- Shadow caching for static lights
+- Shadow LOD based on distance
+- Atlas defragmentation and reorganization
+- GPU timing infrastructure for performance measurement
+- Debug visualization (atlas, cascades, bias)
+- 70+ tests (Point: 20, Spot: 15, Advanced: 15, Performance: 10, Debug: 10)
+
+**Atlas Allocation (Phase 2):**
+- Directional CSM: 3 × 1024x1024 (3MB)
+- Point Cubemaps: 4 lights @ 256x256×6 (1.5MB)
+- Spot Shadows: 4 lights @ 512x512 (1MB)
+- Total HIGH tier: ~5.5MB used of 64MB atlas
+
+**Phase 2 Tasks:**
+- [ ] Implement dynamic tile allocator with best-fit algorithm
+- [ ] Create PointLightShadowMapper with cubemap rendering
+- [ ] Add cubemap face selection and view matrix calculation
+- [ ] Implement omnidirectional shadow sampling in shaders
+- [ ] Create SpotLightShadowMapper class
+- [ ] Add spot light projection matrix calculation
+- [ ] Implement Poisson disk sampling for temporal AA
+- [ ] Add shadow map caching for static/stationary lights
+- [ ] Create shadow LOD system (resolution based on distance)
+- [ ] Implement atlas defragmentation and tile reorganization
+- [ ] Add GPU query/timing for shadow pass measurement
+- [ ] Create shadow debug visualization (atlas viewer)
+- [ ] Implement cascade debug visualization (colored overlays)
+- [ ] Add optional PCSS for variable penumbra (HIGH quality)
+- [ ] Create integration tests for point shadows (20 tests)
+- [ ] Create integration tests for spot shadows (15 tests)
+- [ ] Add advanced filtering tests (15 tests)
+- [ ] Create performance benchmarks (10 tests)
+- [ ] Add debug visualization tests (10 tests)
+
+**Success Criteria:**
+- All light types (directional/point/spot) cast shadows
+- Atlas efficiently manages 8+ shadowed lights
+- Quality tiers show clear visual and performance differences
+- Performance target: <4ms GPU time for shadow rendering (HIGH tier)
+- Atlas defragmentation prevents fragmentation over time
+
+---
+
+**Risk Assessment:**
+
+**HIGH Priority Risks:**
+1. **GPU Memory Pressure**: 64MB atlas on HIGH tier (not 5.5MB as initially calculated)
+   - Mitigation: Quality tier system allows 16MB (MEDIUM) or 4MB (LOW)
+2. **WebGPU Depth Array Texture Support**: Not all devices support depth arrays
+   - Mitigation: Fallback to multiple depth textures if unavailable
+3. **No GPU Timing Infrastructure**: Can't measure <4ms target without GPU queries
+   - Mitigation: Implement GPU timing in Phase 2, estimate with CPU timers initially
+
+**MEDIUM Priority Risks:**
+1. **Cascade Tuning Complexity**: Logarithmic splits may need per-scene adjustment
+   - Mitigation: Expose cascade split params for artist tuning
+2. **Shadow Acne/Peter-Panning**: Bias values are scene-dependent
+   - Mitigation: Adaptive bias based on surface slope, configurable per light
+
+**Performance Targets:**
+- Shadow rendering: <4ms GPU time (HIGH tier, 8 shadowed lights)
+- Directional CSM: <1.5ms (3 cascades)
+- Point shadows: <2ms (4 lights × 6 faces)
+- Spot shadows: <0.5ms (4 lights)
+- Memory: 64MB max (HIGH), 16MB (MEDIUM), 4MB (LOW)
 
 ### Epic 3.18: Lighting Performance & Utilities
 **Status:** 📋 PLANNED  
