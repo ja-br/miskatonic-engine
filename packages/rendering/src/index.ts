@@ -19,6 +19,18 @@ export {
   getLightingStats,
   type LightingDemo,
 } from './lighting-demo';
+
+// Epic 3.16: Light Culling (Phase 1: CPU Frustum Culling)
+export {
+  Frustum,
+  FrustumPlane,
+  type Plane,
+  BoundingSphere,
+  BoundingBox,
+  LightCuller,
+  BatchLightCuller,
+  type LightCullingStats,
+} from './culling';
 // ShaderLoader is Node.js-only (uses fs/promises), not for browser use
 // export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';

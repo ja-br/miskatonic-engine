@@ -53,6 +53,12 @@ export interface LightData {
   /** Spot penumbra (for spot) */
   spotPenumbra?: number;
 
+  /** Inner cone angle in radians (for spot - GPU culling) */
+  innerConeAngle?: number;
+
+  /** Outer cone angle in radians (for spot - GPU culling) */
+  outerConeAngle?: number;
+
   /** Casts shadows flag */
   castsShadows: boolean;
 
