@@ -1,7 +1,7 @@
 /**
  * IRendererBackend - Epic 3.2
  *
- * Abstraction interface for WebGL2 and WebGPU rendering backends.
+ * Abstraction interface for WebGPU rendering backends.
  * Provides a unified API for command buffer execution and resource management.
  *
  * Design Philosophy:
@@ -20,6 +20,11 @@ import type {
   TextureWrap,
 } from '../types';
 import type { VRAMStats } from '../VRAMProfiler';
+import type {
+  BindGroupLayoutDescriptor,
+} from '../BindGroupDescriptors';
+import type { PipelineStateDescriptor } from '../PipelineStateDescriptor';
+import type { ShaderReflectionData } from '../ShaderReflection';
 
 /**
  * Opaque resource handles
@@ -43,6 +48,31 @@ export interface BackendTextureHandle {
 export interface BackendFramebufferHandle {
   readonly __brand: 'BackendFramebuffer';
   readonly id: string;
+}
+
+/**
+ * Epic 3.14: Bind group handle for resource bindings
+ */
+export interface BackendBindGroupHandle {
+  readonly __brand: 'BackendBindGroup';
+  readonly id: string;
+}
+
+/**
+ * Epic 3.14: Bind group layout handle
+ */
+export interface BackendBindGroupLayoutHandle {
+  readonly __brand: 'BackendBindGroupLayout';
+  readonly id: string;
+}
+
+/**
+ * Epic 3.14: Pipeline handle for render and compute pipelines
+ */
+export interface BackendPipelineHandle {
+  readonly __brand: 'BackendPipeline';
+  readonly id: string;
+  readonly type: 'render' | 'compute';
 }
 
 /**
@@ -84,9 +114,55 @@ export interface BackendConfig {
 }
 
 /**
+ * Epic 3.14: Vertex buffer layout (backend-agnostic)
+ */
+export interface VertexBufferLayout {
+  arrayStride: number;
+  stepMode: 'vertex' | 'instance';
+  attributes: Array<{
+    shaderLocation: number;
+    offset: number;
+    format: string; // e.g., 'float32x3', 'float32x4'
+  }>;
+}
+
+/**
+ * Epic 3.14: Render pipeline descriptor
+ */
+export interface RenderPipelineDescriptor {
+  label?: string;
+  shader: BackendShaderHandle;
+  vertexLayouts: VertexBufferLayout[];
+  bindGroupLayouts: BackendBindGroupLayoutHandle[];
+  pipelineState: PipelineStateDescriptor;
+  colorFormat: 'bgra8unorm' | 'rgba8unorm';
+  depthFormat?: 'depth24plus' | 'depth24plus-stencil8';
+}
+
+/**
+ * Epic 3.14: Compute pipeline descriptor
+ */
+export interface ComputePipelineDescriptor {
+  label?: string;
+  shader: BackendShaderHandle;
+  bindGroupLayouts: BackendBindGroupLayoutHandle[];
+  entryPoint?: string;
+}
+
+/**
+ * Epic 3.14: Bind group resource bindings
+ */
+export interface BindGroupResources {
+  bindings: Array<{
+    binding: number;
+    resource: BackendBufferHandle | { texture: BackendTextureHandle; sampler?: any };
+  }>;
+}
+
+/**
  * Renderer backend interface
  *
- * Implementations: WebGL2Backend, WebGPUBackend
+ * Implementations: WebGPUBackend
  */
 export interface IRendererBackend {
   /**
@@ -167,11 +243,11 @@ export interface IRendererBackend {
   deleteShader(handle: BackendShaderHandle): void;
 
   /**
-   * Create vertex or index buffer
+   * Create vertex, index, uniform, or storage buffer
    */
   createBuffer(
     id: string,
-    type: 'vertex' | 'index' | 'uniform',
+    type: 'vertex' | 'index' | 'uniform' | 'storage',
     data: ArrayBuffer | ArrayBufferView,
     usage: BufferUsage
   ): BackendBufferHandle;
@@ -255,6 +331,70 @@ export interface IRendererBackend {
    */
   deleteFramebuffer(handle: BackendFramebufferHandle): void;
 
+  // Epic 3.14: Modern Rendering API Methods
+
+  /**
+   * Create bind group layout from descriptor
+   * Defines the structure of resource bindings for a bind group
+   */
+  createBindGroupLayout(descriptor: BindGroupLayoutDescriptor): BackendBindGroupLayoutHandle;
+
+  /**
+   * Delete bind group layout
+   */
+  deleteBindGroupLayout(handle: BackendBindGroupLayoutHandle): void;
+
+  /**
+   * Create bind group with actual resource bindings
+   * Must match the layout structure
+   */
+  createBindGroup(
+    layout: BackendBindGroupLayoutHandle,
+    resources: BindGroupResources
+  ): BackendBindGroupHandle;
+
+  /**
+   * Delete bind group
+   */
+  deleteBindGroup(handle: BackendBindGroupHandle): void;
+
+  /**
+   * Create render pipeline
+   * Defines complete rendering state and shaders
+   */
+  createRenderPipeline(descriptor: RenderPipelineDescriptor): BackendPipelineHandle;
+
+  /**
+   * Create compute pipeline
+   * For GPU compute workloads (particle systems, light culling, etc.)
+   */
+  createComputePipeline(descriptor: ComputePipelineDescriptor): BackendPipelineHandle;
+
+  /**
+   * Delete pipeline (render or compute)
+   */
+  deletePipeline(handle: BackendPipelineHandle): void;
+
+  /**
+   * Create shader with automatic reflection
+   * Extracts bind group layouts and vertex attributes from shader source
+   */
+  createShaderWithReflection(
+    id: string,
+    source: ShaderSource
+  ): { handle: BackendShaderHandle; reflection: ShaderReflectionData };
+
+  /**
+   * Dispatch compute shader
+   * Executes compute workloads on the GPU
+   */
+  dispatchCompute(
+    pipeline: BackendPipelineHandle,
+    workgroupsX: number,
+    workgroupsY: number,
+    workgroupsZ: number
+  ): void;
+
   /**
    * Cleanup all resources
    */
@@ -287,4 +427,25 @@ export function isBackendTextureHandle(handle: any): handle is BackendTextureHan
  */
 export function isBackendFramebufferHandle(handle: any): handle is BackendFramebufferHandle {
   return handle && handle.__brand === 'BackendFramebuffer';
+}
+
+/**
+ * Type guard for backend bind group handles
+ */
+export function isBackendBindGroupHandle(handle: any): handle is BackendBindGroupHandle {
+  return handle && handle.__brand === 'BackendBindGroup';
+}
+
+/**
+ * Type guard for backend bind group layout handles
+ */
+export function isBackendBindGroupLayoutHandle(handle: any): handle is BackendBindGroupLayoutHandle {
+  return handle && handle.__brand === 'BackendBindGroupLayout';
+}
+
+/**
+ * Type guard for backend pipeline handles
+ */
+export function isBackendPipelineHandle(handle: any): handle is BackendPipelineHandle {
+  return handle && handle.__brand === 'BackendPipeline';
 }

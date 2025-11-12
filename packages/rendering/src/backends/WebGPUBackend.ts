@@ -16,6 +16,12 @@ import type {
   BackendBufferHandle,
   BackendTextureHandle,
   BackendFramebufferHandle,
+  BackendBindGroupLayoutHandle,
+  BackendBindGroupHandle,
+  BackendPipelineHandle,
+  RenderPipelineDescriptor,
+  ComputePipelineDescriptor,
+  BindGroupResources,
 } from './IRendererBackend';
 
 import type {
@@ -32,7 +38,9 @@ import type {
 
 import { RenderCommandType } from '../types';
 import { VRAMProfiler, VRAMCategory, type VRAMStats } from '../VRAMProfiler';
-import { GPUBufferPool, BufferUsageType, type BufferPoolStats } from '../GPUBufferPool';
+import { GPUBufferPool, BufferUsageType } from '../GPUBufferPool';
+import type { BindGroupLayoutDescriptor } from '../BindGroupDescriptors';
+import { WGSLReflectionParser, ShaderReflectionCache, type ShaderReflectionData } from '../ShaderReflection';
 
 /**
  * Uniform Buffer Pool - Epic 2.13
@@ -152,7 +160,7 @@ interface PipelineCacheEntry {
 interface WebGPUBuffer {
   id: string;
   buffer: GPUBuffer;
-  type: 'vertex' | 'index' | 'uniform';
+  type: 'vertex' | 'index' | 'uniform' | 'storage'; // Epic 3.14: Added storage
   size: number;
   pooled: boolean; // Epic 3.8: Track if buffer came from pool
   bufferUsageType?: BufferUsageType; // Epic 3.8: For releasing back to pool
@@ -191,6 +199,12 @@ export class WebGPUBackend implements IRendererBackend {
   private textures = new Map<string, WebGPUTexture>();
   private framebuffers = new Map<string, WebGPUFramebuffer>();
 
+  // Epic 3.14: Modern API resource storage
+  private bindGroupLayouts = new Map<string, GPUBindGroupLayout>();
+  private bindGroups = new Map<string, GPUBindGroup>();
+  private pipelines = new Map<string, { pipeline: GPURenderPipeline | GPUComputePipeline; type: 'render' | 'compute' }>();
+  private nextResourceId = 0;
+
   // Epic 3.13: Pipeline cache for (shader, vertexLayout) variants
   private pipelineCache = new Map<string, PipelineCacheEntry>();
 
@@ -221,6 +235,10 @@ export class WebGPUBackend implements IRendererBackend {
   private currentCommandEncoder: GPUCommandEncoder | null = null;
   private depthTexture: GPUTexture | null = null;
   private stats: RenderStats = this.createEmptyStats();
+
+  // Epic 3.14: Shader reflection system
+  private reflectionParser = new WGSLReflectionParser();
+  private reflectionCache = new ShaderReflectionCache();
 
   constructor() {
     // Initialize VRAM profiler with 256MB budget (typical for integrated GPUs)
@@ -275,7 +293,7 @@ export class WebGPUBackend implements IRendererBackend {
         device: this.device,
         format: this.preferredFormat,
         alphaMode: config.alpha ? 'premultiplied' : 'opaque',
-        presentMode: 'fifo', // V-Sync: cap at monitor refresh rate (e.g., 144Hz)
+        // Note: presentMode removed as it's not in the stable WebGPU spec
       });
 
       // Create depth texture
@@ -366,8 +384,6 @@ export class WebGPUBackend implements IRendererBackend {
       return;
     }
 
-    const tStart = performance.now();
-
     // If no render pass was created (no draw commands), create one just to clear the screen
     if (!this.currentRenderPass) {
       const tSwapStart = performance.now();
@@ -404,7 +420,6 @@ export class WebGPUBackend implements IRendererBackend {
     }
 
     // End any active render pass
-    const tPassEnd = performance.now();
     if (this.currentRenderPass) {
       this.currentRenderPass.end();
       this.currentRenderPass = null;
@@ -795,7 +810,7 @@ export class WebGPUBackend implements IRendererBackend {
 
   createBuffer(
     id: string,
-    type: 'vertex' | 'index' | 'uniform',
+    type: 'vertex' | 'index' | 'uniform' | 'storage',
     data: ArrayBuffer | ArrayBufferView,
     _usage: BufferUsage
   ): BackendBufferHandle {
@@ -808,6 +823,7 @@ export class WebGPUBackend implements IRendererBackend {
     // Epic 2.13: Track VRAM allocation before creating buffer
     const category = type === 'vertex' ? VRAMCategory.VERTEX_BUFFERS
                    : type === 'index' ? VRAMCategory.INDEX_BUFFERS
+                   : type === 'storage' ? VRAMCategory.STORAGE_BUFFERS
                    : VRAMCategory.UNIFORM_BUFFERS;
 
     // Epic 3.8: Use GPUBufferPool for vertex/index buffers
@@ -828,12 +844,14 @@ export class WebGPUBackend implements IRendererBackend {
         throw new Error(`VRAM budget exceeded: cannot allocate ${bucketSize} bytes for ${id}`);
       }
     } else {
-      // Direct allocation for uniform buffers (they have their own pool)
+      // Direct allocation for uniform and storage buffers
       if (!this.vramProfiler.allocate(id, category, dataArray.byteLength)) {
         throw new Error(`VRAM budget exceeded: cannot allocate ${dataArray.byteLength} bytes for ${id}`);
       }
 
-      const gpuUsage = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+      const gpuUsage = type === 'uniform'
+        ? GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        : GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
       buffer = this.device.createBuffer({
         label: `Buffer: ${id}`,
         size: dataArray.byteLength,
@@ -1058,6 +1076,362 @@ export class WebGPUBackend implements IRendererBackend {
     this.framebuffers.delete(handle.id);
   }
 
+  // Epic 3.14: Modern Rendering API Implementation
+
+  /**
+   * Create bind group layout from descriptor
+   */
+  createBindGroupLayout(descriptor: BindGroupLayoutDescriptor): BackendBindGroupLayoutHandle {
+    if (!this.device) {
+      throw new Error('WebGPU backend not initialized');
+    }
+
+    const id = `bindGroupLayout_${this.nextResourceId++}`;
+
+    // Convert our descriptor to WebGPU bind group layout entries
+    const entries: GPUBindGroupLayoutEntry[] = descriptor.entries.map(entry => {
+      const gpuEntry: GPUBindGroupLayoutEntry = {
+        binding: entry.binding,
+        visibility: this.convertVisibilityFlags(entry.visibility),
+        ...this.convertBindingType(entry.type),
+      };
+      return gpuEntry;
+    });
+
+    const layout = this.device.createBindGroupLayout({
+      label: `BindGroupLayout: ${id}`,
+      entries,
+    });
+
+    this.bindGroupLayouts.set(id, layout);
+    return { __brand: 'BackendBindGroupLayout', id } as BackendBindGroupLayoutHandle;
+  }
+
+  /**
+   * Delete bind group layout
+   */
+  deleteBindGroupLayout(handle: BackendBindGroupLayoutHandle): void {
+    this.bindGroupLayouts.delete(handle.id);
+  }
+
+  /**
+   * Create bind group with resource bindings
+   */
+  createBindGroup(
+    layout: BackendBindGroupLayoutHandle,
+    resources: BindGroupResources
+  ): BackendBindGroupHandle {
+    if (!this.device) {
+      throw new Error('WebGPU backend not initialized');
+    }
+
+    const gpuLayout = this.bindGroupLayouts.get(layout.id);
+    if (!gpuLayout) {
+      throw new Error(`Bind group layout ${layout.id} not found`);
+    }
+
+    const id = `bindGroup_${this.nextResourceId++}`;
+
+    // Convert resources to WebGPU bind group entries
+    const entries: GPUBindGroupEntry[] = resources.bindings.map(binding => {
+      if ('__brand' in binding.resource && binding.resource.__brand === 'BackendBuffer') {
+        const bufferHandle = binding.resource as BackendBufferHandle;
+        const bufferData = this.buffers.get(bufferHandle.id);
+        if (!bufferData) {
+          throw new Error(`Buffer ${bufferHandle.id} not found`);
+        }
+        return {
+          binding: binding.binding,
+          resource: { buffer: bufferData.buffer },
+        };
+      } else {
+        // Texture binding
+        const textureBinding = binding.resource as { texture: BackendTextureHandle; sampler?: any };
+        const textureData = this.textures.get(textureBinding.texture.id);
+        if (!textureData) {
+          throw new Error(`Texture ${textureBinding.texture.id} not found`);
+        }
+        return {
+          binding: binding.binding,
+          resource: textureData.view,
+        };
+      }
+    });
+
+    const bindGroup = this.device.createBindGroup({
+      label: `BindGroup: ${id}`,
+      layout: gpuLayout,
+      entries,
+    });
+
+    this.bindGroups.set(id, bindGroup);
+    return { __brand: 'BackendBindGroup', id } as BackendBindGroupHandle;
+  }
+
+  /**
+   * Delete bind group
+   */
+  deleteBindGroup(handle: BackendBindGroupHandle): void {
+    this.bindGroups.delete(handle.id);
+  }
+
+  /**
+   * Create render pipeline
+   */
+  createRenderPipeline(descriptor: RenderPipelineDescriptor): BackendPipelineHandle {
+    if (!this.device) {
+      throw new Error('WebGPU backend not initialized');
+    }
+
+    const id = `pipeline_${this.nextResourceId++}`;
+
+    // Get shader
+    const shader = this.shaders.get(descriptor.shader.id);
+    if (!shader) {
+      throw new Error(`Shader ${descriptor.shader.id} not found`);
+    }
+
+    // Get bind group layouts
+    const bindGroupLayouts = descriptor.bindGroupLayouts.map(handle => {
+      const layout = this.bindGroupLayouts.get(handle.id);
+      if (!layout) {
+        throw new Error(`Bind group layout ${handle.id} not found`);
+      }
+      return layout;
+    });
+
+    // Create pipeline layout
+    const pipelineLayout = this.device.createPipelineLayout({
+      label: `PipelineLayout: ${id}`,
+      bindGroupLayouts,
+    });
+
+    // Convert pipeline state to WebGPU
+    const primitiveState: GPUPrimitiveState = {
+      topology: descriptor.pipelineState.topology,
+      cullMode: descriptor.pipelineState.rasterization?.cullMode || 'back',
+      frontFace: descriptor.pipelineState.rasterization?.frontFace || 'ccw',
+    };
+
+    const depthStencilState: GPUDepthStencilState | undefined = descriptor.depthFormat ? {
+      format: descriptor.depthFormat,
+      depthWriteEnabled: descriptor.pipelineState.depthStencil?.depthWriteEnabled ?? true,
+      depthCompare: descriptor.pipelineState.depthStencil?.depthCompare || 'less',
+    } : undefined;
+
+    // Convert vertex layouts to WebGPU format
+    const gpuVertexLayouts: GPUVertexBufferLayout[] = descriptor.vertexLayouts.map(layout => ({
+      arrayStride: layout.arrayStride,
+      stepMode: layout.stepMode,
+      attributes: layout.attributes.map(attr => ({
+        shaderLocation: attr.shaderLocation,
+        offset: attr.offset,
+        format: attr.format as GPUVertexFormat,
+      })),
+    }));
+
+    // Create render pipeline
+    const pipeline = this.device.createRenderPipeline({
+      label: descriptor.label || `RenderPipeline: ${id}`,
+      layout: pipelineLayout,
+      vertex: {
+        module: shader.shaderModule,
+        entryPoint: 'vs_main',
+        buffers: gpuVertexLayouts,
+      },
+      fragment: {
+        module: shader.shaderModule,
+        entryPoint: 'fs_main',
+        targets: [{
+          format: descriptor.colorFormat,
+          blend: descriptor.pipelineState.blend?.enabled ? {
+            color: {
+              srcFactor: descriptor.pipelineState.blend.srcFactor,
+              dstFactor: descriptor.pipelineState.blend.dstFactor,
+              operation: descriptor.pipelineState.blend.operation,
+            },
+            alpha: {
+              srcFactor: descriptor.pipelineState.blend.srcAlphaFactor || descriptor.pipelineState.blend.srcFactor,
+              dstFactor: descriptor.pipelineState.blend.dstAlphaFactor || descriptor.pipelineState.blend.dstFactor,
+              operation: descriptor.pipelineState.blend.alphaOperation || descriptor.pipelineState.blend.operation,
+            },
+          } : undefined,
+        }],
+      },
+      primitive: primitiveState,
+      depthStencil: depthStencilState,
+    });
+
+    this.pipelines.set(id, { pipeline, type: 'render' });
+    return { __brand: 'BackendPipeline', id, type: 'render' } as BackendPipelineHandle;
+  }
+
+  /**
+   * Create compute pipeline
+   */
+  createComputePipeline(descriptor: ComputePipelineDescriptor): BackendPipelineHandle {
+    if (!this.device) {
+      throw new Error('WebGPU backend not initialized');
+    }
+
+    const id = `pipeline_${this.nextResourceId++}`;
+
+    // Get shader
+    const shader = this.shaders.get(descriptor.shader.id);
+    if (!shader) {
+      throw new Error(`Shader ${descriptor.shader.id} not found`);
+    }
+
+    // Get bind group layouts
+    const bindGroupLayouts = descriptor.bindGroupLayouts.map(handle => {
+      const layout = this.bindGroupLayouts.get(handle.id);
+      if (!layout) {
+        throw new Error(`Bind group layout ${handle.id} not found`);
+      }
+      return layout;
+    });
+
+    // Create pipeline layout
+    const pipelineLayout = this.device.createPipelineLayout({
+      label: `ComputePipelineLayout: ${id}`,
+      bindGroupLayouts,
+    });
+
+    // Create compute pipeline
+    const pipeline = this.device.createComputePipeline({
+      label: descriptor.label || `ComputePipeline: ${id}`,
+      layout: pipelineLayout,
+      compute: {
+        module: shader.shaderModule,
+        entryPoint: descriptor.entryPoint || 'compute_main',
+      },
+    });
+
+    this.pipelines.set(id, { pipeline, type: 'compute' });
+    return { __brand: 'BackendPipeline', id, type: 'compute' } as BackendPipelineHandle;
+  }
+
+  /**
+   * Delete pipeline
+   */
+  deletePipeline(handle: BackendPipelineHandle): void {
+    this.pipelines.delete(handle.id);
+  }
+
+  /**
+   * Create shader with automatic reflection
+   */
+  createShaderWithReflection(
+    id: string,
+    source: ShaderSource
+  ): { handle: BackendShaderHandle; reflection: ShaderReflectionData } {
+    if (!this.device) {
+      throw new Error('WebGPU backend not initialized');
+    }
+
+    // Parse shader to extract reflection data
+    const reflection = this.reflectionCache.getOrCompute(source.vertex, this.reflectionParser);
+
+    // Create shader module
+    const shaderModule = this.device.createShaderModule({
+      label: `Shader: ${id}`,
+      code: source.vertex, // Assuming combined WGSL shader
+    });
+
+    // For compatibility with old API, create a default bind group layout
+    // In new API, this is created separately via createBindGroupLayout
+    const bindGroupLayout = this.device.createBindGroupLayout({
+      label: `BindGroupLayout: ${id}`,
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: 'uniform' },
+        },
+      ],
+    });
+
+    const shader: WebGPUShader = { id, shaderModule, bindGroupLayout };
+    this.shaders.set(id, shader);
+
+    return {
+      handle: { __brand: 'BackendShader', id } as BackendShaderHandle,
+      reflection,
+    };
+  }
+
+  /**
+   * Dispatch compute shader
+   */
+  dispatchCompute(
+    pipeline: BackendPipelineHandle,
+    workgroupsX: number,
+    workgroupsY: number,
+    workgroupsZ: number
+  ): void {
+    if (!this.device || !this.currentCommandEncoder) {
+      throw new Error('Cannot dispatch compute: no active command encoder');
+    }
+
+    if (pipeline.type !== 'compute') {
+      throw new Error('Pipeline is not a compute pipeline');
+    }
+
+    const pipelineData = this.pipelines.get(pipeline.id);
+    if (!pipelineData) {
+      throw new Error(`Pipeline ${pipeline.id} not found`);
+    }
+
+    // Create compute pass
+    const computePass = this.currentCommandEncoder.beginComputePass({
+      label: 'Compute Pass',
+    });
+
+    computePass.setPipeline(pipelineData.pipeline as GPUComputePipeline);
+    computePass.dispatchWorkgroups(workgroupsX, workgroupsY, workgroupsZ);
+    computePass.end();
+
+    // Update stats
+    this.stats.drawCalls++; // Count compute dispatches as "draw calls"
+  }
+
+  /**
+   * Helper: Convert visibility flags to WebGPU shader stage flags
+   */
+  private convertVisibilityFlags(stages: ('vertex' | 'fragment' | 'compute')[]): GPUShaderStageFlags {
+    let flags: GPUShaderStageFlags = 0;
+    for (const stage of stages) {
+      switch (stage) {
+        case 'vertex':
+          flags |= GPUShaderStage.VERTEX;
+          break;
+        case 'fragment':
+          flags |= GPUShaderStage.FRAGMENT;
+          break;
+        case 'compute':
+          flags |= GPUShaderStage.COMPUTE;
+          break;
+      }
+    }
+    return flags;
+  }
+
+  /**
+   * Helper: Convert binding type to WebGPU layout entry
+   */
+  private convertBindingType(type: 'uniform' | 'storage' | 'sampler' | 'texture'): Partial<GPUBindGroupLayoutEntry> {
+    switch (type) {
+      case 'uniform':
+        return { buffer: { type: 'uniform' } };
+      case 'storage':
+        return { buffer: { type: 'storage' } };
+      case 'sampler':
+        return { sampler: { type: 'filtering' } };
+      case 'texture':
+        return { texture: { sampleType: 'float' } };
+    }
+  }
+
   dispose(): void {
     // Destroy all GPU resources
     for (const buffer of this.buffers.values()) {
@@ -1072,6 +1446,12 @@ export class WebGPUBackend implements IRendererBackend {
 
     this.shaders.clear();
     this.framebuffers.clear();
+
+    // Epic 3.14: Clean up modern API resources
+    this.bindGroupLayouts.clear();
+    this.bindGroups.clear();
+    this.pipelines.clear();
+    this.reflectionCache.clear();
 
     // Clean up timestamp query resources
     if (this.timestampQuerySet) {

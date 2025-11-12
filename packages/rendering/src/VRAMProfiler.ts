@@ -15,6 +15,7 @@ export enum VRAMCategory {
   VERTEX_BUFFERS = 'vertex_buffers',
   INDEX_BUFFERS = 'index_buffers',
   UNIFORM_BUFFERS = 'uniform_buffers',
+  STORAGE_BUFFERS = 'storage_buffers', // Epic 3.14: Storage buffers for large data arrays
   RENDER_TARGETS = 'render_targets',
   OTHER = 'other',
 }
@@ -24,6 +25,7 @@ export interface VRAMBudget {
   vertexBuffers: number;
   indexBuffers: number;
   uniformBuffers: number;
+  storageBuffers: number; // Epic 3.14
   renderTargets: number;
   other: number;
   total: number;
@@ -77,12 +79,13 @@ export class VRAMProfiler {
 
   constructor(totalBudget: number = 256 * 1024 * 1024) { // 256MB default
     this.budget = {
-      textures: totalBudget * 0.50,        // 128MB
-      vertexBuffers: totalBudget * 0.25,   // 64MB
-      indexBuffers: totalBudget * 0.125,   // 32MB
-      renderTargets: totalBudget * 0.094,  // 24MB
-      uniformBuffers: totalBudget * 0.016, // 4MB
-      other: totalBudget * 0.016,          // 4MB
+      textures: totalBudget * 0.45,        // 115MB
+      vertexBuffers: totalBudget * 0.20,   // 51MB
+      indexBuffers: totalBudget * 0.10,    // 26MB
+      storageBuffers: totalBudget * 0.15,  // 38MB (Epic 3.14: for multi-light data)
+      renderTargets: totalBudget * 0.07,   // 18MB
+      uniformBuffers: totalBudget * 0.015, // 4MB
+      other: totalBudget * 0.015,          // 4MB
       total: totalBudget,
     };
   }
@@ -194,6 +197,8 @@ export class VRAMProfiler {
         return this.budget.indexBuffers;
       case VRAMCategory.UNIFORM_BUFFERS:
         return this.budget.uniformBuffers;
+      case VRAMCategory.STORAGE_BUFFERS:
+        return this.budget.storageBuffers;
       case VRAMCategory.RENDER_TARGETS:
         return this.budget.renderTargets;
       case VRAMCategory.OTHER:
