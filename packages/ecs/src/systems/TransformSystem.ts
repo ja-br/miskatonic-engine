@@ -38,6 +38,12 @@ export class TransformSystem implements System {
   private world: World;
   private matrixStorage: MatrixStorage;
 
+  /**
+   * Normal matrices for lighting calculations
+   * Maps entity ID to normal matrix (12 floats in WebGPU layout)
+   */
+  private normalMatrices: Map<EntityId, Float32Array> = new Map();
+
   constructor(world: World, initialCapacity: number = 1024) {
     this.world = world;
     this.matrixStorage = new MatrixStorage(initialCapacity);
@@ -82,7 +88,7 @@ export class TransformSystem implements System {
 
   /**
    * Cleanup the system (called on shutdown)
-   * Frees all matrix indices
+   * Frees all matrix indices and clears normal matrices
    */
   destroy(): void {
     const query = this.world.query().with(Transform as ComponentType<Transform>).build();
@@ -107,6 +113,7 @@ export class TransformSystem implements System {
     }
 
     this.matrixStorage.clear();
+    this.normalMatrices.clear();
   }
 
   /**
@@ -238,11 +245,19 @@ export class TransformSystem implements System {
       }
     }
 
-    // 3. Mark clean
+    // 3. Mark normal matrix as needing recomputation (if it exists)
+    // Normal matrices are computed lazily in getNormalMatrix() to avoid wasting CPU
+    if (this.normalMatrices.has(entityId)) {
+      // Invalidate cached normal matrix by deleting it
+      // It will be recomputed on next getNormalMatrix() call
+      this.normalMatrices.delete(entityId);
+    }
+
+    // 4. Mark clean
     transform.dirty = 0;
     // Note: Caller is responsible for writing back transform
 
-    // 4. Dirty all children (their world matrices need recalculation)
+    // 5. Dirty all children (their world matrices need recalculation)
     // Walk linked list of children
     let childId = transform.firstChildId;
     while (childId !== -1) {
@@ -537,6 +552,52 @@ export class TransformSystem implements System {
   }
 
   /**
+   * Get normal matrix for entity (ensures up to date)
+   *
+   * The normal matrix is the inverse-transpose of the world matrix's upper-left 3x3.
+   * It correctly transforms normals even in the presence of non-uniform scaling.
+   *
+   * LAZY COMPUTATION: Normal matrices are only computed when requested via this method.
+   * This avoids wasting CPU cycles on entities that don't need lighting calculations.
+   *
+   * @param entityId - Entity to get normal matrix for
+   * @returns Normal matrix (12 floats in WebGPU std140 layout) or undefined if entity has no Transform
+   */
+  getNormalMatrix(entityId: EntityId): Float32Array | undefined {
+    const transform = this.world.getComponent(entityId, Transform as ComponentType<Transform>) as TransformData | undefined;
+    if (!transform) return undefined;
+
+    // Update transform if dirty (ensures world matrix is current)
+    if (transform.dirty === 1) {
+      this.updateTransform(this.world, entityId, transform);
+      this.world.setComponent(entityId, Transform as ComponentType<Transform>, transform);
+    }
+
+    // Check if we have a cached normal matrix
+    let normalMatrix = this.normalMatrices.get(entityId);
+    if (normalMatrix) {
+      return normalMatrix; // Cache hit
+    }
+
+    // Cache miss - compute normal matrix from world matrix
+    normalMatrix = new Float32Array(12); // 3 vec4s for WebGPU std140
+    const worldMatrix = this.matrixStorage.getWorldMatrix(transform.worldMatrixIndex);
+
+    const computedNormal = Mat4.computeNormalMatrix(worldMatrix, normalMatrix);
+    if (!computedNormal) {
+      console.warn(`Failed to compute normal matrix for entity ${entityId} (singular matrix / degenerate scale)`);
+      // Set to identity as fallback
+      normalMatrix[0] = 1; normalMatrix[1] = 0; normalMatrix[2] = 0; normalMatrix[3] = 0;
+      normalMatrix[4] = 0; normalMatrix[5] = 1; normalMatrix[6] = 0; normalMatrix[7] = 0;
+      normalMatrix[8] = 0; normalMatrix[9] = 0; normalMatrix[10] = 1; normalMatrix[11] = 0;
+    }
+
+    // Cache for future calls
+    this.normalMatrices.set(entityId, normalMatrix);
+    return normalMatrix;
+  }
+
+  /**
    * Force update a specific transform (bypass dirty flag)
    * Useful for debugging or when you need immediate update
    */
@@ -630,6 +691,9 @@ export class TransformSystem implements System {
       this.matrixStorage.free(transform.worldMatrixIndex);
       transform.worldMatrixIndex = -1;
     }
+
+    // Remove normal matrix
+    this.normalMatrices.delete(entityId);
 
     // Remove from parent's linked list
     if (transform.parentId !== -1) {

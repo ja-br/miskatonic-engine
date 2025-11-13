@@ -109,6 +109,53 @@ export class Transform implements Component {
     this.scaleY = scaleY;
     this.scaleZ = scaleZ;
   }
+
+  /**
+   * Set scale uniformly on all axes
+   */
+  setScale(scale: number): void;
+  /**
+   * Set scale on individual axes
+   */
+  setScale(x: number, y: number, z: number): void;
+  setScale(xOrUniform: number, y?: number, z?: number): void {
+    if (y === undefined || z === undefined) {
+      // Uniform scale
+      this.scaleX = xOrUniform;
+      this.scaleY = xOrUniform;
+      this.scaleZ = xOrUniform;
+    } else {
+      // Non-uniform scale
+      this.scaleX = xOrUniform;
+      this.scaleY = y;
+      this.scaleZ = z;
+    }
+    this.dirty = 1;
+  }
+
+  /**
+   * Get scale as [x, y, z] array
+   */
+  getScale(): [number, number, number] {
+    return [this.scaleX, this.scaleY, this.scaleZ];
+  }
+
+  /**
+   * Check if scale is uniform (all axes equal within epsilon)
+   */
+  isUniformScale(epsilon: number = 0.000001): boolean {
+    return Math.abs(this.scaleX - this.scaleY) < epsilon &&
+           Math.abs(this.scaleY - this.scaleZ) < epsilon;
+  }
+
+  /**
+   * Check for degenerate scale (any axis near zero)
+   */
+  hasDegenerateScale(epsilon: number = 0.000001): boolean {
+    return Math.abs(this.scaleX) < epsilon ||
+           Math.abs(this.scaleY) < epsilon ||
+           Math.abs(this.scaleZ) < epsilon;
+  }
 }
 
 /**

@@ -74,7 +74,7 @@ Miskatonic Engine is a comprehensive desktop game engine built on Electron, desi
 
 | Feature | Description | Success Criteria |
 |---------|-------------|------------------|
-| Physics Engines | Support for Rapier, Cannon-es, Box2D | Hot-swappable backends |
+| Physics Engines | Support for Rapier |
 | Deterministic Simulation | Reproducible physics for competitive games | 100% consistency across clients |
 | Continuous Collision | Prevents tunneling at high speeds | No missed collisions |
 | Compound Colliders | Complex collision shapes | 10+ primitive types |

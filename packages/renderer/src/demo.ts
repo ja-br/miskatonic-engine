@@ -12,6 +12,8 @@ import {
   createCube,
   createSphere,
   OPAQUE_PIPELINE_STATE,
+  InstanceBuffer,
+  InstanceBufferManager,
   type DrawCommand,
   type IRendererBackend,
   type BackendShaderHandle,
@@ -38,6 +40,7 @@ export class Demo {
   private static readonly MAX_DICE_LIMIT = 5000; // Hard cap for GPU memory safety (conservative for integrated GPUs)
   private static readonly WEBGPU_UNIFORM_ALIGNMENT = 256; // WebGPU requires 256-byte uniform buffer alignment
   private static readonly UNIFORM_FLOATS = 64; // 256 bytes / 4 bytes per float
+  private static readonly INSTANCE_FLOATS_PER_DIE = 20; // mat4 (16 floats) + vec4 color (4 floats) = 80 bytes
 
   private canvas: HTMLCanvasElement;
   private backend: IRendererBackend | null = null;
@@ -61,14 +64,23 @@ export class Demo {
   // Epic 3.14: Resource handles (no RenderQueue)
   private cubeShader!: BackendShaderHandle;
   private sphereShader!: BackendShaderHandle;
+  private cubeShaderInstanced!: BackendShaderHandle;
+  private sphereShaderInstanced!: BackendShaderHandle;
   private bindGroupLayout!: BackendBindGroupLayoutHandle;
   private cubePipeline!: BackendPipelineHandle;
   private spherePipeline!: BackendPipelineHandle;
+  private cubePipelineInstanced!: BackendPipelineHandle;
+  private spherePipelineInstanced!: BackendPipelineHandle;
 
   // Dynamic resource allocation: uniform buffers and bind groups allocated on-demand
   private perObjectUniformBuffers: Map<number, BackendBufferHandle> = new Map();
   private perObjectBindGroups: Map<number, BackendBindGroupHandle> = new Map();
   private maxDiceCount: number = 0; // Current resource pool size (grows dynamically, capped at MAX_DICE_LIMIT)
+
+  // GPU instancing infrastructure
+  private instanceBufferManager!: InstanceBufferManager;
+  private cubeInstanceBuffer: InstanceBuffer | null = null;
+  private sphereInstanceBuffer: InstanceBuffer | null = null;
 
   // Rendering resources
   private cubeVertexBuffer!: BackendBufferHandle;
@@ -80,6 +92,8 @@ export class Demo {
 
   // Stats tracking
   private lastDrawCallCount: number = 0;
+  private lastInstanceGroupCount: number = 0;
+  private lastInstancedObjectCount: number = 0;
 
   // Physics
   private physicsWorld: PhysicsWorld | null = null;
@@ -143,6 +157,9 @@ export class Demo {
       });
       console.log(`Using backend: ${this.backend.name}`);
 
+      // Initialize instance buffer manager for GPU instancing
+      this.instanceBufferManager = new InstanceBufferManager(this.backend);
+
       // CRITICAL: Sync backend depth buffer with current canvas size
       this.backend.resize(this.canvas.width, this.canvas.height);
 
@@ -192,8 +209,9 @@ export class Demo {
     // Epic 3.14: Load WGSL shaders and create pipelines
     console.log('Loading WGSL shaders for WebGPU backend');
     const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
+    const wgslSourceInstanced = await import('./shaders/basic-lighting_instanced.wgsl?raw').then(m => m.default);
 
-    // Create shader handles
+    // Create shader handles (non-instanced)
     this.cubeShader = this.backend.createShader('cube-shader', {
       vertex: wgslSource,
       fragment: wgslSource,
@@ -203,7 +221,17 @@ export class Demo {
       fragment: wgslSource,
     });
 
-    console.log('WGSL shaders compiled successfully');
+    // Create shader handles (instanced)
+    this.cubeShaderInstanced = this.backend.createShader('cube-shader-instanced', {
+      vertex: wgslSourceInstanced,
+      fragment: wgslSourceInstanced,
+    });
+    this.sphereShaderInstanced = this.backend.createShader('sphere-shader-instanced', {
+      vertex: wgslSourceInstanced,
+      fragment: wgslSourceInstanced,
+    });
+
+    console.log('WGSL shaders compiled successfully (both standard and instanced)');
 
     // Epic 3.14: Create bind group layout
     // Shader uses @group(0) @binding(0) for Uniforms struct
@@ -254,7 +282,74 @@ export class Demo {
       depthFormat: 'depth24plus',
     });
 
-    console.log('Render pipelines created successfully');
+    // Create instanced render pipelines
+    // Vertex layout 0: per-vertex data (position + normal)
+    // Vertex layout 1: per-instance data (mat4 transform + vec4 color)
+    this.cubePipelineInstanced = this.backend.createRenderPipeline({
+      label: 'cube-pipeline-instanced',
+      shader: this.cubeShaderInstanced,
+      vertexLayouts: [
+        // Layout 0: per-vertex (position + normal)
+        {
+          arrayStride: 24, // 6 floats (position + normal)
+          stepMode: 'vertex',
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
+            { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+          ],
+        },
+        // Layout 1: per-instance (mat4 transform + vec4 color)
+        {
+          arrayStride: 80, // 20 floats (16 for mat4 + 4 for vec4 color)
+          stepMode: 'instance',
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: 'float32x4' },  // transform row 0
+            { shaderLocation: 3, offset: 16, format: 'float32x4' }, // transform row 1
+            { shaderLocation: 4, offset: 32, format: 'float32x4' }, // transform row 2
+            { shaderLocation: 5, offset: 48, format: 'float32x4' }, // transform row 3
+            { shaderLocation: 6, offset: 64, format: 'float32x4' }, // color
+          ],
+        },
+      ],
+      bindGroupLayouts: [this.bindGroupLayout],
+      pipelineState: OPAQUE_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth24plus',
+    });
+
+    this.spherePipelineInstanced = this.backend.createRenderPipeline({
+      label: 'sphere-pipeline-instanced',
+      shader: this.sphereShaderInstanced,
+      vertexLayouts: [
+        // Layout 0: per-vertex (position + normal)
+        {
+          arrayStride: 24,
+          stepMode: 'vertex',
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+          ],
+        },
+        // Layout 1: per-instance (mat4 transform + vec4 color)
+        {
+          arrayStride: 80,
+          stepMode: 'instance',
+          attributes: [
+            { shaderLocation: 2, offset: 0, format: 'float32x4' },
+            { shaderLocation: 3, offset: 16, format: 'float32x4' },
+            { shaderLocation: 4, offset: 32, format: 'float32x4' },
+            { shaderLocation: 5, offset: 48, format: 'float32x4' },
+            { shaderLocation: 6, offset: 64, format: 'float32x4' },
+          ],
+        },
+      ],
+      bindGroupLayouts: [this.bindGroupLayout],
+      pipelineState: OPAQUE_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth24plus',
+    });
+
+    console.log('Render pipelines created successfully (both standard and instanced)');
     console.log('Resources will be allocated dynamically as needed');
   }
 
@@ -783,123 +878,192 @@ export class Demo {
     };
 
     let drawCallCount = 0;
+    let instancedObjectCount = 0;
+    let instanceGroupCount = 0;
 
-    // Render all dice using ECS query
+    // Render all dice using GPU instancing
     const diceEntities = this.world.executeQuery(this.diceQuery!);
     const tDiceLoopStart = performance.now();
 
     if (this.physicsWorld && diceEntities.length > 0) {
-      let diceIndex = 0;
+      // Group dice by mesh type (cube vs sphere)
+      const cubeInstances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }> = [];
+      const sphereInstances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }> = [];
+
       for (const { entity, components } of diceEntities) {
         const transform = components.get(Transform);
         const diceEntity = components.get(DiceEntity);
 
         if (!transform || !diceEntity) continue;
 
-        // Use cached rotation from sync loop
-        const rotation = this.rotationCache.get(entity);
-        if (!rotation) continue;
-
-        let position;
-        try {
-          position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
-          if (!position) continue;
-        } catch (e) {
-          continue;
-        }
-
-        // Acquire matrices from pool
-        const modelMatrix = this.matrixPool.acquire();
-        const mvpMatrix = this.matrixPool.acquire();
-
-        // Get scale from Transform component
-        const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
-
-        this.createModelMatrix(modelMatrix, position, rotation, scale);
-        this.multiplyMatrices(mvpMatrix, viewProjMatrix, modelMatrix);
-
         // Use cube mesh for D6, sphere for everything else
         const useCube = diceEntity.sides === 6;
-        const pipeline = useCube ? this.cubePipeline : this.spherePipeline;
-        const vertexBuffer = useCube ? this.cubeVertexBuffer : this.sphereVertexBuffer;
-        const indexBuffer = useCube ? this.cubeIndexBuffer : this.sphereIndexBuffer;
-        const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
-
-        // Calculate color with depth-based darkening
-        const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
-        const [r, g, b] = getDieColor(diceEntity.sides);
-        const brightness = 0.7 + depth * 0.3;
-
-        // Pack uniform data with WebGPU alignment
-        // Uniforms: mvp (64), model (64), normalMatrix (48), lightDir (16), cameraPos (16), baseColor (16) = 224 bytes
-        // Padded to 256 bytes for WebGPU
-        const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
-
-        // MVP matrix (16 floats, offset 0)
-        uniformData.set(mvpMatrix, 0);
-
-        // Model matrix (16 floats, offset 16)
-        uniformData.set(modelMatrix, 16);
-
-        // Normal matrix (mat3 = 12 floats in 3 vec4s, offset 32)
-        // Compute directly from model matrix (inverse-transpose for correct normal transformation)
-        const normalMatrixTemp = new Float32Array(12);
-        const computedNormal = Mat4.computeNormalMatrix(modelMatrix, normalMatrixTemp);
-        if (computedNormal) {
-          uniformData.set(normalMatrixTemp, 32);
+        if (useCube) {
+          cubeInstances.push({ entity, transform, diceEntity });
         } else {
-          // Fallback to identity if computation fails (degenerate scale)
-          uniformData[32] = 1; uniformData[33] = 0; uniformData[34] = 0; uniformData[35] = 0;
-          uniformData[36] = 0; uniformData[37] = 1; uniformData[38] = 0; uniformData[39] = 0;
-          uniformData[40] = 0; uniformData[41] = 0; uniformData[42] = 1; uniformData[43] = 0;
+          sphereInstances.push({ entity, transform, diceEntity });
+        }
+      }
+
+      // Process cube instances
+      if (cubeInstances.length > 0) {
+        // Create or resize instance buffer
+        if (!this.cubeInstanceBuffer || this.cubeInstanceBuffer.getCapacity() < cubeInstances.length) {
+          this.cubeInstanceBuffer = new InstanceBuffer(Math.max(cubeInstances.length, 64));
+        }
+        this.cubeInstanceBuffer.clear();
+
+        // Build instance data
+        for (let i = 0; i < cubeInstances.length; i++) {
+          const { entity, transform, diceEntity } = cubeInstances[i];
+
+          // Use cached rotation from sync loop
+          const rotation = this.rotationCache.get(entity);
+          if (!rotation) continue;
+
+          let position;
+          try {
+            position = this.physicsWorld!.getPosition(diceEntity.bodyHandle);
+            if (!position) continue;
+          } catch (e) {
+            continue;
+          }
+
+          // Build model matrix
+          const modelMatrix = this.matrixPool.acquire();
+          const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
+          this.createModelMatrix(modelMatrix, position, rotation, scale);
+
+          // Calculate color with depth-based darkening
+          const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
+          const [r, g, b] = getDieColor(diceEntity.sides);
+          const brightness = 0.7 + depth * 0.3;
+
+          // Set instance transform and color
+          this.cubeInstanceBuffer.setInstanceTransform(i, modelMatrix);
+          this.cubeInstanceBuffer.setInstanceColor(i, r * brightness, g * brightness, b * brightness, 1.0);
+
+          instancedObjectCount++;
         }
 
-        // Light direction (vec3 + padding, offset 44)
-        uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0;
+        // Upload instance buffer to GPU
+        const cubeGPUBuffer = this.instanceBufferManager.upload(this.cubeInstanceBuffer);
 
-        // Camera position (vec3 + padding, offset 48)
-        uniformData[48] = cameraTransform.x;
-        uniformData[49] = cameraTransform.y;
-        uniformData[50] = cameraTransform.z;
-        uniformData[51] = 0.0;
+        // Create uniform buffer with viewProj matrix and lighting (no per-object model matrix)
+        const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
+        uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
+        // Model matrix (offset 16) is UNUSED in instanced shader
+        // Normal matrix (offset 32) is UNUSED in instanced shader
+        uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
+        uniformData[48] = cameraTransform.x; uniformData[49] = cameraTransform.y; uniformData[50] = cameraTransform.z; uniformData[51] = 0.0; // camera pos
+        // Base color (offset 52) is UNUSED in instanced shader (uses instance color)
 
-        // Base color (vec3 + padding, offset 52)
-        uniformData[52] = r * brightness;
-        uniformData[53] = g * brightness;
-        uniformData[54] = b * brightness;
-        uniformData[55] = 0.0;
+        const cubeUniformBuffer = this.perObjectUniformBuffers.get(0);
+        const cubeBindGroup = this.perObjectBindGroups.get(0);
 
-        // Get resources with null safety
-        const buffer = this.perObjectUniformBuffers.get(diceIndex);
-        const bindGroup = this.perObjectBindGroups.get(diceIndex);
+        if (cubeUniformBuffer && cubeBindGroup) {
+          this.backend.updateBuffer(cubeUniformBuffer, uniformData);
 
-        if (!buffer || !bindGroup) {
-          console.error(`Missing resources for dice ${diceIndex} (entity ${entity})`);
-          diceIndex++;
-          continue; // Skip this dice, don't crash
+          // Issue instanced draw call
+          const drawCommand: DrawCommand = {
+            pipeline: this.cubePipelineInstanced,
+            bindGroups: new Map([[0, cubeBindGroup]]),
+            geometry: {
+              type: 'indexed',
+              vertexBuffers: new Map([
+                [0, this.cubeVertexBuffer],
+                [1, cubeGPUBuffer],
+              ]),
+              indexBuffer: this.cubeIndexBuffer,
+              indexFormat: 'uint16',
+              indexCount: this.cubeIndexCount,
+              instanceCount: this.cubeInstanceBuffer.getCount(),
+            },
+          };
+
+          this.backend.executeDrawCommand(drawCommand);
+          drawCallCount++;
+          instanceGroupCount++;
+        }
+      }
+
+      // Process sphere instances
+      if (sphereInstances.length > 0) {
+        // Create or resize instance buffer
+        if (!this.sphereInstanceBuffer || this.sphereInstanceBuffer.getCapacity() < sphereInstances.length) {
+          this.sphereInstanceBuffer = new InstanceBuffer(Math.max(sphereInstances.length, 64));
+        }
+        this.sphereInstanceBuffer.clear();
+
+        // Build instance data
+        for (let i = 0; i < sphereInstances.length; i++) {
+          const { entity, transform, diceEntity } = sphereInstances[i];
+
+          // Use cached rotation from sync loop
+          const rotation = this.rotationCache.get(entity);
+          if (!rotation) continue;
+
+          let position;
+          try {
+            position = this.physicsWorld!.getPosition(diceEntity.bodyHandle);
+            if (!position) continue;
+          } catch (e) {
+            continue;
+          }
+
+          // Build model matrix
+          const modelMatrix = this.matrixPool.acquire();
+          const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
+          this.createModelMatrix(modelMatrix, position, rotation, scale);
+
+          // Calculate color with depth-based darkening
+          const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
+          const [r, g, b] = getDieColor(diceEntity.sides);
+          const brightness = 0.7 + depth * 0.3;
+
+          // Set instance transform and color
+          this.sphereInstanceBuffer.setInstanceTransform(i, modelMatrix);
+          this.sphereInstanceBuffer.setInstanceColor(i, r * brightness, g * brightness, b * brightness, 1.0);
+
+          instancedObjectCount++;
         }
 
-        // Update uniform buffer
-        this.backend.updateBuffer(buffer, uniformData);
+        // Upload instance buffer to GPU
+        const sphereGPUBuffer = this.instanceBufferManager.upload(this.sphereInstanceBuffer);
 
-        // Create DrawCommand
-        const drawCommand: DrawCommand = {
-          pipeline,
-          bindGroups: new Map([[0, bindGroup]]),
-          geometry: {
-            type: 'indexed',
-            vertexBuffers: new Map([[0, vertexBuffer]]),
-            indexBuffer,
-            indexFormat: 'uint16',
-            indexCount,
-            instanceCount: 1,
-          },
-        };
+        // Create uniform buffer with viewProj matrix and lighting
+        const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
+        uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
+        uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
+        uniformData[48] = cameraTransform.x; uniformData[49] = cameraTransform.y; uniformData[50] = cameraTransform.z; uniformData[51] = 0.0; // camera pos
 
-        // Execute draw command directly
-        this.backend.executeDrawCommand(drawCommand);
-        drawCallCount++;
-        diceIndex++;
+        const sphereUniformBuffer = this.perObjectUniformBuffers.get(1);
+        const sphereBindGroup = this.perObjectBindGroups.get(1);
+
+        if (sphereUniformBuffer && sphereBindGroup) {
+          this.backend.updateBuffer(sphereUniformBuffer, uniformData);
+
+          // Issue instanced draw call
+          const drawCommand: DrawCommand = {
+            pipeline: this.spherePipelineInstanced,
+            bindGroups: new Map([[0, sphereBindGroup]]),
+            geometry: {
+              type: 'indexed',
+              vertexBuffers: new Map([
+                [0, this.sphereVertexBuffer],
+                [1, sphereGPUBuffer],
+              ]),
+              indexBuffer: this.sphereIndexBuffer,
+              indexFormat: 'uint16',
+              indexCount: this.sphereIndexCount,
+              instanceCount: this.sphereInstanceBuffer.getCount(),
+            },
+          };
+
+          this.backend.executeDrawCommand(drawCommand);
+          drawCallCount++;
+          instanceGroupCount++;
+        }
       }
     }
     const tDiceLoopEnd = performance.now();
@@ -922,8 +1086,10 @@ export class Demo {
     this.frameTimeHistory.push(frameTime);
     if (this.frameTimeHistory.length > 60) this.frameTimeHistory.shift(); // Keep last 60 frames
 
-    // Epic 3.14: Store draw call count for stats
+    // Store instancing stats
     this.lastDrawCallCount = drawCallCount;
+    this.lastInstanceGroupCount = instanceGroupCount;
+    this.lastInstancedObjectCount = instancedObjectCount;
 
     // Update FPS counter
     this.frameCount++;
@@ -987,9 +1153,9 @@ export class Demo {
         avgFrameTime,
         actualDrawCalls,
         triangles,
-        0, // instanceGroups (no instancing in Epic 3.14)
-        0, // instancedObjects
-        0, // drawCallReduction
+        this.lastInstanceGroupCount, // Number of instanced draw calls
+        this.lastInstancedObjectCount, // Number of objects rendered via instancing
+        0, // drawCallReduction (legacy)
         diceCount,
         vramMB,
         vramUsagePercent,

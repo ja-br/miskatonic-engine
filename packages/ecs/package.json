@@ -14,7 +14,9 @@
     "entity-component-system",
     "game-engine"
   ],
-  "dependencies": {},
+  "dependencies": {
+    "wgpu-matrix": "^3.4.0"
+  },
   "devDependencies": {
     "@types/node": "^20.10.0",
     "typescript": "^5.3.3",

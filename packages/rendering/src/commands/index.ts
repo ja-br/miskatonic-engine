@@ -4,12 +4,12 @@
  */
 
 export {
-  DrawCommand,
-  IndexedGeometry,
-  NonIndexedGeometry,
-  IndirectGeometry,
-  ComputeGeometry,
-  DrawDebugInfo,
+  type DrawCommand,
+  type IndexedGeometry,
+  type NonIndexedGeometry,
+  type IndirectGeometry,
+  type ComputeGeometry,
+  type DrawDebugInfo,
   isIndexedGeometry,
   isNonIndexedGeometry,
   isIndirectGeometry,

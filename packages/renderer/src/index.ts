@@ -2,7 +2,7 @@
  * Renderer process entry point
  */
 
-import { Demo } from './demo-stub'; // TODO: Restore './demo' after Epic 3.14 migration
+import { Demo } from './demo';
 import { ipcService } from './ipc/IPCService';
 
 // Extend Window interface for type-safe debugging
