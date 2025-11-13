@@ -40,103 +40,6 @@ import { WGSLReflectionParser, ShaderReflectionCache, type ShaderReflectionData 
 import type { DrawCommand } from '../commands/DrawCommand';
 import { isIndexedGeometry, isNonIndexedGeometry, isIndirectGeometry, isComputeGeometry } from '../commands/DrawCommand';
 
-/**
- * Uniform Buffer Pool - Epic 2.13
- * Reuses uniform buffers across frames to avoid expensive GPU allocations
- *
- * Fixed: Increased pool size to 8192 to handle high draw call counts
- * Fixed: Added buffer ID tracking for bind group caching
- */
-class UniformBufferPool {
-  private pool: GPUBuffer[] = [];
-  private maxPoolSize = 8192; // Support up to 8K draw calls per frame
-  private nextBufferId = 0;
-  private bufferIds = new WeakMap<GPUBuffer, number>();
-
-  // Performance stats
-  private stats = {
-    buffersCreated: 0,
-    buffersReused: 0,
-  };
-
-  /**
-   * Acquire a uniform buffer from the pool or create a new one
-   */
-  acquire(device: GPUDevice, size: number): GPUBuffer {
-    // Try to reuse a buffer from the pool
-    const buffer = this.pool.pop();
-    if (buffer && buffer.size >= size) {
-      this.stats.buffersReused++;
-      return buffer;
-    }
-
-    // No suitable buffer available, create a new one
-    // Note: Uniform buffers must be aligned to 256 bytes in WebGPU
-    const alignedSize = Math.ceil(size / 256) * 256;
-    const newBuffer = device.createBuffer({
-      size: alignedSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-
-    // Assign unique ID for bind group caching
-    this.bufferIds.set(newBuffer, this.nextBufferId++);
-    this.stats.buffersCreated++;
-
-    return newBuffer;
-  }
-
-  /**
-   * Get unique ID for a buffer (for bind group caching)
-   */
-  getBufferId(buffer: GPUBuffer): number {
-    return this.bufferIds.get(buffer) ?? -1;
-  }
-
-  /**
-   * Release a uniform buffer back to the pool for reuse
-   */
-  release(buffer: GPUBuffer): void {
-    if (this.pool.length < this.maxPoolSize) {
-      this.pool.push(buffer);
-    } else {
-      // Pool is full, destroy the buffer
-      buffer.destroy();
-    }
-  }
-
-  /**
-   * Get pool statistics
-   */
-  getStats() {
-    return {
-      poolSize: this.pool.length,
-      buffersCreated: this.stats.buffersCreated,
-      buffersReused: this.stats.buffersReused,
-      reuseRate: this.stats.buffersCreated > 0
-        ? (this.stats.buffersReused / (this.stats.buffersCreated + this.stats.buffersReused) * 100).toFixed(1) + '%'
-        : '0%',
-    };
-  }
-
-  /**
-   * Reset statistics counters
-   */
-  resetStats(): void {
-    this.stats.buffersCreated = 0;
-    this.stats.buffersReused = 0;
-  }
-
-  /**
-   * Clear all pooled buffers (call on dispose)
-   */
-  clear(): void {
-    for (const buffer of this.pool) {
-      buffer.destroy();
-    }
-    this.pool = [];
-    this.bufferIds = new WeakMap();
-  }
-}
 
 /**
  * WebGPU resource wrappers
@@ -206,19 +109,9 @@ export class WebGPUBackend implements IRendererBackend {
   // Epic 3.13: Pipeline cache for (shader, vertexLayout) variants
   private pipelineCache = new Map<string, PipelineCacheEntry>();
 
-  // Epic 2.13 & 3.8: Performance optimizations
-  private uniformBufferPool = new UniformBufferPool();
-  private frameUniformBuffers: GPUBuffer[] = []; // Track buffers for release at end of frame
+  // Epic 3.8 & 3.14: Performance optimizations
   private gpuBufferPool = new GPUBufferPool(); // Epic 3.8: GPU buffer pooling
-  private bindGroupCache = new Map<string, GPUBindGroup>();
   private vramProfiler: VRAMProfiler;
-
-  // Epic 2.13: Performance counters
-  // @ts-ignore - Will be used once bind group pooling is integrated
-  private perfStats = {
-    bindGroupsCreated: 0,
-    bindGroupsCached: 0,
-  };
 
   // GPU timestamp queries for measuring actual GPU execution time
   private timestampQuerySet: GPUQuerySet | null = null;
@@ -514,11 +407,6 @@ export class WebGPUBackend implements IRendererBackend {
       }
     }
 
-    // Epic 2.13 & 3.8: Release uniform buffers back to pool
-    for (const buffer of this.frameUniformBuffers) {
-      this.uniformBufferPool.release(buffer);
-    }
-    this.frameUniformBuffers = [];
     // Note: nextFrame() moved to beginFrame() to avoid off-by-one frame tracking errors
   }
 
@@ -1733,10 +1621,8 @@ export class WebGPUBackend implements IRendererBackend {
     this.timestampReadBuffers = [];
     this.pendingTimestampReads.clear();
 
-    // Epic 2.13 & 3.8: Clean up performance optimization resources
-    this.uniformBufferPool.clear();
-    this.gpuBufferPool.clear(); // Epic 3.8: Clean up buffer pool
-    this.bindGroupCache.clear();
+    // Epic 3.8: Clean up buffer pool
+    this.gpuBufferPool.clear();
 
     if (this.device) {
       this.device.destroy();

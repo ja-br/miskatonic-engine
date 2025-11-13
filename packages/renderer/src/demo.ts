@@ -3,22 +3,22 @@
  */
 
 import {
-  Renderer,
   RenderBackend,
   Camera as LegacyCamera,
   OrbitControls as LegacyOrbitControls,
   CameraSystem,
   OrbitCameraController,
-  // RenderQueue, // TODO Epic 3.14: Removed - needs full refactor
-  RenderCommandType,
-  PrimitiveMode,
   BackendFactory,
   createCube,
   createSphere,
-  InstanceBufferManager, // Epic 3.13: Instance rendering
-  type RendererConfig,
+  OPAQUE_PIPELINE_STATE,
   type DrawCommand,
   type IRendererBackend,
+  type BackendShaderHandle,
+  type BackendBufferHandle,
+  type BackendBindGroupHandle,
+  type BackendBindGroupLayoutHandle,
+  type BackendPipelineHandle,
 } from '../../rendering/src';
 import {
   PhysicsWorld,
@@ -28,13 +28,18 @@ import {
   type RigidBodyHandle,
 } from '../../physics/src';
 import { World, TransformSystem, Transform, Camera, Query, type EntityId } from '../../ecs/src';
+import * as Mat4 from '../../ecs/src/math/Mat4';
 import { DiceEntity } from './components/DiceEntity';
 import './components/registerDemoComponents'; // Register custom components
 import { MatrixPool } from './MatrixPool';
 
 export class Demo {
+  // Constants
+  private static readonly MAX_DICE_LIMIT = 5000; // Hard cap for GPU memory safety (conservative for integrated GPUs)
+  private static readonly WEBGPU_UNIFORM_ALIGNMENT = 256; // WebGPU requires 256-byte uniform buffer alignment
+  private static readonly UNIFORM_FLOATS = 64; // 256 bytes / 4 bytes per float
+
   private canvas: HTMLCanvasElement;
-  private renderer: Renderer | null = null;
   private backend: IRendererBackend | null = null;
   private animationId: number | null = null;
   private startTime: number = 0;
@@ -53,18 +58,28 @@ export class Demo {
   private cameraEntity: EntityId | null = null;
   private orbitController: OrbitCameraController | null = null;
 
-  // Render queue for organized drawing
-  // private renderQueue: RenderQueue; // TODO Epic 3.14: Removed - needs full refactor
-  private instanceManager: InstanceBufferManager | null = null;
+  // Epic 3.14: Resource handles (no RenderQueue)
+  private cubeShader!: BackendShaderHandle;
+  private sphereShader!: BackendShaderHandle;
+  private bindGroupLayout!: BackendBindGroupLayoutHandle;
+  private cubePipeline!: BackendPipelineHandle;
+  private spherePipeline!: BackendPipelineHandle;
+
+  // Dynamic resource allocation: uniform buffers and bind groups allocated on-demand
+  private perObjectUniformBuffers: Map<number, BackendBufferHandle> = new Map();
+  private perObjectBindGroups: Map<number, BackendBindGroupHandle> = new Map();
+  private maxDiceCount: number = 0; // Current resource pool size (grows dynamically, capped at MAX_DICE_LIMIT)
 
   // Rendering resources
-  private shaderProgramId: string = 'basic-lighting';
-  private cubeVertexBufferId: string = 'cube-vertices'; // Interleaved position+normal
-  private cubeIndexBufferId: string = 'cube-indices';
+  private cubeVertexBuffer!: BackendBufferHandle;
+  private cubeIndexBuffer!: BackendBufferHandle;
   private cubeIndexCount: number = 0;
-  private sphereVertexBufferId: string = 'sphere-vertices'; // Interleaved position+normal
-  private sphereIndexBufferId: string = 'sphere-indices';
+  private sphereVertexBuffer!: BackendBufferHandle;
+  private sphereIndexBuffer!: BackendBufferHandle;
   private sphereIndexCount: number = 0;
+
+  // Stats tracking
+  private lastDrawCallCount: number = 0;
 
   // Physics
   private physicsWorld: PhysicsWorld | null = null;
@@ -99,9 +114,6 @@ export class Demo {
     // CameraSystem is a utility class, not a System
     this.cameraSystem = new CameraSystem(this.world);
 
-    // Initialize render queue
-    // this.renderQueue = new RenderQueue(); // TODO Epic 3.14: Removed - needs full refactor
-
     // Initialize matrix pools (pre-allocate for 1200 dice)
     this.matrixPool = new MatrixPool(16, 4000); // mat4 matrices
     this.mat3Pool = new MatrixPool(9, 1500);     // mat3 normal matrices
@@ -131,9 +143,8 @@ export class Demo {
       });
       console.log(`Using backend: ${this.backend.name}`);
 
-      // Create InstanceBufferManager for Epic 3.13 instanced rendering
-      this.instanceManager = new InstanceBufferManager(this.backend);
-      console.log('InstanceBufferManager initialized for instanced rendering');
+      // CRITICAL: Sync backend depth buffer with current canvas size
+      this.backend.resize(this.canvas.width, this.canvas.height);
 
       // Create ECS camera entity
       this.cameraEntity = this.world.createEntity();
@@ -178,26 +189,73 @@ export class Demo {
   private async createShaders(): Promise<void> {
     if (!this.backend) return;
 
-    // Load appropriate shaders based on backend
-    if (this.backend.name === 'WebGPU') {
-      console.log('Loading WGSL shaders for WebGPU backend');
-      const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
-      const wgslInstancedSource = await import('./shaders/basic-lighting_instanced.wgsl?raw').then(m => m.default);
+    // Epic 3.14: Load WGSL shaders and create pipelines
+    console.log('Loading WGSL shaders for WebGPU backend');
+    const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
 
-      // Create standard shader
-      await this.backend.createShader(this.shaderProgramId, {
-        vertex: wgslSource,  // WGSL uses single-file shaders
-        fragment: wgslSource,
-      });
+    // Create shader handles
+    this.cubeShader = this.backend.createShader('cube-shader', {
+      vertex: wgslSource,
+      fragment: wgslSource,
+    });
+    this.sphereShader = this.backend.createShader('sphere-shader', {
+      vertex: wgslSource,
+      fragment: wgslSource,
+    });
 
-      // Epic 3.13: Create instanced shader variant
-      await this.backend.createShader(`${this.shaderProgramId}_instanced`, {
-        vertex: wgslInstancedSource,
-        fragment: wgslInstancedSource,
-      });
+    console.log('WGSL shaders compiled successfully');
 
-      console.log('WGSL shaders compiled successfully (standard + instanced)');
-    }
+    // Epic 3.14: Create bind group layout
+    // Shader uses @group(0) @binding(0) for Uniforms struct
+    // Uniforms: 2 mat4 (128 bytes) + 1 mat3 (48 bytes) + 3 vec3 (48 bytes) = 224 bytes
+    this.bindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: ['vertex', 'fragment'],
+          type: 'uniform',
+          minBindingSize: 256, // WebGPU requires 256-byte alignment
+        },
+      ],
+    });
+
+    // Epic 3.14: Create render pipelines
+    this.cubePipeline = this.backend.createRenderPipeline({
+      label: 'cube-pipeline',
+      shader: this.cubeShader,
+      vertexLayouts: [{
+        arrayStride: 24, // 6 floats (position + normal)
+        stepMode: 'vertex',
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
+          { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+        ],
+      }],
+      bindGroupLayouts: [this.bindGroupLayout],
+      pipelineState: OPAQUE_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth24plus',
+    });
+
+    this.spherePipeline = this.backend.createRenderPipeline({
+      label: 'sphere-pipeline',
+      shader: this.sphereShader,
+      vertexLayouts: [{
+        arrayStride: 24,
+        stepMode: 'vertex',
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },
+          { shaderLocation: 1, offset: 12, format: 'float32x3' },
+        ],
+      }],
+      bindGroupLayouts: [this.bindGroupLayout],
+      pipelineState: OPAQUE_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth24plus',
+    });
+
+    console.log('Render pipelines created successfully');
+    console.log('Resources will be allocated dynamically as needed');
   }
 
   /**
@@ -232,17 +290,17 @@ export class Demo {
     const cubeData = createCube(1.0);
     const cubeInterleaved = this.interleavePositionNormal(cubeData.positions, cubeData.normals);
 
-    this.backend.createBuffer(
-      this.cubeVertexBufferId,
+    this.cubeVertexBuffer = this.backend.createBuffer(
+      'cube-vertices',
       'vertex',
       cubeInterleaved,
-      'static'
+      'static_draw'
     );
-    this.backend.createBuffer(
-      this.cubeIndexBufferId,
+    this.cubeIndexBuffer = this.backend.createBuffer(
+      'cube-indices',
       'index',
       cubeData.indices,
-      'static'
+      'static_draw'
     );
     this.cubeIndexCount = cubeData.indices.length;
 
@@ -250,19 +308,91 @@ export class Demo {
     const sphereData = createSphere(0.5, 16, 12);
     const sphereInterleaved = this.interleavePositionNormal(sphereData.positions, sphereData.normals);
 
-    this.backend.createBuffer(
-      this.sphereVertexBufferId,
+    this.sphereVertexBuffer = this.backend.createBuffer(
+      'sphere-vertices',
       'vertex',
       sphereInterleaved,
-      'static'
+      'static_draw'
     );
-    this.backend.createBuffer(
-      this.sphereIndexBufferId,
+    this.sphereIndexBuffer = this.backend.createBuffer(
+      'sphere-indices',
       'index',
       sphereData.indices,
-      'static'
+      'static_draw'
     );
     this.sphereIndexCount = sphereData.indices.length;
+  }
+
+  /**
+   * Ensure we have enough uniform buffers and bind groups for the given dice count
+   * Allocates new resources dynamically as needed, with hard cap for GPU safety
+   */
+  private ensureResourcesForDice(count: number): void {
+    // Enforce hard limit for GPU memory safety
+    if (count > Demo.MAX_DICE_LIMIT) {
+      console.warn(`Capping dice at ${Demo.MAX_DICE_LIMIT} (requested ${count})`);
+      count = Demo.MAX_DICE_LIMIT;
+    }
+
+    const currentPoolSize = this.perObjectUniformBuffers.size;
+
+    if (count <= currentPoolSize) {
+      return; // Already have enough resources
+    }
+
+    // Allocate additional resources with error handling
+    try {
+      for (let i = currentPoolSize; i < count; i++) {
+        const buffer = this.backend.createBuffer(
+          `dice-uniforms-${i}`,
+          'uniform',
+          new Float32Array(Demo.UNIFORM_FLOATS),
+          'dynamic_draw'
+        );
+        const bindGroup = this.backend.createBindGroup(this.bindGroupLayout, {
+          bindings: [{ binding: 0, resource: buffer }],
+        });
+        this.perObjectUniformBuffers.set(i, buffer);
+        this.perObjectBindGroups.set(i, bindGroup);
+      }
+      this.maxDiceCount = count;
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[ResourceAlloc] Allocated resources for ${count} dice (+${count - currentPoolSize})`);
+      }
+    } catch (error) {
+      console.error(`Failed to allocate resources for ${count} dice:`, error);
+      // Stop allocating at last successful count
+      this.maxDiceCount = this.perObjectUniformBuffers.size;
+      alert(`Cannot spawn more dice: GPU memory limit reached (${this.maxDiceCount} max)`);
+    }
+  }
+
+  /**
+   * Free unused resources when dice count decreases significantly
+   * Prevents memory leaks on reset/despawn
+   */
+  private freeUnusedResources(maxNeeded: number): void {
+    const currentPoolSize = this.perObjectUniformBuffers.size;
+
+    if (maxNeeded >= currentPoolSize) {
+      return; // No resources to free
+    }
+
+    // Free buffers beyond what's needed
+    for (let i = maxNeeded; i < currentPoolSize; i++) {
+      const buffer = this.perObjectUniformBuffers.get(i);
+      if (buffer) {
+        this.backend.deleteBuffer(buffer);
+      }
+      this.perObjectUniformBuffers.delete(i);
+      this.perObjectBindGroups.delete(i); // Bind groups are auto-freed by backend
+    }
+    this.maxDiceCount = maxNeeded;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[ResourceFree] Freed ${currentPoolSize - maxNeeded} unused resources (${maxNeeded} remaining)`);
+    }
   }
 
   private async initializePhysics(): Promise<void> {
@@ -447,6 +577,12 @@ export class Demo {
     // CRITICAL: Initialize all ECS systems (allocates matrix indices, etc.)
     this.world.init();
     console.log('ECS systems initialized');
+
+    // Allocate GPU resources for initial dice
+    const diceQuery = this.world.query().with(DiceEntity).build();
+    const initialDiceCount = Array.from(this.world.executeQuery(diceQuery)).length;
+    this.ensureResourcesForDice(initialDiceCount);
+    console.log(`Allocated GPU resources for ${initialDiceCount} initial dice`);
   }
 
   start(): void {
@@ -490,6 +626,11 @@ export class Demo {
         await this.createShaders();
         this.createGeometry();
 
+        // CRITICAL: Resize backend to match current canvas size
+        if (this.backend) {
+          this.backend.resize(this.canvas.width, this.canvas.height);
+        }
+
         // Restart render loop
         this.start();
         console.log('Renderer successfully restored after context loss');
@@ -505,6 +646,11 @@ export class Demo {
     this.canvas.height = window.innerHeight * dpr;
     this.canvas.style.width = `${window.innerWidth}px`;
     this.canvas.style.height = `${window.innerHeight}px`;
+
+    // Notify backend to resize depth buffer to match canvas
+    if (this.backend) {
+      this.backend.resize(this.canvas.width, this.canvas.height);
+    }
   }
 
   /**
@@ -620,19 +766,8 @@ export class Demo {
     const cameraTransform = this.world.getComponent(this.cameraEntity, Transform);
     if (!cameraTransform) return;
 
-    // Set up camera info for render queue
-    const viewMatrix = this.cameraSystem.getViewMatrix(this.cameraEntity);
-    const projMatrix = this.cameraSystem.getProjectionMatrix(this.cameraEntity, aspectRatio);
-    if (viewMatrix && projMatrix) {
-      this.renderQueue.setCamera({
-        position: new Float32Array([cameraTransform.x, cameraTransform.y, cameraTransform.z]),
-        viewMatrix,
-        projectionMatrix: projMatrix,
-      });
-    }
-
-    // Clear render queue for this frame
-    this.renderQueue.clear();
+    // Epic 3.14: Begin frame
+    this.backend.beginFrame();
 
     // Helper function to get die color based on number of sides
     const getDieColor = (sides: number): [number, number, number] => {
@@ -647,308 +782,148 @@ export class Demo {
       }
     };
 
-    let drawCalls = 0;
+    let drawCallCount = 0;
 
-    // Submit draw commands for all dice using ECS query
-    // P1.1: Reuse the cached query (already initialized in sync loop above)
+    // Render all dice using ECS query
     const diceEntities = this.world.executeQuery(this.diceQuery!);
+    const tDiceLoopStart = performance.now();
 
-    const tDiceLoopStart = performance.now(); // Track dice rendering loop
     if (this.physicsWorld && diceEntities.length > 0) {
+      let diceIndex = 0;
       for (const { entity, components } of diceEntities) {
         const transform = components.get(Transform);
         const diceEntity = components.get(DiceEntity);
 
         if (!transform || !diceEntity) continue;
 
-        // P1.2: Use cached rotation from sync loop (avoids second physics query)
+        // Use cached rotation from sync loop
         const rotation = this.rotationCache.get(entity);
-        if (!rotation) continue; // Entity not synced this frame
+        if (!rotation) continue;
 
         let position;
         try {
           position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
           if (!position) continue;
         } catch (e) {
-          // Body might have been removed, skip this entity
           continue;
         }
 
-        // Acquire matrices from pool (eliminates GC pressure)
+        // Acquire matrices from pool
         const modelMatrix = this.matrixPool.acquire();
         const mvpMatrix = this.matrixPool.acquire();
 
-        this.createModelMatrix(modelMatrix, position, rotation);
+        // Get scale from Transform component
+        const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
+
+        this.createModelMatrix(modelMatrix, position, rotation, scale);
         this.multiplyMatrices(mvpMatrix, viewProjMatrix, modelMatrix);
 
         // Use cube mesh for D6, sphere for everything else
         const useCube = diceEntity.sides === 6;
-        const vertexBufferId = useCube ? this.cubeVertexBufferId : this.sphereVertexBufferId;
-        const indexBufferId = useCube ? this.cubeIndexBufferId : this.sphereIndexBufferId;
+        const pipeline = useCube ? this.cubePipeline : this.spherePipeline;
+        const vertexBuffer = useCube ? this.cubeVertexBuffer : this.sphereVertexBuffer;
+        const indexBuffer = useCube ? this.cubeIndexBuffer : this.sphereIndexBuffer;
         const indexCount = useCube ? this.cubeIndexCount : this.sphereIndexCount;
 
-        // Add depth-based darkening
+        // Calculate color with depth-based darkening
         const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
         const [r, g, b] = getDieColor(diceEntity.sides);
-        const brightness = 0.7 + depth * 0.3; // Brighter when higher up
+        const brightness = 0.7 + depth * 0.3;
 
-        // Create draw command with interleaved vertex layout
-        // Interleaved format: [px, py, pz, nx, ny, nz, px, py, pz, nx, ny, nz, ...]
-        // Total stride: 24 bytes (6 floats * 4 bytes)
-        const drawCmd: DrawCommand = {
-          type: RenderCommandType.DRAW,
-          shader: this.shaderProgramId,
-          mode: PrimitiveMode.TRIANGLES,
-          vertexBufferId,
-          indexBufferId,
-          indexType: 'uint16',
-          vertexCount: indexCount,
-          vertexLayout: {
-            attributes: [
-              {
-                name: 'aPosition',
-                type: 'float',
-                size: 3,
-                location: 0,
-                offset: 0,      // Start of vertex data
-                stride: 24,     // 6 floats (pos + normal)
-              },
-              {
-                name: 'aNormal',
-                type: 'float',
-                size: 3,
-                location: 1,
-                offset: 12,     // After position (3 floats * 4 bytes)
-                stride: 24,     // Same stride as position
-              },
-            ],
-          },
-          uniforms: (() => {
-            // Acquire uniform arrays from pool
-            const normalMatrix = this.mat3Pool.acquire();
-            normalMatrix[0] = 1; normalMatrix[1] = 0; normalMatrix[2] = 0;
-            normalMatrix[3] = 0; normalMatrix[4] = 1; normalMatrix[5] = 0;
-            normalMatrix[6] = 0; normalMatrix[7] = 0; normalMatrix[8] = 1;
+        // Pack uniform data with WebGPU alignment
+        // Uniforms: mvp (64), model (64), normalMatrix (48), lightDir (16), cameraPos (16), baseColor (16) = 224 bytes
+        // Padded to 256 bytes for WebGPU
+        const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
 
-            const lightDir = this.vec3Pool.acquire();
-            lightDir[0] = 0.5; lightDir[1] = 1.0; lightDir[2] = 0.5;
+        // MVP matrix (16 floats, offset 0)
+        uniformData.set(mvpMatrix, 0);
 
-            const cameraPos = this.vec3Pool.acquire();
-            cameraPos[0] = cameraTransform.x;
-            cameraPos[1] = cameraTransform.y;
-            cameraPos[2] = cameraTransform.z;
+        // Model matrix (16 floats, offset 16)
+        uniformData.set(modelMatrix, 16);
 
-            const baseColor = this.vec3Pool.acquire();
-            baseColor[0] = r * brightness;
-            baseColor[1] = g * brightness;
-            baseColor[2] = b * brightness;
+        // Normal matrix (mat3 = 12 floats in 3 vec4s, offset 32)
+        // Compute directly from model matrix (inverse-transpose for correct normal transformation)
+        const normalMatrixTemp = new Float32Array(12);
+        const computedNormal = Mat4.computeNormalMatrix(modelMatrix, normalMatrixTemp);
+        if (computedNormal) {
+          uniformData.set(normalMatrixTemp, 32);
+        } else {
+          // Fallback to identity if computation fails (degenerate scale)
+          uniformData[32] = 1; uniformData[33] = 0; uniformData[34] = 0; uniformData[35] = 0;
+          uniformData[36] = 0; uniformData[37] = 1; uniformData[38] = 0; uniformData[39] = 0;
+          uniformData[40] = 0; uniformData[41] = 0; uniformData[42] = 1; uniformData[43] = 0;
+        }
 
-            // P0 FIX: Use pooled arrays directly - NO COPY
-            // The render queue processes commands synchronously, so shared references are safe
-            // Epic 3.13 FIX: For instanced rendering, send viewProjMatrix instead of mvpMatrix
-            // The instanced shader will apply the per-instance model transform
-            return new Map([
-              ['uModelViewProjection', { name: 'uModelViewProjection', type: 'mat4', value: viewProjMatrix }],
-              ['uModel', { name: 'uModel', type: 'mat4', value: modelMatrix }],
-              ['uNormalMatrix', { name: 'uNormalMatrix', type: 'mat3', value: normalMatrix }],
-              ['uLightDir', { name: 'uLightDir', type: 'vec3', value: lightDir }],
-              ['uCameraPos', { name: 'uCameraPos', type: 'vec3', value: cameraPos }],
-              ['uBaseColor', { name: 'uBaseColor', type: 'vec3', value: baseColor }],
-            ]);
-          })(),
-          state: {
-            blendMode: 'none',
-            depthTest: 'less',
-            depthWrite: true,
-            cullMode: 'back',
+        // Light direction (vec3 + padding, offset 44)
+        uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0;
+
+        // Camera position (vec3 + padding, offset 48)
+        uniformData[48] = cameraTransform.x;
+        uniformData[49] = cameraTransform.y;
+        uniformData[50] = cameraTransform.z;
+        uniformData[51] = 0.0;
+
+        // Base color (vec3 + padding, offset 52)
+        uniformData[52] = r * brightness;
+        uniformData[53] = g * brightness;
+        uniformData[54] = b * brightness;
+        uniformData[55] = 0.0;
+
+        // Get resources with null safety
+        const buffer = this.perObjectUniformBuffers.get(diceIndex);
+        const bindGroup = this.perObjectBindGroups.get(diceIndex);
+
+        if (!buffer || !bindGroup) {
+          console.error(`Missing resources for dice ${diceIndex} (entity ${entity})`);
+          diceIndex++;
+          continue; // Skip this dice, don't crash
+        }
+
+        // Update uniform buffer
+        this.backend.updateBuffer(buffer, uniformData);
+
+        // Create DrawCommand
+        const drawCommand: DrawCommand = {
+          pipeline,
+          bindGroups: new Map([[0, bindGroup]]),
+          geometry: {
+            type: 'indexed',
+            vertexBuffers: new Map([[0, vertexBuffer]]),
+            indexBuffer,
+            indexFormat: 'uint16',
+            indexCount,
+            instanceCount: 1,
           },
         };
 
-        // Submit to render queue
-        // Epic 3.13 FIX: Use render type (cube/sphere) for materialId, NOT dice type
-        // This allows all spheres (D4, D8, D10, D12, D20) to instance together
-        this.renderQueue.submit({
-          drawCommand: drawCmd,
-          materialId: useCube ? 'dice-cube' : 'dice-sphere',
-          worldMatrix: modelMatrix,
-          depth: 0,
-          sortKey: 0,
-        });
-
-        drawCalls++;
+        // Execute draw command directly
+        this.backend.executeDrawCommand(drawCommand);
+        drawCallCount++;
+        diceIndex++;
       }
     }
-    const tDiceLoopEnd = performance.now(); // End of dice rendering loop
+    const tDiceLoopEnd = performance.now();
+    const t4 = tDiceLoopEnd; // For timing compatibility
+    const t5 = tDiceLoopEnd;
 
-    // Epic 3.13: Sort and detect instances
-    const t4 = performance.now();
-    this.renderQueue.sort();
-    const t5 = performance.now();
-
-    // Epic 3.13: Upload instance buffers to GPU if instancing is enabled
-    if (this.instanceManager) {
-      const opaqueGroups = this.renderQueue.getInstanceGroups('opaque');
-
-      // Log only once for debugging
-      if (!this.hasLoggedInstancing && opaqueGroups.length > 0) {
-        console.log(`\n=== Epic 3.13: Instanced Rendering Debug ===`);
-        console.log(`Found ${opaqueGroups.length} opaque groups`);
-      }
-
-      for (const group of opaqueGroups) {
-        if (!this.hasLoggedInstancing) {
-          console.log(`\nGroup "${group.key}":`);
-          console.log(`  - Objects: ${group.commands.length}`);
-          console.log(`  - Instance buffer created: ${!!group.instanceBuffer}`);
-        }
-
-        if (group.instanceBuffer && group.commands.length > 0) {
-          const gpuBuffer = this.instanceManager.upload(group.instanceBuffer);
-
-          if (!this.hasLoggedInstancing) {
-            console.log(`  - GPU buffer: ${gpuBuffer.id} (${gpuBuffer.count} instances)`);
-          }
-
-          // Epic 3.13 FIX: Set instance buffer on ONLY the first command (the representative)
-          // The rest will be filtered out by getCommands() deduplication
-          const representativeCommand = group.commands[0];
-          representativeCommand.drawCommand.instanceBufferId = gpuBuffer.id;
-          representativeCommand.drawCommand.instanceCount = gpuBuffer.count;
-          // Use instanced shader variant
-          representativeCommand.drawCommand.shader = `${this.shaderProgramId}_instanced`;
-        }
-      }
-
-      if (!this.hasLoggedInstancing && opaqueGroups.length > 0) {
-        this.hasLoggedInstancing = true;
-      }
-    }
-
-    // Get render commands (now with instance buffer IDs set)
-    const queuedCommands = this.renderQueue.getCommands();
-    const renderCommands = queuedCommands.map(qc => qc.drawCommand);
-    const queueStats = this.renderQueue.getStats();
-
-    // COMPREHENSIVE PROFILING: Log every second with ALL timing data
-    if (now - this.lastFpsUpdate >= 1000) {
-      // Get actual GPU time from backend
-      const gpuTime = (this.backend as any).getGPUTime ? (this.backend as any).getGPUTime() : 0;
-
-      // Get buffer pool stats
-      const poolStats = (this.backend as any).uniformBufferPool?.getStats();
-
-      // Get bind group stats
-      const perfStats = (this.backend as any).perfStats;
-
-      console.log('\n=== COMPREHENSIVE PERFORMANCE DIAGNOSTIC ===');
-      console.log(`Dice Count: ${diceEntities.length}`);
-      console.log(`\nInstancing:`);
-      console.log(`  Submitted to queue: ${queueStats.totalCommands}`);
-      console.log(`  Instance groups: ${queueStats.instanceGroups}`);
-      console.log(`  Final draw calls: ${renderCommands.length}`);
-      console.log(`  Instanced calls: ${queueStats.instancedDrawCalls}`);
-
-      if (poolStats) {
-        console.log(`\nUniform Buffer Pool:`);
-        console.log(`  Created: ${poolStats.buffersCreated}, Reused: ${poolStats.buffersReused}`);
-        console.log(`  Reuse rate: ${poolStats.reuseRate}`);
-        console.log(`  Pool size: ${poolStats.poolSize}`);
-      }
-
-      if (perfStats) {
-        console.log(`\nBind Groups:`);
-        console.log(`  Created: ${perfStats.bindGroupsCreated}, Cached: ${perfStats.bindGroupsCached}`);
-        const total = perfStats.bindGroupsCreated + perfStats.bindGroupsCached;
-        const cacheRate = total > 0 ? ((perfStats.bindGroupsCached / total) * 100).toFixed(1) : '0';
-        console.log(`  Cache hit rate: ${cacheRate}%`);
-      }
-
-      // Frame time breakdown (will be logged after endFrame)
-      (this as any).pendingTimingLog = {
-        physics: (t1 - t0).toFixed(2),
-        sync: (t2 - t1).toFixed(2),
-        ecs: (t3 - t2).toFixed(2),
-        diceLoop: (tDiceLoopEnd - tDiceLoopStart).toFixed(2),
-        sort: (t5 - t4).toFixed(2),
-        gpuTimeMeasured: gpuTime.toFixed(2),
-      };
-    }
-
-    // Begin frame
-    this.backend.beginFrame();
-
-    // Always execute commands (even if empty) to ensure render pass is created and screen is cleared
+    // Epic 3.14: End frame
     const t6 = performance.now();
-    this.backend.executeCommands(renderCommands);
-    const t7 = performance.now();
-
-    // End frame - measure present/compositor overhead
-    const tBeforeEndFrame = performance.now();
     this.backend.endFrame();
-    const tAfterEndFrame = performance.now();
+    const t7 = performance.now();
 
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
     this.matrixPool.releaseAll();
     this.mat3Pool.releaseAll();
     this.vec3Pool.releaseAll();
-    const tAfterCleanup = performance.now();
 
     // Track frame time
     const frameTime = now - this.lastFrameTime;
     this.lastFrameTime = now;
     this.frameTimeHistory.push(frameTime);
-
-    // Log CPU frame timing breakdown AFTER frameTime is calculated
-    const pending = (this as any).pendingTimingLog;
-    if (pending) {
-      const gpuEncode = (t7 - t6).toFixed(2);
-      const endFrameTime = (tAfterEndFrame - tBeforeEndFrame).toFixed(2);
-      const cleanupTime = (tAfterCleanup - tAfterEndFrame).toFixed(2);
-
-      console.log(`\n=== CPU TIMING BREAKDOWN ===`);
-      console.log(`Physics: ${pending.physics}ms`);
-      console.log(`Sync (physics→ECS): ${pending.sync}ms`);
-      console.log(`ECS update: ${pending.ecs}ms`);
-      console.log(`Dice loop (${diceEntities.length} dice): ${pending.diceLoop}ms`);
-      console.log(`Render queue sort: ${pending.sort}ms`);
-      console.log(`GPU command encode: ${gpuEncode}ms`);
-      console.log(`endFrame() [submit+present]: ${endFrameTime}ms`);
-      console.log(`Matrix pool cleanup: ${cleanupTime}ms`);
-
-      const cpuTotal = parseFloat(pending.physics) + parseFloat(pending.sync) + parseFloat(pending.ecs) +
-                       parseFloat(pending.diceLoop) + parseFloat(pending.sort) + parseFloat(gpuEncode) +
-                       parseFloat(endFrameTime) + parseFloat(cleanupTime);
-      console.log(`\nTotal CPU: ${cpuTotal.toFixed(2)}ms`);
-
-      // Get actual GPU execution time from backend (WebGPU timestamp queries)
-      const gpuTimeMeasured = parseFloat(pending.gpuTimeMeasured);
-      const gpuTimeEstimated = frameTime - cpuTotal;
-
-      if (gpuTimeMeasured > 0) {
-        console.log(`GPU execution: ${gpuTimeMeasured.toFixed(2)}ms (MEASURED via timestamp-query)`);
-      } else {
-        console.log(`GPU execution: ${gpuTimeEstimated.toFixed(2)}ms (estimated = frame - CPU)`);
-        console.log(`  [timestamp-query not available on this device]`);
-      }
-
-      // Calculate unaccounted time (compositor/present overhead)
-      const measuredTotal = cpuTotal + gpuTimeMeasured;
-      const unaccountedTime = frameTime - measuredTotal;
-
-      console.log(`\n*** FRAME TIME: ${frameTime.toFixed(2)}ms ***`);
-      console.log(`    Measured work: ${measuredTotal.toFixed(2)}ms`);
-      console.log(`    Unaccounted (compositor/V-Sync): ${unaccountedTime.toFixed(2)}ms`);
-      console.log(`    Bottleneck: ${cpuTotal > gpuTimeMeasured ? 'CPU' : 'GPU'}`);
-
-      if (unaccountedTime > 5) {
-        console.log(`    ⚠️  High compositor overhead detected!`);
-        console.log(`    → Windows DWM or V-Sync causing ${unaccountedTime.toFixed(2)}ms latency`);
-        console.log(`    → Try: --disable-frame-rate-limit or --disable-gpu-vsync flags`);
-      }
-
-      (this as any).pendingTimingLog = null;
-    }
     if (this.frameTimeHistory.length > 60) this.frameTimeHistory.shift(); // Keep last 60 frames
+
+    // Epic 3.14: Store draw call count for stats
+    this.lastDrawCallCount = drawCallCount;
 
     // Update FPS counter
     this.frameCount++;
@@ -958,15 +933,12 @@ export class Demo {
       // Calculate average frame time from last 60 frames
       const avgFrameTime = this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length;
 
-      // Epic 3.13 FIX: Get ACTUAL draw call count from RenderQueue after batching/instancing
-      const queueStats = this.renderQueue.getStats();
-      const actualDrawCalls = queueStats.opaqueCount + queueStats.alphaTestCount + queueStats.transparentCount
-        - queueStats.totalInstances // Remove instanced objects
-        + queueStats.instancedDrawCalls; // Add instanced draw calls (one per group)
+      // Epic 3.14: Draw calls = diceEntities.length (no batching/instancing)
+      const actualDrawCalls = this.lastDrawCallCount;
 
       // Calculate total triangles (approximate average between cube and sphere)
       const avgTrianglesPerDie = ((this.cubeIndexCount / 3) + (this.sphereIndexCount / 3)) / 2;
-      const triangles = Math.round(avgTrianglesPerDie * drawCalls);
+      const triangles = Math.round(avgTrianglesPerDie * actualDrawCalls);
 
       // Count total dice using ECS query
       const diceQuery = this.world.query().with(DiceEntity).build();
@@ -988,13 +960,11 @@ export class Demo {
         }
       }
 
-      // Calculate cache hit rates
-      const poolStats = (this.backend as any).uniformBufferPool?.getStats();
-      const perfStats = (this.backend as any).perfStats;
-
-      const uboHitRate = poolStats ? parseFloat(poolStats.reuseRate) : 0;
-      const bindTotal = perfStats ? perfStats.bindGroupsCreated + perfStats.bindGroupsCached : 0;
-      const bindGroupHitRate = bindTotal > 0 && perfStats ? (perfStats.bindGroupsCached / bindTotal) * 100 : 0;
+      // Resource pool utilization metrics
+      const resourcePoolStats = {
+        poolSize: this.maxDiceCount,
+        used: diceCount
+      };
 
       // Calculate CPU timing for this frame (t6-t7 calculated after executeCommands)
       const cpuTiming = {
@@ -1017,16 +987,16 @@ export class Demo {
         avgFrameTime,
         actualDrawCalls,
         triangles,
-        queueStats.instanceGroups,
-        queueStats.totalInstances,
-        queueStats.drawCallReduction,
+        0, // instanceGroups (no instancing in Epic 3.14)
+        0, // instancedObjects
+        0, // drawCallReduction
         diceCount,
         vramMB,
         vramUsagePercent,
         bufferCount,
         textureCount,
         cpuTiming,
-        { uboHitRate, bindGroupHitRate },
+        resourcePoolStats,
         gpuExec
       );
       this.frameCount = 0;
@@ -1160,6 +1130,11 @@ export class Demo {
     // after multiple button clicks when capacity is exceeded
     this.transformSystem.init();
 
+    // Allocate GPU resources for new dice count
+    const diceQuery = this.world.query().with(DiceEntity).build();
+    const totalDice = Array.from(this.world.executeQuery(diceQuery)).length;
+    this.ensureResourcesForDice(totalDice);
+
     // Update the dice count display
     this.updateDiceCountDisplay();
   }
@@ -1183,6 +1158,9 @@ export class Demo {
         this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
       }
     }
+
+    // Free unused GPU resources to prevent memory leak
+    this.freeUnusedResources(keepCount);
   }
 
   /**
@@ -1215,7 +1193,8 @@ export class Demo {
   private createModelMatrix(
     out: Float32Array,
     position: { x: number; y: number; z: number },
-    rotation: { x: number; y: number; z: number; w: number }
+    rotation: { x: number; y: number; z: number; w: number },
+    scale: { x: number; y: number; z: number } = { x: 1, y: 1, z: 1 }
   ): void {
     // Convert quaternion to rotation matrix
     const x = rotation.x, y = rotation.y, z = rotation.z, w = rotation.w;
@@ -1224,10 +1203,13 @@ export class Demo {
     const yy = y * y2, yz = y * z2, zz = z * z2;
     const wx = w * x2, wy = w * y2, wz = w * z2;
 
-    out[0] = 1 - (yy + zz); out[1] = xy + wz;       out[2] = xz - wy;       out[3] = 0;
-    out[4] = xy - wz;       out[5] = 1 - (xx + zz); out[6] = yz + wx;       out[7] = 0;
-    out[8] = xz + wy;       out[9] = yz - wx;       out[10] = 1 - (xx + yy); out[11] = 0;
-    out[12] = position.x;   out[13] = position.y;   out[14] = position.z;    out[15] = 1;
+    // Apply scale to rotation matrix (TRS composition)
+    const sx = scale.x, sy = scale.y, sz = scale.z;
+
+    out[0] = (1 - (yy + zz)) * sx; out[1] = (xy + wz) * sx;       out[2] = (xz - wy) * sx;       out[3] = 0;
+    out[4] = (xy - wz) * sy;       out[5] = (1 - (xx + zz)) * sy; out[6] = (yz + wx) * sy;       out[7] = 0;
+    out[8] = (xz + wy) * sz;       out[9] = (yz - wx) * sz;       out[10] = (1 - (xx + yy)) * sz; out[11] = 0;
+    out[12] = position.x;          out[13] = position.y;          out[14] = position.z;          out[15] = 1;
   }
 
   private multiplyMatrices(out: Float32Array, a: Float32Array, b: Float32Array): void {
@@ -1275,7 +1257,7 @@ export class Demo {
     bufferCount: number,
     textureCount: number,
     cpuTiming?: { physics: string; sync: string; ecs: string; diceLoop: string; sort: string; gpuEncode: string },
-    cacheStats?: { uboHitRate: number; bindGroupHitRate: number },
+    resourcePoolStats?: { poolSize: number; used: number },
     gpuExec?: number
   ): void {
     // Basic performance metrics
@@ -1335,13 +1317,20 @@ export class Demo {
       if (gpuExecEl) gpuExecEl.textContent = gpuExec.toFixed(2);
     }
 
-    // Cache statistics
-    if (cacheStats) {
-      const cacheUboEl = document.getElementById('cache-ubo');
-      const cacheBindEl = document.getElementById('cache-bind');
+    // Resource pool statistics
+    if (resourcePoolStats) {
+      const poolSizeEl = document.getElementById('preallocated-resources');
+      const usedEl = document.getElementById('used-resources');
+      const utilEl = document.getElementById('resource-utilization');
 
-      if (cacheUboEl) cacheUboEl.textContent = cacheStats.uboHitRate.toFixed(1);
-      if (cacheBindEl) cacheBindEl.textContent = cacheStats.bindGroupHitRate.toFixed(1);
+      if (poolSizeEl) poolSizeEl.textContent = resourcePoolStats.poolSize.toString();
+      if (usedEl) usedEl.textContent = resourcePoolStats.used.toString();
+      if (utilEl) {
+        const utilization = resourcePoolStats.poolSize > 0
+          ? (resourcePoolStats.used / resourcePoolStats.poolSize) * 100
+          : 0;
+        utilEl.textContent = utilization.toFixed(1);
+      }
     }
   }
 
@@ -1407,6 +1396,9 @@ export class Demo {
     const remainingEntities = Array.from(this.world.executeQuery(verifyQuery));
     console.log(`[RESET] After removal, ${remainingEntities.length} dice entities remain`);
 
+    // Free all GPU resources to prevent memory leak
+    this.freeUnusedResources(0);
+
     // The entities are now removed. The next render loop will show an empty scene.
     // No need to force a render - the animation loop will handle it.
 
@@ -1441,12 +1433,6 @@ export class Demo {
     if (this.physicsWorld) {
       this.physicsWorld.dispose();
       this.physicsWorld = null;
-    }
-
-    // Dispose renderer
-    if (this.renderer) {
-      this.renderer.dispose();
-      this.renderer = null;
     }
 
     // Note: Dice entities are managed by World and will be cleaned up automatically

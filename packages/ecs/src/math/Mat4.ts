@@ -11,7 +11,10 @@
  * - Matrix multiply: <0.05ms
  * - TRS composition: <0.1ms
  * - Uses Float32Array for cache efficiency
+ * - Uses wgpu-matrix for complex operations (invert, transpose, etc.)
  */
+
+import { mat4 } from 'wgpu-matrix';
 
 /**
  * Create identity matrix
@@ -437,6 +440,90 @@ export function orthographic(
   result[13] = (top + bottom) * bt;
   result[14] = (far + near) * nf;
   result[15] = 1;
+
+  return result;
+}
+
+/**
+ * Invert a 4x4 matrix using wgpu-matrix
+ *
+ * @param matrix - Source matrix (column-major)
+ * @param out - Optional output matrix (if not provided, creates new array)
+ * @returns Inverted matrix, or null if matrix is singular
+ */
+export function invert(matrix: Float32Array, out?: Float32Array): Float32Array | null {
+  const result = out || new Float32Array(16);
+
+  // Use wgpu-matrix for SIMD-optimized inversion
+  const inverted = mat4.inverse(matrix, result);
+
+  // wgpu-matrix doesn't return null for singular matrices, it returns a matrix
+  // We need to check if the matrix is effectively singular
+  // Quick heuristic: check diagonal elements - if inversion failed, they're often NaN or Infinity
+  if (!isFinite(result[0]) || !isFinite(result[5]) || !isFinite(result[10])) {
+    return null;
+  }
+
+  return inverted;
+}
+
+/**
+ * Transpose a 4x4 matrix using wgpu-matrix
+ *
+ * @param matrix - Source matrix (column-major)
+ * @param out - Optional output matrix (if not provided, creates new array)
+ * @returns Transposed matrix
+ */
+export function transpose(matrix: Float32Array, out?: Float32Array): Float32Array {
+  const result = out || new Float32Array(16);
+  return mat4.transpose(matrix, result);
+}
+
+/**
+ * Compute 3x3 normal matrix from 4x4 model matrix using wgpu-matrix
+ *
+ * The normal matrix is the inverse-transpose of the upper-left 3x3 portion of the model matrix.
+ * This correctly transforms normals even in the presence of non-uniform scaling.
+ *
+ * Result is stored in WebGPU std140 layout: 3 vec4s (12 floats) with padding
+ *
+ * @param modelMatrix - 4x4 model matrix (column-major, 16 floats)
+ * @param out - Output 3x3 normal matrix in vec4 layout (12 floats)
+ * @returns Normal matrix in WebGPU layout, or null if matrix is singular
+ */
+export function computeNormalMatrix(modelMatrix: Float32Array, out?: Float32Array): Float32Array | null {
+  const result = out || new Float32Array(12);
+
+  // Use wgpu-matrix to invert the full 4x4 matrix
+  const temp4x4 = new Float32Array(16);
+  const inverted = mat4.inverse(modelMatrix, temp4x4);
+
+  // Check for singularity
+  if (!isFinite(inverted[0]) || !isFinite(inverted[5]) || !isFinite(inverted[10])) {
+    return null;
+  }
+
+  // Transpose and extract upper-left 3x3 into WebGPU std140 layout
+  // Normal matrix = transpose(inverse(M))
+  // For column-major: transpose swaps [row][col] to [col][row]
+
+  // Column 0 (row 0 of inverted upper-left 3x3)
+  result[0] = inverted[0];
+  result[1] = inverted[4];
+  result[2] = inverted[8];
+  result[3] = 0; // padding
+
+  // Column 1 (row 1 of inverted upper-left 3x3)
+  result[4] = inverted[1];
+  result[5] = inverted[5];
+  result[6] = inverted[9];
+  result[7] = 0; // padding
+
+  // Column 2 (row 2 of inverted upper-left 3x3)
+  result[8] = inverted[2];
+  result[9] = inverted[6];
+  result[10] = inverted[10];
+  result[11] = 0; // padding
 
   return result;
 }
