@@ -9,7 +9,7 @@ import {
   OrbitControls as LegacyOrbitControls,
   CameraSystem,
   OrbitCameraController,
-  RenderQueue,
+  // RenderQueue, // TODO Epic 3.14: Removed - needs full refactor
   RenderCommandType,
   PrimitiveMode,
   BackendFactory,
@@ -54,7 +54,7 @@ export class Demo {
   private orbitController: OrbitCameraController | null = null;
 
   // Render queue for organized drawing
-  private renderQueue: RenderQueue;
+  // private renderQueue: RenderQueue; // TODO Epic 3.14: Removed - needs full refactor
   private instanceManager: InstanceBufferManager | null = null;
 
   // Rendering resources
@@ -100,7 +100,7 @@ export class Demo {
     this.cameraSystem = new CameraSystem(this.world);
 
     // Initialize render queue
-    this.renderQueue = new RenderQueue();
+    // this.renderQueue = new RenderQueue(); // TODO Epic 3.14: Removed - needs full refactor
 
     // Initialize matrix pools (pre-allocate for 1200 dice)
     this.matrixPool = new MatrixPool(16, 4000); // mat4 matrices
