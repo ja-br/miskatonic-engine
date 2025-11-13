@@ -23,6 +23,31 @@ export interface ShaderBinding {
 }
 
 /**
+ * Epic 3.14 Phase 3: Binding information for AST-based parser
+ * More detailed than ShaderBinding, includes all WebGPU binding details
+ */
+export interface BindingInfo {
+  binding: number;
+  name: string;
+  type: 'buffer' | 'texture' | 'sampler' | 'storage-texture';
+  bufferType?: 'uniform' | 'storage' | 'read-only-storage';
+  textureSampleType?: 'float' | 'unfilterable-float' | 'depth' | 'sint' | 'uint';
+  samplerType?: 'filtering' | 'non-filtering' | 'comparison';
+  storageTextureFormat?: string; // e.g., 'rgba8unorm', 'rgba16float', 'r32float'
+  storageTextureAccess?: 'read-only' | 'write-only' | 'read-write';
+  visibility: number; // Shader stage flags
+  isRuntimeSizedArray?: boolean; // True for array<T> (no size), false for array<T, N>
+}
+
+/**
+ * Epic 3.14 Phase 3: Bind group layout information for AST-based parser
+ */
+export interface BindGroupLayoutInfo {
+  group: number;
+  bindings: BindingInfo[];
+}
+
+/**
  * Vertex input attribute information
  */
 export interface ShaderAttribute {
@@ -80,6 +105,12 @@ export class WGSLReflectionParser {
    * Parse WGSL source and extract reflection data
    */
   parse(source: string): ShaderReflectionData {
+    // CRITICAL: Prevent ReDoS attacks with large malformed shaders
+    const MAX_SHADER_SIZE = 1_000_000; // 1MB max
+    if (source.length > MAX_SHADER_SIZE) {
+      throw new Error(`Shader source too large: ${source.length} bytes (max ${MAX_SHADER_SIZE})`);
+    }
+
     const bindGroupLayouts: BindGroupLayoutDescriptor[] = [];
     const attributes: ShaderAttribute[] = [];
     const entryPoints: ShaderReflectionData['entryPoints'] = {};
@@ -94,6 +125,28 @@ export class WGSLReflectionParser {
     while ((match = bindGroupRegex.exec(source)) !== null) {
       const groupIndex = parseInt(match[1]);
       const bindingIndex = parseInt(match[2]);
+
+      // CRITICAL: Validate extracted values to prevent NaN corruption
+      if (isNaN(groupIndex) || isNaN(bindingIndex)) {
+        throw new Error(
+          `Invalid bind group syntax: @group(${match[1]}) @binding(${match[2]}) ` +
+          `- indices must be valid numbers`
+        );
+      }
+
+      // Validate ranges per WebGPU spec
+      if (groupIndex < 0 || groupIndex > 3) {
+        throw new Error(
+          `Bind group index ${groupIndex} out of range [0, 3] in shader`
+        );
+      }
+
+      if (bindingIndex < 0 || bindingIndex > 15) {
+        throw new Error(
+          `Binding index ${bindingIndex} out of range [0, 15] in shader`
+        );
+      }
+
       const storageType = match[3]; // e.g., 'uniform', 'storage, read'
       // const varName = match[4]; // Reserved for future use
       const varType = match[5].trim();
@@ -120,12 +173,12 @@ export class WGSLReflectionParser {
         visibility.push('compute');
       }
 
-      // Get or create bind group layout
+      // Get or create bind group layout (safe after validation above)
       if (!groupMap.has(groupIndex)) {
         groupMap.set(groupIndex, { entries: [] });
       }
 
-      const layout = groupMap.get(groupIndex)!;
+      const layout = groupMap.get(groupIndex)!; // Safe: we just created it if missing
       layout.entries.push({
         binding: bindingIndex,
         visibility,
@@ -145,8 +198,24 @@ export class WGSLReflectionParser {
     let attrMatch: RegExpExecArray | null;
     while ((attrMatch = attrRegex.exec(source)) !== null) {
       const location = parseInt(attrMatch[1]);
-      const name = attrMatch[2];
       const components = parseInt(attrMatch[3]);
+
+      // Validate attribute values
+      if (isNaN(location) || isNaN(components)) {
+        throw new Error(
+          `Invalid attribute syntax: @location(${attrMatch[1]}) with vec${attrMatch[3]}`
+        );
+      }
+
+      if (location < 0 || location > 15) {
+        throw new Error(`Attribute location ${location} out of range [0, 15]`);
+      }
+
+      if (components < 1 || components > 4) {
+        throw new Error(`Invalid vector size vec${components} (must be vec1-vec4)`);
+      }
+
+      const name = attrMatch[2];
       attributes.push({
         location,
         name,
@@ -169,11 +238,24 @@ export class WGSLReflectionParser {
       const workgroupRegex = /@workgroup_size\((\d+)(?:,\s*(\d+))?(?:,\s*(\d+))?\)/;
       const workgroupMatch = source.match(workgroupRegex);
       if (workgroupMatch) {
-        workgroupSize = {
-          x: parseInt(workgroupMatch[1]),
-          y: workgroupMatch[2] ? parseInt(workgroupMatch[2]) : 1,
-          z: workgroupMatch[3] ? parseInt(workgroupMatch[3]) : 1,
-        };
+        const x = parseInt(workgroupMatch[1]);
+        const y = workgroupMatch[2] ? parseInt(workgroupMatch[2]) : 1;
+        const z = workgroupMatch[3] ? parseInt(workgroupMatch[3]) : 1;
+
+        // Validate workgroup dimensions
+        if (isNaN(x) || isNaN(y) || isNaN(z)) {
+          throw new Error(
+            `Invalid workgroup_size: @workgroup_size(${workgroupMatch[1]}, ${workgroupMatch[2]}, ${workgroupMatch[3]})`
+          );
+        }
+
+        if (x < 1 || y < 1 || z < 1 || x > 256 || y > 256 || z > 64) {
+          throw new Error(
+            `Workgroup size (${x}, ${y}, ${z}) out of WebGPU limits (max: 256, 256, 64)`
+          );
+        }
+
+        workgroupSize = { x, y, z };
       }
     }
 
@@ -222,8 +304,9 @@ export class ShaderReflectionCache {
    * Get or compute reflection data for shader source
    */
   getOrCompute(source: string, parser: WGSLReflectionParser): ShaderReflectionData {
-    // Use source hash as cache key
-    const key = this.hashSource(source);
+    // CRITICAL FIX: Use full source as key for small shaders, length + samples for large
+    // This prevents hash collisions that would return wrong shader reflection data
+    const key = this.createCacheKey(source);
 
     let reflection = this.cache.get(key);
     if (!reflection) {
@@ -243,15 +326,24 @@ export class ShaderReflectionCache {
   }
 
   /**
-   * Simple hash function for shader source
+   * Create a collision-resistant cache key for shader source
+   *
+   * For small shaders (<10KB), use the full source as the key (zero collision risk).
+   * For large shaders, use length + samples from start/middle/end to balance
+   * performance vs collision resistance.
    */
-  private hashSource(source: string): string {
-    let hash = 0;
-    for (let i = 0; i < source.length; i++) {
-      const char = source.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+  private createCacheKey(source: string): string {
+    // Small shaders: use full source (guaranteed no collisions)
+    if (source.length < 10240) {
+      return source;
     }
-    return hash.toString(36);
+
+    // Large shaders: use length + strategic samples to minimize collision risk
+    // This is much safer than a 32-bit hash and still performs well
+    const start = source.slice(0, 1000);
+    const middle = source.slice(Math.floor(source.length / 2), Math.floor(source.length / 2) + 1000);
+    const end = source.slice(-1000);
+
+    return `${source.length}_${start}_${middle}_${end}`;
   }
 }
