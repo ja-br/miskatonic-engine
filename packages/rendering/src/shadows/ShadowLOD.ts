@@ -159,7 +159,7 @@ export class ShadowLOD {
     currentResolution?: ShadowResolution;
   }): ShadowLODRecommendation {
     const importance = params.importance ?? LightImportance.NORMAL;
-    const importanceMultiplier = this.config.importanceMultipliers[importance];
+    const importanceMultiplier = this.config.importanceMultipliers[importance] ?? 1.0;
 
     // Calculate effective distance (reduced by importance)
     const effectiveDistance = params.distance / importanceMultiplier;
@@ -226,7 +226,6 @@ export class ShadowLOD {
       return current;
     }
 
-    const thresholds = this.config.distanceThresholds;
     const HYSTERESIS_FACTOR = 0.2; // 20% overlap
 
     // CRITICAL FIX: Resolution enum values are backward (ULTRA=2048 > LOW=256)

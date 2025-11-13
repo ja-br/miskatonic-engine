@@ -4,7 +4,7 @@
 
 import type { BackendBufferHandle } from './backends/IRendererBackend';
 
-export type BindingType = 'uniform' | 'storage' | 'sampler' | 'texture';
+export type BindingType = 'uniform' | 'storage' | 'read-only-storage' | 'sampler' | 'texture';
 export type ShaderStage = 'vertex' | 'fragment' | 'compute';
 
 export interface BindGroupLayoutEntry {
@@ -33,7 +33,7 @@ export interface BindGroupDescriptor {
  */
 export function validateBindGroupLayout(layout: BindGroupLayoutDescriptor): void {
   for (const entry of layout.entries) {
-    if ((entry.type === 'uniform' || entry.type === 'storage') && entry.minBindingSize) {
+    if ((entry.type === 'uniform' || entry.type === 'storage' || entry.type === 'read-only-storage') && entry.minBindingSize) {
       if (entry.minBindingSize % 256 !== 0) {
         throw new Error(`Binding ${entry.binding}: size ${entry.minBindingSize} must be 256-byte aligned`);
       }

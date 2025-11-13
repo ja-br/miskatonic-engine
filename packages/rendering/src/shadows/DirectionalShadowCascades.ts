@@ -262,8 +262,8 @@ export class DirectionalShadowCascades {
    * Compute 8 frustum corners for a depth range.
    */
   private computeFrustumCorners(
-    near: number,
-    far: number,
+    _near: number,
+    _far: number,
     viewMatrix: Float32Array | number[],
     projectionMatrix: Float32Array | number[]
   ): Array<[number, number, number]> | null {
@@ -537,13 +537,6 @@ export class DirectionalShadowCascades {
     const c15 = m[4] * m[11] - m[8] * m[7];
     const c16 = m[4] * m[10] - m[8] * m[6];
     const c17 = m[4] * m[9] - m[8] * m[5];
-
-    const c18 = m[2] * m[15] - m[14] * m[3];
-    const c19 = m[1] * m[15] - m[13] * m[3];
-    const c20 = m[1] * m[14] - m[13] * m[2];
-    const c21 = m[0] * m[15] - m[12] * m[3];
-    const c22 = m[0] * m[14] - m[12] * m[2];
-    const c23 = m[0] * m[13] - m[12] * m[1];
 
     const det =
       m[0] * (m[5] * c00 - m[6] * c01 + m[7] * c02) -

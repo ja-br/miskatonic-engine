@@ -42,7 +42,7 @@ Miskatonic Engine uses Electron's multi-process architecture with strict securit
   - Game engine (future)
   - User interface
   - Client-side game logic
-  - Rendering (WebGL2/WebGPU)
+  - Rendering (WebGPU)
 
 - **Key Files**:
   - `index.ts` - Renderer entry point

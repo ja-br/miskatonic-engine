@@ -491,7 +491,6 @@ export class ShaderLoader {
     this.watchCallback = callback;
 
     // Setup file watcher (Node.js only)
-    const fs = await import('fs/promises');
     const chokidar = await import('chokidar');
 
     const watcher = chokidar.watch(`${this.basePath}**/*.{glsl,wgsl}`, {

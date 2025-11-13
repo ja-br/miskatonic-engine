@@ -35,13 +35,12 @@ fn vs_main(input: VertexInput) -> VertexOutput {
   // Transform normal
   output.normal = normalize(uniforms.normalMatrix * input.normal);
 
-  // Transform position to world space
+  // Transform position to world space for lighting calculations
   let worldPosition = uniforms.model * vec4<f32>(input.position, 1.0);
   output.worldPosition = worldPosition.xyz;
 
-  // Transform to clip space
-  // Epic 3.13 FIX: modelViewProjection is now viewProj, apply model separately
-  output.position = uniforms.modelViewProjection * worldPosition;
+  // Transform to clip space (MVP already contains model transform, apply directly to input)
+  output.position = uniforms.modelViewProjection * vec4<f32>(input.position, 1.0);
 
   return output;
 }

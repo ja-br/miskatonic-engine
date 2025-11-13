@@ -1,4 +1,5 @@
-import type { DrawCommand, ClearCommand } from './types';
+import type { ClearCommand } from './types';
+import type { DrawCommand } from './commands/DrawCommand';
 
 /**
  * Render pass target

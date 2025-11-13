@@ -187,25 +187,6 @@ export interface VertexLayout {
  */
 export type IndexType = 'uint8' | 'uint16' | 'uint32';
 
-/**
- * Draw command
- */
-export interface DrawCommand {
-  type: RenderCommandType.DRAW;
-  shader: string; // Shader program ID
-  mode: PrimitiveMode;
-  vertexBufferId: string; // Buffer ID instead of raw WebGLBuffer
-  indexBufferId?: string; // Buffer ID instead of raw WebGLBuffer
-  indexType?: IndexType; // Type of indices (uint8, uint16, uint32)
-  vertexCount: number;
-  vertexLayout: VertexLayout; // How to interpret vertex data
-  instanceCount?: number;
-  instanceBufferId?: string; // Epic 3.13: Instance buffer ID for instanced rendering
-  meshId?: string; // Epic 3.13: Unique mesh identifier for instancing detection
-  uniforms?: Map<string, Uniform>;
-  textures?: Map<number, string>; // texture unit -> texture ID
-  state?: Partial<RenderState>;
-}
 
 /**
  * Clear command
@@ -260,9 +241,9 @@ export interface BindFramebufferCommand {
 
 /**
  * Union of all render commands
+ * Note: DrawCommand removed - use unified DrawCommand from commands/DrawCommand.ts instead
  */
 export type RenderCommand =
-  | DrawCommand
   | ClearCommand
   | SetStateCommand
   | SetShaderCommand

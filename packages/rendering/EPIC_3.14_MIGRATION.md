@@ -420,6 +420,5 @@ const layout: VertexBufferLayout = { arrayStride: 24, ... };
 ## Support
 
 For questions or issues with migration:
-- Check existing demos in `packages/rendering/src/lighting-demo-advanced.ts`
 - Review bind group descriptor helpers in `src/BindGroupDescriptors.ts`
 - See pipeline state presets in `src/PipelineStateDescriptor.ts`

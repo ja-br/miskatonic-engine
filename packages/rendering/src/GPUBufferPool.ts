@@ -230,8 +230,6 @@ export class GPUBufferPool {
 
     for (const [usage, usagePool] of this.pools.entries()) {
       for (const [bucketSize, bucketPool] of usagePool.entries()) {
-        const before = bucketPool.length;
-
         // Separate old buffers from kept buffers
         const kept: PooledBuffer[] = [];
         const toDestroy: PooledBuffer[] = [];

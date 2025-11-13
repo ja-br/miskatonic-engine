@@ -11,7 +11,7 @@ export type EntityId = number;
 /**
  * Component type identifier
  */
-export type ComponentType<T extends Component = Component> = new (...args: unknown[]) => T;
+export type ComponentType<T extends Component = Component> = new (...args: any[]) => T;
 
 /**
  * Component instance

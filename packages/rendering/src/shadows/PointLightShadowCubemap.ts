@@ -184,14 +184,7 @@ export class PointLightShadowCubemap {
   ): Float32Array {
     const matrix = new Float32Array(16);
 
-    // Target is relative direction from eye
-    const target: [number, number, number] = [
-      eye[0] + targetDir[0],
-      eye[1] + targetDir[1],
-      eye[2] + targetDir[2],
-    ];
-
-    // Forward = normalize(target - eye) = normalize(targetDir)
+    // Forward = normalize(targetDir)
     const flen = Math.sqrt(
       targetDir[0] * targetDir[0] + targetDir[1] * targetDir[1] + targetDir[2] * targetDir[2]
     );

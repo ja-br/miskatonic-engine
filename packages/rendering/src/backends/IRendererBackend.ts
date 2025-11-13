@@ -12,7 +12,6 @@
 
 import type {
   ShaderSource,
-  RenderCommand,
   RenderStats,
   BufferUsage,
   TextureFormat,
@@ -25,6 +24,7 @@ import type {
 } from '../BindGroupDescriptors';
 import type { PipelineStateDescriptor } from '../PipelineStateDescriptor';
 import type { ShaderReflectionData } from '../ShaderReflection';
+import type { DrawCommand } from '../commands/DrawCommand';
 
 /**
  * Opaque resource handles
@@ -159,6 +159,7 @@ export interface BindGroupResources {
   }>;
 }
 
+
 /**
  * Renderer backend interface
  *
@@ -197,9 +198,11 @@ export interface IRendererBackend {
   endFrame(): void;
 
   /**
-   * Execute render commands
+   * Execute unified draw command (Epic 3.14 Consolidation)
+   * Supports indexed, non-indexed, indirect, and compute dispatches
+   * Uses explicit bind groups and pipelines
    */
-  executeCommands(commands: RenderCommand[]): void;
+  executeDrawCommand(command: DrawCommand): void;
 
   /**
    * Clear framebuffer

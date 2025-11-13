@@ -7,7 +7,7 @@ export interface GeometryData {
   positions: Float32Array;
   normals: Float32Array;
   uvs: Float32Array;
-  indices: Uint16Array;
+  indices: Uint16Array | Uint32Array;
 }
 
 /**
@@ -117,11 +117,15 @@ export function createSphere(
     }
   }
 
+  // Use Uint32Array if vertex count exceeds Uint16 max (65535)
+  const vertexCount = positions.length / 3;
+  const IndicesArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
+
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     uvs: new Float32Array(uvs),
-    indices: new Uint16Array(indices),
+    indices: new IndicesArray(indices),
   };
 }
 
@@ -174,10 +178,14 @@ export function createPlane(
     }
   }
 
+  // Use Uint32Array if vertex count exceeds Uint16 max (65535)
+  const vertexCount = positions.length / 3;
+  const IndicesArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
+
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     uvs: new Float32Array(uvs),
-    indices: new Uint16Array(indices),
+    indices: new IndicesArray(indices),
   };
 }

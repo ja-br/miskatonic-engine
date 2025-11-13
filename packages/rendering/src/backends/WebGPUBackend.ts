@@ -26,21 +26,19 @@ import type {
 
 import type {
   ShaderSource,
-  RenderCommand,
   RenderStats,
   BufferUsage,
   TextureFormat,
   TextureFilter,
   TextureWrap,
-  DrawCommand,
   VertexLayout,
 } from '../types';
-
-import { RenderCommandType } from '../types';
 import { VRAMProfiler, VRAMCategory, type VRAMStats } from '../VRAMProfiler';
 import { GPUBufferPool, BufferUsageType } from '../GPUBufferPool';
 import type { BindGroupLayoutDescriptor } from '../BindGroupDescriptors';
 import { WGSLReflectionParser, ShaderReflectionCache, type ShaderReflectionData } from '../ShaderReflection';
+import type { DrawCommand } from '../commands/DrawCommand';
+import { isIndexedGeometry, isNonIndexedGeometry, isIndirectGeometry, isComputeGeometry } from '../commands/DrawCommand';
 
 /**
  * Uniform Buffer Pool - Epic 2.13
@@ -216,6 +214,7 @@ export class WebGPUBackend implements IRendererBackend {
   private vramProfiler: VRAMProfiler;
 
   // Epic 2.13: Performance counters
+  // @ts-ignore - Will be used once bind group pooling is integrated
   private perfStats = {
     bindGroupsCreated: 0,
     bindGroupsCached: 0,
@@ -278,6 +277,16 @@ export class WebGPUBackend implements IRendererBackend {
       // Request device
       this.device = await this.adapter.requestDevice({
         requiredFeatures,
+      });
+
+      // Add WebGPU error handler (CRITICAL for debugging)
+      this.device.addEventListener('uncapturederror', (event: GPUUncapturedErrorEvent) => {
+        console.error('🚨 WebGPU Uncaptured Error:', event.error);
+        console.error('   Type:', event.error.constructor.name);
+        console.error('   Message:', event.error.message);
+        if ('lineNum' in event.error) {
+          console.error('   Line:', (event.error as any).lineNum);
+        }
       });
 
       // Configure canvas context
@@ -374,6 +383,9 @@ export class WebGPUBackend implements IRendererBackend {
     if (!this.device) {
       throw new Error('Cannot begin frame: WebGPU device not available');
     }
+
+    // Epic 3.14: Advance frame counters at START of frame to avoid off-by-one errors
+    this.gpuBufferPool.nextFrame();
 
     this.resetStats();
     this.currentCommandEncoder = this.device.createCommandEncoder();
@@ -502,12 +514,12 @@ export class WebGPUBackend implements IRendererBackend {
       }
     }
 
-    // Epic 2.13 & 3.8: Release uniform buffers back to pool and advance buffer pool frame
+    // Epic 2.13 & 3.8: Release uniform buffers back to pool
     for (const buffer of this.frameUniformBuffers) {
       this.uniformBufferPool.release(buffer);
     }
     this.frameUniformBuffers = [];
-    this.gpuBufferPool.nextFrame(); // Epic 3.8: Advance frame counter and cleanup old buffers
+    // Note: nextFrame() moved to beginFrame() to avoid off-by-one frame tracking errors
   }
 
   /**
@@ -548,14 +560,220 @@ export class WebGPUBackend implements IRendererBackend {
     return this.gpuTimeMs;
   }
 
-  executeCommands(commands: RenderCommand[]): void {
+  /**
+   * Execute unified draw command (Epic 3.14 Consolidation)
+   * Supports indexed, non-indexed, indirect, and compute dispatches
+   */
+  executeDrawCommand(command: DrawCommand): void {
     if (!this.device || !this.currentCommandEncoder) {
-      throw new Error('Cannot execute commands: no active command encoder');
+      throw new Error('Cannot execute draw command: no active command encoder');
     }
 
-    for (const command of commands) {
-      this.executeCommand(command);
+    const geom = command.geometry;
+
+    // Handle compute dispatch separately
+    if (isComputeGeometry(geom)) {
+      this.executeComputeDispatch(command);
+      return;
     }
+
+    // Get or create render pass for rendering commands
+    if (!this.currentRenderPass) {
+      const colorAttachment: GPURenderPassColorAttachment = {
+        view: this.context!.getCurrentTexture().createView(),
+        clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
+        loadOp: 'clear' as const,
+        storeOp: 'store' as const,
+      };
+
+      const depthAttachment: GPURenderPassDepthStencilAttachment | undefined = this.depthTexture
+        ? {
+            view: this.depthTexture.createView(),
+            depthClearValue: 1.0,
+            depthLoadOp: 'clear' as const,
+            depthStoreOp: 'store' as const,
+          }
+        : undefined;
+
+      this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
+        label: command.label || 'Render Pass',
+        colorAttachments: [colorAttachment],
+        depthStencilAttachment: depthAttachment,
+      });
+    }
+
+    // Get pipeline
+    const pipelineData = this.pipelines.get(command.pipeline.id);
+    if (!pipelineData) {
+      throw new Error(`Pipeline ${command.pipeline.id} not found`);
+    }
+    if (pipelineData.type !== 'render') {
+      throw new Error(`Pipeline ${command.pipeline.id} is not a render pipeline`);
+    }
+
+    // Set pipeline
+    this.currentRenderPass.setPipeline(pipelineData.pipeline as GPURenderPipeline);
+
+    // Set bind groups
+    for (const [groupIndex, bindGroupHandle] of command.bindGroups) {
+      const bindGroup = this.bindGroups.get(bindGroupHandle.id);
+      if (!bindGroup) {
+        throw new Error(`Bind group ${bindGroupHandle.id} not found`);
+      }
+      this.currentRenderPass.setBindGroup(groupIndex, bindGroup);
+    }
+
+    // Set vertex buffers from geometry
+    // Epic 3.14: Validate vertex buffer slots
+    const maxSlot = Math.max(...geom.vertexBuffers.keys());
+    if (maxSlot >= this.device.limits.maxVertexBuffers) {
+      throw new Error(
+        `Vertex buffer slot ${maxSlot} exceeds device limit (${this.device.limits.maxVertexBuffers})`
+      );
+    }
+
+    // Warn if slots aren't sequential (non-fatal but suspicious)
+    const slots = Array.from(geom.vertexBuffers.keys()).sort((a, b) => a - b);
+    for (let i = 0; i < slots.length - 1; i++) {
+      if (slots[i + 1] !== slots[i] + 1) {
+        console.warn(`Non-sequential vertex buffer slots detected: ${slots.join(', ')}`);
+        break;
+      }
+    }
+
+    for (const [slot, handle] of geom.vertexBuffers) {
+      const bufferData = this.buffers.get(handle.id);
+      if (!bufferData) {
+        throw new Error(`Vertex buffer ${handle.id} not found`);
+      }
+      this.currentRenderPass.setVertexBuffer(slot, bufferData.buffer);
+    }
+
+    // Execute appropriate draw call based on geometry type
+    if (isIndexedGeometry(geom)) {
+      this.executeIndexedDraw(geom);
+    } else if (isNonIndexedGeometry(geom)) {
+      this.executeNonIndexedDraw(geom);
+    } else if (isIndirectGeometry(geom)) {
+      this.executeIndirectDraw(geom);
+    }
+  }
+
+  /**
+   * Execute indexed draw
+   */
+  private executeIndexedDraw(geom: import('../commands/DrawCommand').IndexedGeometry): void {
+    if (!this.currentRenderPass) return;
+
+    const indexBufferData = this.buffers.get(geom.indexBuffer.id);
+    if (!indexBufferData) {
+      throw new Error(`Index buffer ${geom.indexBuffer.id} not found`);
+    }
+
+    this.currentRenderPass.setIndexBuffer(indexBufferData.buffer, geom.indexFormat);
+
+    this.currentRenderPass.drawIndexed(
+      geom.indexCount,
+      geom.instanceCount ?? 1,
+      geom.firstIndex ?? 0,
+      geom.baseVertex ?? 0,
+      geom.firstInstance ?? 0
+    );
+
+    // Update stats
+    this.stats.drawCalls++;
+    this.stats.vertices += geom.indexCount * (geom.instanceCount ?? 1);
+    this.stats.triangles += Math.floor(geom.indexCount / 3) * (geom.instanceCount ?? 1);
+  }
+
+  /**
+   * Execute non-indexed draw
+   */
+  private executeNonIndexedDraw(geom: import('../commands/DrawCommand').NonIndexedGeometry): void {
+    if (!this.currentRenderPass) return;
+
+    this.currentRenderPass.draw(
+      geom.vertexCount,
+      geom.instanceCount ?? 1,
+      geom.firstVertex ?? 0,
+      geom.firstInstance ?? 0
+    );
+
+    // Update stats
+    this.stats.drawCalls++;
+    this.stats.vertices += geom.vertexCount * (geom.instanceCount ?? 1);
+    this.stats.triangles += Math.floor(geom.vertexCount / 3) * (geom.instanceCount ?? 1);
+  }
+
+  /**
+   * Execute indirect draw
+   */
+  private executeIndirectDraw(geom: import('../commands/DrawCommand').IndirectGeometry): void {
+    if (!this.currentRenderPass) return;
+
+    const indirectBufferData = this.buffers.get(geom.indirectBuffer.id);
+    if (!indirectBufferData) {
+      throw new Error(`Indirect buffer ${geom.indirectBuffer.id} not found`);
+    }
+
+    if (geom.indexBuffer) {
+      // Indexed indirect - Epic 3.14: Validate indexFormat is present
+      if (!geom.indexFormat) {
+        throw new Error('indexFormat required for indexed indirect draws');
+      }
+
+      const indexBufferData = this.buffers.get(geom.indexBuffer.id);
+      if (!indexBufferData) {
+        throw new Error(`Index buffer ${geom.indexBuffer.id} not found`);
+      }
+      this.currentRenderPass.setIndexBuffer(indexBufferData.buffer, geom.indexFormat);
+      this.currentRenderPass.drawIndexedIndirect(indirectBufferData.buffer, geom.indirectOffset);
+    } else {
+      // Non-indexed indirect
+      this.currentRenderPass.drawIndirect(indirectBufferData.buffer, geom.indirectOffset);
+    }
+
+    // Update stats (cannot determine exact counts for indirect draws)
+    this.stats.drawCalls++;
+  }
+
+  /**
+   * Execute compute dispatch
+   */
+  private executeComputeDispatch(command: DrawCommand): void {
+    if (!this.device || !this.currentCommandEncoder) return;
+
+    const geom = command.geometry;
+    if (!isComputeGeometry(geom)) return;
+
+    const pipelineData = this.pipelines.get(command.pipeline.id);
+    if (!pipelineData) {
+      throw new Error(`Pipeline ${command.pipeline.id} not found`);
+    }
+    if (pipelineData.type !== 'compute') {
+      throw new Error(`Pipeline ${command.pipeline.id} is not a compute pipeline`);
+    }
+
+    const computePass = this.currentCommandEncoder.beginComputePass({
+      label: command.label || 'Compute Pass',
+    });
+
+    computePass.setPipeline(pipelineData.pipeline as GPUComputePipeline);
+
+    // Set bind groups
+    for (const [groupIndex, bindGroupHandle] of command.bindGroups) {
+      const bindGroup = this.bindGroups.get(bindGroupHandle.id);
+      if (!bindGroup) {
+        throw new Error(`Bind group ${bindGroupHandle.id} not found`);
+      }
+      computePass.setBindGroup(groupIndex, bindGroup);
+    }
+
+    computePass.dispatchWorkgroups(geom.workgroups[0], geom.workgroups[1], geom.workgroups[2]);
+    computePass.end();
+
+    // Update stats
+    this.stats.drawCalls++;
   }
 
   clear(
@@ -601,7 +819,9 @@ export class WebGPUBackend implements IRendererBackend {
   /**
    * Get or create pipeline variant for (shader, vertexLayout) combination
    * Epic 3.13: Dynamic pipeline generation
+   * @deprecated This will be removed once all demos are migrated to new pipeline API
    */
+  // @ts-ignore - Legacy method for old demos
   private getPipeline(
     shaderId: string,
     vertexLayout: VertexLayout,
@@ -778,6 +998,19 @@ export class WebGPUBackend implements IRendererBackend {
     const shaderModule = this.device.createShaderModule({
       label: `Shader: ${id}`,
       code: source.vertex, // Assuming combined WGSL shader for now
+    });
+
+    // CRITICAL: Validate shader compilation (async)
+    shaderModule.getCompilationInfo().then((info) => {
+      const errors = info.messages.filter((m) => m.type === 'error');
+      if (errors.length > 0) {
+        console.error(`🚨 Shader "${id}" compilation failed:`);
+        for (const error of errors) {
+          console.error(`   Line ${error.lineNum}:${error.linePos} - ${error.message}`);
+        }
+      } else {
+        console.log(`✓ Shader "${id}" compiled successfully`);
+      }
     });
 
     // Create bind group layout for uniforms
@@ -1185,20 +1418,21 @@ export class WebGPUBackend implements IRendererBackend {
 
     const id = `pipeline_${this.nextResourceId++}`;
 
-    // Get shader
-    const shader = this.shaders.get(descriptor.shader.id);
-    if (!shader) {
-      throw new Error(`Shader ${descriptor.shader.id} not found`);
-    }
-
-    // Get bind group layouts
-    const bindGroupLayouts = descriptor.bindGroupLayouts.map(handle => {
-      const layout = this.bindGroupLayouts.get(handle.id);
-      if (!layout) {
-        throw new Error(`Bind group layout ${handle.id} not found`);
+    try {
+      // Get shader
+      const shader = this.shaders.get(descriptor.shader.id);
+      if (!shader) {
+        throw new Error(`Shader ${descriptor.shader.id} not found`);
       }
-      return layout;
-    });
+
+      // Get bind group layouts
+      const bindGroupLayouts = descriptor.bindGroupLayouts.map(handle => {
+        const layout = this.bindGroupLayouts.get(handle.id);
+        if (!layout) {
+          throw new Error(`Bind group layout ${handle.id} not found`);
+        }
+        return layout;
+      });
 
     // Create pipeline layout
     const pipelineLayout = this.device.createPipelineLayout({
@@ -1262,8 +1496,23 @@ export class WebGPUBackend implements IRendererBackend {
       depthStencil: depthStencilState,
     });
 
-    this.pipelines.set(id, { pipeline, type: 'render' });
-    return { __brand: 'BackendPipeline', id, type: 'render' } as BackendPipelineHandle;
+      this.pipelines.set(id, { pipeline, type: 'render' });
+      return { __brand: 'BackendPipeline', id, type: 'render' } as BackendPipelineHandle;
+    } catch (error) {
+      // CRITICAL: Provide helpful error context for pipeline failures
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to create render pipeline "${descriptor.label || id}":`, error);
+
+      throw new Error(
+        `Render pipeline creation failed: ${errorMsg}\n` +
+        `Pipeline: ${descriptor.label || id}\n` +
+        `Shader: ${descriptor.shader.id}\n` +
+        `Vertex layouts: ${descriptor.vertexLayouts.length}\n` +
+        `Bind group layouts: ${descriptor.bindGroupLayouts.length}\n` +
+        `Color format: ${descriptor.colorFormat}\n` +
+        `Depth format: ${descriptor.depthFormat || 'none'}`
+      );
+    }
   }
 
   /**
@@ -1276,20 +1525,21 @@ export class WebGPUBackend implements IRendererBackend {
 
     const id = `pipeline_${this.nextResourceId++}`;
 
-    // Get shader
-    const shader = this.shaders.get(descriptor.shader.id);
-    if (!shader) {
-      throw new Error(`Shader ${descriptor.shader.id} not found`);
-    }
-
-    // Get bind group layouts
-    const bindGroupLayouts = descriptor.bindGroupLayouts.map(handle => {
-      const layout = this.bindGroupLayouts.get(handle.id);
-      if (!layout) {
-        throw new Error(`Bind group layout ${handle.id} not found`);
+    try {
+      // Get shader
+      const shader = this.shaders.get(descriptor.shader.id);
+      if (!shader) {
+        throw new Error(`Shader ${descriptor.shader.id} not found`);
       }
-      return layout;
-    });
+
+      // Get bind group layouts
+      const bindGroupLayouts = descriptor.bindGroupLayouts.map(handle => {
+        const layout = this.bindGroupLayouts.get(handle.id);
+        if (!layout) {
+          throw new Error(`Bind group layout ${handle.id} not found`);
+        }
+        return layout;
+      });
 
     // Create pipeline layout
     const pipelineLayout = this.device.createPipelineLayout({
@@ -1307,8 +1557,21 @@ export class WebGPUBackend implements IRendererBackend {
       },
     });
 
-    this.pipelines.set(id, { pipeline, type: 'compute' });
-    return { __brand: 'BackendPipeline', id, type: 'compute' } as BackendPipelineHandle;
+      this.pipelines.set(id, { pipeline, type: 'compute' });
+      return { __brand: 'BackendPipeline', id, type: 'compute' } as BackendPipelineHandle;
+    } catch (error) {
+      // CRITICAL: Provide helpful error context for compute pipeline failures
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to create compute pipeline "${descriptor.label || id}":`, error);
+
+      throw new Error(
+        `Compute pipeline creation failed: ${errorMsg}\n` +
+        `Pipeline: ${descriptor.label || id}\n` +
+        `Shader: ${descriptor.shader.id}\n` +
+        `Entry point: ${descriptor.entryPoint || 'compute_main'}\n` +
+        `Bind group layouts: ${descriptor.bindGroupLayouts.length}`
+      );
+    }
   }
 
   /**
@@ -1419,12 +1682,14 @@ export class WebGPUBackend implements IRendererBackend {
   /**
    * Helper: Convert binding type to WebGPU layout entry
    */
-  private convertBindingType(type: 'uniform' | 'storage' | 'sampler' | 'texture'): Partial<GPUBindGroupLayoutEntry> {
+  private convertBindingType(type: 'uniform' | 'storage' | 'read-only-storage' | 'sampler' | 'texture'): Partial<GPUBindGroupLayoutEntry> {
     switch (type) {
       case 'uniform':
         return { buffer: { type: 'uniform' } };
       case 'storage':
         return { buffer: { type: 'storage' } };
+      case 'read-only-storage':
+        return { buffer: { type: 'read-only-storage' } };
       case 'sampler':
         return { sampler: { type: 'filtering' } };
       case 'texture':
@@ -1485,252 +1750,6 @@ export class WebGPUBackend implements IRendererBackend {
 
   // Private Helper Methods
 
-  private executeCommand(command: RenderCommand): void {
-    switch (command.type) {
-      case RenderCommandType.CLEAR:
-        // Handled in render pass descriptor
-        break;
-      case RenderCommandType.DRAW:
-        this.executeDrawCommand(command as DrawCommand);
-        break;
-      case RenderCommandType.BIND_FRAMEBUFFER:
-        // Would need to begin new render pass with different attachments
-        break;
-    }
-  }
-
-  private executeDrawCommand(command: DrawCommand): void {
-    if (!this.device || !this.currentCommandEncoder || !this.context) {
-      return;
-    }
-
-    try {
-      this.executeDrawCommandInternal(command);
-    } catch (error) {
-      console.error('Error executing draw command:', error);
-      // Ensure render pass is cleaned up on error
-      if (this.currentRenderPass) {
-        this.currentRenderPass.end();
-        this.currentRenderPass = null;
-      }
-    }
-  }
-
-  private executeDrawCommandInternal(command: DrawCommand): void {
-    if (!this.device || !this.currentCommandEncoder || !this.context) {
-      return;
-    }
-
-    // Get shader
-    const shader = this.shaders.get(command.shader);
-    if (!shader) {
-      throw new Error(`Shader ${command.shader} not found`);
-    }
-
-    // Begin render pass if not already active
-    if (!this.currentRenderPass) {
-      const tSwapStart = performance.now();
-      const textureView = this.context.getCurrentTexture().createView();
-      const tSwapEnd = performance.now();
-      const swapTime = tSwapEnd - tSwapStart;
-      if (swapTime > 1.0) {
-        console.warn(`⚠️ Slow swap chain acquisition: ${swapTime.toFixed(2)}ms`);
-      }
-
-      // Check if depth texture needs to be recreated (canvas size changed)
-      if (this.depthTexture && this.canvas &&
-          (this.depthTexture.width !== this.canvas.width || this.depthTexture.height !== this.canvas.height)) {
-        this.depthTexture.destroy();
-        this.depthTexture = this.device.createTexture({
-          size: { width: this.canvas.width, height: this.canvas.height },
-          format: 'depth24plus',
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        });
-      }
-
-      const depthView = this.depthTexture?.createView();
-
-      this.currentRenderPass = this.currentCommandEncoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view: textureView,
-            clearValue: { r: 0.05, g: 0.05, b: 0.08, a: 1 },
-            loadOp: 'clear',
-            storeOp: 'store',
-          },
-        ],
-        depthStencilAttachment: depthView ? {
-          view: depthView,
-          depthClearValue: 1.0,
-          depthLoadOp: 'clear',
-          depthStoreOp: 'store',
-        } : undefined,
-        timestampWrites: this.hasTimestampQuery && this.timestampQuerySet ? {
-          querySet: this.timestampQuerySet,
-          beginningOfPassWriteIndex: 0,
-          endOfPassWriteIndex: 1,
-        } : undefined,
-      });
-    }
-
-    // Epic 3.13: Get pipeline variant for this vertex layout
-    if (!command.vertexLayout) {
-      throw new Error('DrawCommand missing vertexLayout - required for WebGPU pipeline creation');
-    }
-    const isInstanced = command.shader.endsWith('_instanced');
-    const pipeline = this.getPipeline(command.shader, command.vertexLayout, isInstanced);
-    this.currentRenderPass.setPipeline(pipeline);
-
-    // Create and bind uniform buffer with all uniforms
-    if (command.uniforms && command.uniforms.size > 0) {
-      // Pack all uniforms into a single buffer
-      // For our shader we need: mat4 (64 bytes) + mat4 (64 bytes) + mat3 (48 bytes aligned to 64) + vec3 (16) + vec3 (16) + vec3 (16) = 240 bytes
-      const uniformData = new ArrayBuffer(256); // Padded to 256 for alignment
-      const dataView = new DataView(uniformData);
-      let offset = 0;
-
-      // Write uniforms in the specific order they appear in the shader struct
-      const uniformOrder = [
-        'uModelViewProjection',
-        'uModel',
-        'uNormalMatrix',
-        'uLightDir',
-        'uCameraPos',
-        'uBaseColor'
-      ];
-
-      for (const name of uniformOrder) {
-        const uniform = command.uniforms.get(name);
-        if (!uniform) continue;
-
-        if (uniform.type === 'mat4') {
-          const values = uniform.value as number[] | Float32Array;
-          for (let i = 0; i < 16; i++) {
-            dataView.setFloat32(offset + i * 4, values[i], true);
-          }
-          offset += 64;
-        } else if (uniform.type === 'mat3') {
-          // Mat3 needs special handling - pad each column to vec4
-          const values = uniform.value as number[] | Float32Array;
-          for (let col = 0; col < 3; col++) {
-            for (let row = 0; row < 3; row++) {
-              dataView.setFloat32(offset + row * 4, values[col * 3 + row], true);
-            }
-            offset += 16; // vec4 alignment per column
-          }
-          // NO extra padding needed after mat3
-        } else if (uniform.type === 'vec3') {
-          const values = uniform.value as number[] | Float32Array;
-          for (let i = 0; i < 3; i++) {
-            dataView.setFloat32(offset + i * 4, values[i], true);
-          }
-          offset += 16; // vec3 is aligned to vec4
-        }
-      }
-
-      // Epic 2.13: Acquire uniform buffer from pool (instead of creating new one)
-      const uniformBuffer = this.uniformBufferPool.acquire(this.device, uniformData.byteLength);
-      this.device.queue.writeBuffer(uniformBuffer, 0, uniformData);
-
-      // Track buffer for release at end of frame
-      this.frameUniformBuffers.push(uniformBuffer);
-
-      // Epic 2.13: CRITICAL FIX - Include buffer ID in cache key
-      // Bind groups are tied to specific buffers, so we need per-buffer caching
-      const bufferId = this.uniformBufferPool.getBufferId(uniformBuffer);
-      const bindGroupKey = `${command.shader}_uniform_${bufferId}`;
-      let bindGroup = this.bindGroupCache.get(bindGroupKey);
-
-      if (!bindGroup) {
-        bindGroup = this.device.createBindGroup({
-          layout: shader.bindGroupLayout,
-          entries: [
-            {
-              binding: 0,
-              resource: {
-                buffer: uniformBuffer,
-              },
-            },
-          ],
-        });
-        this.bindGroupCache.set(bindGroupKey, bindGroup);
-        this.perfStats.bindGroupsCreated++;
-      } else {
-        this.perfStats.bindGroupsCached++;
-      }
-
-      // Bind the group
-      this.currentRenderPass.setBindGroup(0, bindGroup);
-    }
-
-    // Bind vertex buffers
-    // NOTE: WebGPU uses buffer SLOT indices, not shader attribute locations
-    // The hardcoded pipeline has: slot 0 = position, slot 1 = normal
-    // TODO: Make this dynamic based on actual vertex layout
-
-    // Epic 3.13: Bind vertex buffers
-    // buildVertexBuffers() creates ONE slot (slot 0) for all interleaved vertex attributes
-    const vertexBuffer = this.buffers.get(command.vertexBufferId);
-    if (!vertexBuffer) {
-      throw new Error(`Vertex buffer ${command.vertexBufferId} not found`);
-    }
-
-    // Bind vertex buffer to slot 0 (all attributes in one buffer)
-    this.currentRenderPass.setVertexBuffer(0, vertexBuffer.buffer);
-
-    // Epic 3.13: Bind instance buffer if present (slot 1)
-    if (command.instanceBufferId) {
-      const instanceBuffer = this.buffers.get(command.instanceBufferId);
-      if (!instanceBuffer) {
-        throw new Error(`Instance buffer ${command.instanceBufferId} not found`);
-      }
-      // Instance buffer is always in slot 1 (slot 0 is vertex data)
-      this.currentRenderPass.setVertexBuffer(1, instanceBuffer.buffer);
-    }
-
-    // Bind index buffer if present
-    if (command.indexBufferId) {
-      const indexBuffer = this.buffers.get(command.indexBufferId);
-      if (!indexBuffer) {
-        throw new Error(`Index buffer ${command.indexBufferId} not found`);
-      }
-      const indexFormat = command.indexType === 'uint32' ? 'uint32' : 'uint16';
-      this.currentRenderPass.setIndexBuffer(indexBuffer.buffer, indexFormat);
-
-      // Epic 3.13: Use instanced draw call if instanceCount is set
-      if (command.instanceCount && command.instanceCount > 1) {
-        this.currentRenderPass.drawIndexed(
-          command.vertexCount,
-          command.instanceCount,
-          0, // firstIndex
-          0, // baseVertex
-          0  // firstInstance
-        );
-      } else {
-        this.currentRenderPass.drawIndexed(command.vertexCount);
-      }
-    } else {
-      // Epic 3.13: Use instanced draw call if instanceCount is set
-      if (command.instanceCount && command.instanceCount > 1) {
-        this.currentRenderPass.draw(
-          command.vertexCount,
-          command.instanceCount,
-          0, // firstVertex
-          0  // firstInstance
-        );
-      } else {
-        this.currentRenderPass.draw(command.vertexCount);
-      }
-    }
-
-    // Update stats
-    this.stats.drawCalls++;
-    this.stats.vertices += command.vertexCount;
-    if (command.mode === 4) { // TRIANGLES
-      this.stats.triangles += Math.floor(command.vertexCount / 3);
-    }
-  }
-
   private getWebGPUTextureFormat(format: TextureFormat): GPUTextureFormat {
     switch (format) {
       case 'rgb': return 'rgba8unorm'; // WebGPU doesn't have RGB8, use RGBA8
@@ -1751,5 +1770,16 @@ export class WebGPUBackend implements IRendererBackend {
       stateChanges: 0,
       frameTime: 0,
     };
+  }
+
+  /**
+   * Get the WebGPU device for direct access (demo/debug only)
+   * This method is not part of IRendererBackend interface
+   */
+  getDevice(): GPUDevice {
+    if (!this.device) {
+      throw new Error('WebGPU device not initialized');
+    }
+    return this.device;
   }
 }

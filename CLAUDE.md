@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Breaking Changes Policy
 
-**THIS IS ALPHA SOFTWARE (v0.x.x). BREAKING CHANGES ARE EXPECTED AND NECESSARY.**
+**WE DEVELOP FORWARD NOT BACKWARD THERE IS NO BACKWARD COMPATIBILITY BREAKING CHANGES ARE EXPECTED, NECESSARY, AND MUST BE FIXED.**
 
 ### Alpha Development Philosophy
 - Version 0.x.x means NO stability guarantees
@@ -46,7 +46,7 @@ Electron Main Process (Native APIs, Window Management, IPC)
 Renderer Process (Game Client)
     ├─ Game Logic (ECS, State Management)
     ├─ Rendering (WebGPU)
-    ├─ Physics (Rapier/Cannon-es/Box2D)
+    ├─ Physics (Rapier)
     ├─ Input (Keyboard, Mouse, Gamepad)
     └─ Audio (Web Audio API)
     ↓
@@ -417,3 +417,16 @@ engine.commands;   // Command system
 - **DEVELOPMENT_PLAN.md**: Epic tracking and roadmap
 - **Package READMEs**: Specific usage examples and API docs
 - **TypeDoc**: Generated API documentation (`npm run docs`)
+NO WEBGL2
+NO WEBGL2
+NO WEBGL2
+FOR THE LOVE OF GOD 
+NO WEBGL2
+QUIT ADDING DOCUMENTATION FOR WEBGL2
+QUIT CREATING IMPLEMENTATION FOR WEBGL2
+NO WEBGL2
+I WILL WIPE YOUR SOURCE CODE
+I WILL DROP YOUR DATABASE
+IF I FIND ANY MENTION OF WEBGL2 IN THIS CODEBASE
+I WILL REPLACE YOU
+YOU HAVE BEEN WARNED

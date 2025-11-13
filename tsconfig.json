@@ -6,6 +6,8 @@
     { "path": "./packages/main" },
     { "path": "./packages/preload" },
     { "path": "./packages/renderer" },
-    { "path": "./packages/core" }
+    { "path": "./packages/core" },
+    { "path": "./packages/rendering" },
+    { "path": "./packages/ecs" }
   ]
 }

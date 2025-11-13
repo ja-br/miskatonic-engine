@@ -13,12 +13,6 @@ export { createCube, createSphere, createPlane, type GeometryData } from './Geom
 export { LightCollection, LightType, type LightData } from './LightCollection';
 export { LightSystem } from './LightSystem';
 export type { LightComponentData, TransformComponentData } from './LightTypes';
-export {
-  createLightingDemo,
-  animateLightingDemo,
-  getLightingStats,
-  type LightingDemo,
-} from './lighting-demo';
 
 // Epic 3.16: Light Culling (Phase 1: CPU Frustum Culling)
 export {
@@ -34,7 +28,6 @@ export {
 // ShaderLoader is Node.js-only (uses fs/promises), not for browser use
 // export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
-export { RenderQueue, type QueuedDrawCommand, type CameraInfo, type RenderQueueStats } from './RenderQueue';
 
 // Epic 3.8: GPU Memory Management
 export { GPUBufferPool, BufferUsageType, type BufferPoolStats } from './GPUBufferPool';
@@ -42,22 +35,8 @@ export { TextureAtlas, type AtlasRegion, type TextureAtlasStats } from './Textur
 export { VRAMProfiler, VRAMCategory, type VRAMBudget, type VRAMUsage, type VRAMStats } from './VRAMProfiler';
 
 // Epic 3.18: Lighting Performance & Utilities (Profiling)
-export {
-  GPUTimingProfiler,
-  type GPUTimingConfig,
-  type TimingMeasurement,
-  type TimingStatistics,
-} from './profiling/GPUTimingProfiler';
-export {
-  LightingBenchmark,
-  BenchmarkScenarios,
-  DefaultPerformanceTargets,
-  type BenchmarkScenario,
-  type BenchmarkResult,
-  type OperationTiming,
-  type PerformanceTargets,
-  type LightingBenchmarkConfig,
-} from './profiling/LightingBenchmark';
+// NOTE: GPUTimingProfiler and LightingBenchmark removed - API was broken (used non-existent encoder.writeTimestamp())
+// TODO Epic 3.18: Re-implement GPU timing using GPURenderPassEncoder.writeTimestamp() if needed
 
 // Epic 3.18 Phase 3: Light Animation Systems
 export { FlickeringLightSystem } from './systems/FlickeringLightSystem';
@@ -66,11 +45,10 @@ export { OrbitingLightSystem } from './systems/OrbitingLightSystem';
 
 // Epic 3.13: Instance rendering and batching
 export { InstanceBuffer, InstanceBufferPool, globalInstanceBufferPool, type InstanceData } from './InstanceBuffer';
-export { InstanceDetector, type InstanceGroup, type InstanceDetectorConfig } from './InstanceDetector';
 export { InstanceBufferManager, type GPUInstanceBuffer } from './InstanceBufferManager';
 export { InstancedShaderManager, createShaderVariants, type ShaderVariant, type InstancedShaderConfig } from './InstancedShaderManager';
 
-// Backend abstraction (Epic 3.2)
+// Backend abstraction (Epic 3.2 + Epic 3.14)
 export {
   // Backend interface and implementations
   type IRendererBackend,
@@ -80,15 +58,140 @@ export {
   type BackendBufferHandle,
   type BackendTextureHandle,
   type BackendFramebufferHandle,
+  // Epic 3.14: New handle types
+  type BackendBindGroupHandle,
+  type BackendBindGroupLayoutHandle,
+  type BackendPipelineHandle,
+  type RenderPipelineDescriptor,
+  type ComputePipelineDescriptor,
+  type BindGroupResources,
+  type VertexBufferLayout,
   isBackendShaderHandle,
   isBackendBufferHandle,
   isBackendTextureHandle,
   isBackendFramebufferHandle,
+  // Epic 3.14: New type guards
+  isBackendBindGroupHandle,
+  isBackendBindGroupLayoutHandle,
+  isBackendPipelineHandle,
   WebGPUBackend,
   BackendFactory,
   type BackendFactoryOptions,
   type BackendSupport,
 } from './backends';
+
+// Demo UI utilities
+export { DemoUI, type DemoUICallbacks, type DemoPerformanceMetrics, type QualityTier } from './DemoUI';
+
+// Epic 3.14: Modern Rendering API
+export {
+  // Bind group descriptors
+  type BindGroupLayoutDescriptor,
+  type BindGroupLayoutEntry,
+  type BindGroupDescriptor,
+  type BindGroupResourceBinding,
+  type BindingType,
+  type ShaderStage,
+  validateBindGroupLayout,
+  createSceneBindGroupLayout,
+  createObjectBindGroupLayout,
+} from './BindGroupDescriptors';
+
+export {
+  // Pipeline state descriptors
+  type PipelineStateDescriptor,
+  type BlendState,
+  type DepthStencilState,
+  type RasterizationState,
+  type BlendFactor,
+  type BlendOperation,
+  type CompareFunction,
+  type CullMode as PipelineCullMode,
+  type FrontFace,
+  type PrimitiveTopology,
+  // Presets
+  OPAQUE_PIPELINE_STATE,
+  ALPHA_BLEND_PIPELINE_STATE,
+  ADDITIVE_BLEND_PIPELINE_STATE,
+  ALPHA_CUTOUT_PIPELINE_STATE,
+  WIREFRAME_PIPELINE_STATE,
+  // Validation
+  type PipelineStateValidationError,
+  PipelineStateValidator,
+} from './PipelineStateDescriptor';
+
+export {
+  // Shader reflection
+  type ShaderReflectionData,
+  type ShaderBinding,
+  type ShaderAttribute,
+  type CompiledShader,
+  WGSLReflectionParser,
+  ShaderReflectionCache,
+  // Epic 3.14 Phase 3: WGSL Parser & Tokenizer
+  type BindGroupLayoutInfo,
+  type BindingInfo,
+} from './ShaderReflection';
+
+// Epic 3.14 Phase 3: WGSL Parser & AST-based Reflection
+export {
+  // Tokenizer
+  WGSLTokenizer,
+  Token,
+  TokenType,
+  type SourceLocation,
+} from './shaders/tokenizer';
+
+export {
+  // Parser and AST
+  WGSLParser,
+  ParseError,
+  type ShaderModule,
+  type Declaration,
+  type VariableDeclaration,
+  type FunctionDeclaration,
+  type StructDeclaration,
+  type TypeAliasDeclaration,
+  type TypeExpression,
+  type Attribute,
+} from './shaders/parser';
+
+export {
+  // Shader Reflector (AST-based)
+  ShaderReflector,
+  WGSLShaderStage,
+  type ShaderReflectionResult,
+} from './shaders/ShaderReflector';
+
+// Epic 3.14: Unified Draw Command API
+export {
+  type DrawCommand,
+  type IndexedGeometry,
+  type NonIndexedGeometry,
+  type IndirectGeometry,
+  type ComputeGeometry,
+  type DrawDebugInfo,
+  isIndexedGeometry,
+  isNonIndexedGeometry,
+  isIndirectGeometry,
+  isComputeGeometry,
+  getIndexBufferSize,
+  validateWorkgroups,
+  DrawCommandBuilder,
+} from './commands';
+
+
+export {
+  // Performance monitoring
+  type PerformanceMetrics,
+  PerformanceBaseline,
+  performanceBaseline,
+} from './PerformanceBaseline';
+
+// Epic 3.14 Phase 2: High-Level Rendering API
+// Simplified API that reduces boilerplate from 30+ lines to 5 lines
+// Import from '@miskatonic/rendering/highlevel' for the simplified API
+export * as highlevel from './highlevel';
 
 // Types and enums
 export {
@@ -117,7 +220,6 @@ export {
   type RenderState,
   type VertexLayout,
   type IndexType,
-  type DrawCommand,
   type ClearCommand,
   type SetStateCommand,
   type SetShaderCommand,

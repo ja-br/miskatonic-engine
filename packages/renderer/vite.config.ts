@@ -10,6 +10,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
+        phase0: path.resolve(__dirname, 'phase0-validation.html'),
       },
       external: [
         // Exclude ShaderLoader (Node.js-only) from browser bundle
