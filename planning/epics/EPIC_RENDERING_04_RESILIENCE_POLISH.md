@@ -1,9 +1,9 @@
 # EPIC: Device Recovery & Final Polish
 
 **Epic ID:** RENDERING-04
-**Status:** Not Started
+**Status:** Ready to Start
 **Priority:** MEDIUM
-**Depends On:** RENDERING-01, RENDERING-02, RENDERING-03
+**Depends On:** RENDERING-01 ✅, RENDERING-02 ✅, RENDERING-03 ✅
 
 ## Objective
 
@@ -11,14 +11,14 @@ Implement automatic GPU device loss recovery, finalize documentation, create com
 
 ## Success Criteria
 
-- [x] Automatic device loss detection and recovery
-- [x] Resource recreation without application restart
-- [x] Recovery event system for application notification
-- [x] Comprehensive documentation (API, guides, examples)
-- [x] Migration guide from old API to new API
-- [x] Complete example collection (5+ demos)
-- [x] Performance validation (all targets met)
-- [x] Production readiness checklist completed
+- [ ] Automatic device loss detection and recovery
+- [ ] Resource recreation without application restart
+- [ ] Recovery event system for application notification
+- [ ] Comprehensive documentation (API, guides, examples)
+- [ ] Migration guide from old API to new API
+- [ ] Complete example collection (5+ demos)
+- [ ] Performance validation (all targets met)
+- [ ] Production readiness checklist completed
 
 ## Current State
 
@@ -56,6 +56,49 @@ device.lost.then((info) => {
 - Difficult to learn best practices
 
 ## Implementation Tasks
+
+### Task 4.0: Prerequisites (2 hours)
+
+**Deliverable:** Update interfaces and types
+
+**Changes Required:**
+
+1. **Add `reinitialize()` to IRendererBackend** (`/packages/rendering/src/backends/IRendererBackend.ts`):
+```typescript
+export interface IRendererBackend {
+  // ... existing methods ...
+
+  /**
+   * Reinitialize the backend after device loss
+   * Recreates the GPU device and context
+   */
+  reinitialize(): Promise<void>;
+}
+```
+
+2. **Update InitOptions** to remove optional recovery flag (recovery is now mandatory):
+```typescript
+export interface InitOptions {
+  canvas?: HTMLCanvasElement;
+  powerPreference?: 'low-power' | 'high-performance';
+  // Removed: enableDeviceRecovery (always enabled in production)
+}
+```
+
+3. **Audit existing device loss handling**:
+   - Review WebGPUBackend's current `device.lost` handler
+   - Review HighLevelRenderer's `handleDeviceLoss()` method
+   - Document what needs to be refactored vs created new
+
+**Acceptance Criteria:**
+- [ ] `IRendererBackend.reinitialize()` method defined
+- [ ] InitOptions updated (recovery always enabled)
+- [ ] Existing device loss code documented
+- [ ] Type definitions compile without errors
+
+**Dependencies:** None
+
+---
 
 ### Task 4.1: Device Loss Detection (3 hours)
 
@@ -140,7 +183,9 @@ export class DeviceLossDetector {
 - [ ] Error handling in callbacks
 - [ ] Unit tests with mocked GPUDevice
 
-**Dependencies:** None
+**Note:** Refactor existing `device.lost` handler from WebGPUBackend.ts into this dedicated class.
+
+**Dependencies:** Task 4.0
 
 ---
 
@@ -295,7 +340,7 @@ export class ResourceRegistry {
 - [ ] Statistics tracking
 - [ ] Unit tests for all operations
 
-**Dependencies:** None
+**Dependencies:** Task 4.0
 
 ---
 
@@ -597,7 +642,9 @@ export class DeviceRecoverySystem {
 - [ ] Integration tests with simulated device loss
 - [ ] Recovery completes within 5 seconds
 
-**Dependencies:** Task 4.1, Task 4.2
+**Note:** May incorporate logic from HighLevelRenderer's `handleDeviceLoss()` method.
+
+**Dependencies:** Task 4.0, Task 4.1, Task 4.2
 
 ---
 
@@ -610,30 +657,29 @@ export class DeviceRecoverySystem {
 - Register resources on creation
 - Unregister resources on destruction
 - Expose recovery events
+- **REMOVE** existing basic `device.lost` handler (replaced by DeviceRecoverySystem)
 
 ```typescript
 export class WebGPUBackend implements IRendererBackend {
-  private recoverySystem?: DeviceRecoverySystem;
+  private recoverySystem: DeviceRecoverySystem;
 
   async initialize(options?: InitOptions): Promise<void> {
     // ... existing initialization ...
 
-    // Initialize recovery system
-    if (options?.enableDeviceRecovery !== false) {
-      this.recoverySystem = new DeviceRecoverySystem(this, {
-        maxRetries: 3,
-        retryDelay: 1000,
-        logProgress: true
-      });
+    // Initialize recovery system (ALWAYS enabled)
+    this.recoverySystem = new DeviceRecoverySystem(this, {
+      maxRetries: 3,
+      retryDelay: 1000,
+      logProgress: true
+    });
 
-      this.recoverySystem.onRecovery((progress) => {
-        if (progress.phase === 'complete') {
-          console.log('Device recovery complete');
-        } else if (progress.phase === 'failed') {
-          console.error('Device recovery failed:', progress.error);
-        }
-      });
-    }
+    this.recoverySystem.onRecovery((progress) => {
+      if (progress.phase === 'complete') {
+        console.log('Device recovery complete');
+      } else if (progress.phase === 'failed') {
+        console.error('Device recovery failed:', progress.error);
+      }
+    });
   }
 
   createBuffer(id: string, size: number, usage: BufferUsage, mode: 'static' | 'dynamic'): BackendBufferHandle {
@@ -658,20 +704,21 @@ export class WebGPUBackend implements IRendererBackend {
 - [ ] All resource creation registers with recovery
 - [ ] All resource destruction unregisters
 - [ ] Recovery events exposed
-- [ ] Optional (can be disabled)
+- [ ] Old `device.lost` handler removed
+- [ ] `reinitialize()` method implemented
 - [ ] Integration tests pass
 
-**Dependencies:** Task 4.3
+**Dependencies:** Task 4.0, Task 4.3
 
 ---
 
 ### Task 4.5: Documentation (4 hours)
 
 **Deliverable:**
-- `/packages/rendering/MIGRATION_GUIDE.md`
-- `/packages/rendering/BEST_PRACTICES.md`
+- `/docs/migrations/RENDERING_API_MIGRATION.md`
+- `/docs/guides/RENDERING_BEST_PRACTICES.md`
 - Update `/packages/rendering/README.md`
-- Create `/packages/rendering/examples/`
+- Create `/examples/rendering/`
 
 #### Migration Guide
 ```markdown
@@ -745,8 +792,11 @@ renderer.dispose();
 ### DO: Use Built-in Shaders
 Material.PBR(), Material.Unlit(), etc.
 
-### DON'T: Ignore Device Loss
-Always enable device recovery in production
+### DO: Monitor Device Recovery Events
+Device recovery is automatic, but you can listen to events:
+renderer.backend.recoverySystem.onRecovery((progress) => {
+  console.log(\`Recovery: \${progress.phase}\`);
+});
 
 ## Shader Development
 
@@ -778,7 +828,7 @@ Use RenderStats from endFrame()
 
 ### Task 4.6: Example Collection (2 hours)
 
-**Deliverable:** `/packages/rendering/examples/`
+**Deliverable:** `/examples/rendering/`
 
 Create 5 comprehensive examples:
 
@@ -840,11 +890,64 @@ main();
 
 ---
 
+### Task 4.7: Performance Validation (3 hours)
+
+**Deliverable:** Benchmarks and performance report
+
+**Activities:**
+
+1. **Create recovery benchmark** (`/tests/benchmarks/device-recovery.bench.ts`):
+   - Measure time to detect device loss
+   - Measure time to recreate resources (varying counts: 10, 100, 1000 resources)
+   - Measure memory overhead of ResourceRegistry
+   - Verify <5s total recovery time target
+
+2. **Runtime overhead test**:
+   - Measure frame time with/without recovery system enabled
+   - Verify <1% performance impact target
+   - Profile memory usage during normal operation
+
+3. **Stress test**:
+   - Force device loss during heavy rendering
+   - Verify recovery with 1000+ registered resources
+   - Test multiple recovery cycles
+
+4. **Document results** in epic completion summary
+
+**Acceptance Criteria:**
+- [ ] Recovery completes in <5s (target) / <10s (critical)
+- [ ] Resource recreation <100ms per resource (target)
+- [ ] Memory overhead <5MB (target) / <20MB (critical)
+- [ ] Runtime impact <1% when no device loss
+- [ ] Benchmark suite runs in CI
+- [ ] Performance report documenting all metrics
+
+**Dependencies:** Task 4.4
+
+---
+
 ## Breaking Changes
 
-### None (Polish Epic)
+### InitOptions Interface
+**Removed:** `enableDeviceRecovery?: boolean` option
 
-This epic focuses on resilience and documentation, with no breaking API changes.
+**Reason:** Device recovery is now mandatory in production (alpha philosophy: no backward compatibility, break to improve)
+
+**Migration:**
+```typescript
+// Before (optional recovery)
+const renderer = new HighLevelRenderer({
+  canvas,
+  enableDeviceRecovery: true  // ❌ No longer needed
+});
+
+// After (always enabled)
+const renderer = new HighLevelRenderer({
+  canvas
+});
+```
+
+**Impact:** Low - recovery was opt-in before, now it's automatic. Applications that didn't enable it now get better resilience.
 
 ## Testing Requirements
 
@@ -879,11 +982,17 @@ This epic focuses on resilience and documentation, with no breaking API changes.
 
 ## Dependencies
 
-### Blocks
-- Production deployment (must complete before v1.0)
+### Prerequisites (All Complete ✅)
+- **RENDERING-01** (Command Consolidation) - Epic 3.14: Modern Rendering API ✅
+- **RENDERING-02** (High-Level API) - Epic 3.19: Lighting Demo App ✅
+- **RENDERING-03** (Parser & Pipeline) - Epic 3.17: Shadow Mapping ✅
 
-### Blocked By
-- RENDERING-01, RENDERING-02, RENDERING-03 (should complete first)
+### Blocks
+- **Production deployment** - Must complete before v1.0
+- **Rendering v1.0 release** - This is the final rendering epic
+
+### Critical Path
+**This epic is on the critical path for v1.0 release.** Device recovery is mandatory for production use. All prerequisites are complete - ready to start immediately.
 
 ## Risks & Mitigation
 
@@ -900,8 +1009,8 @@ This epic focuses on resilience and documentation, with no breaking API changes.
 
 ### Low Risk
 **Recovery system overhead**
-- *Mitigation:* Lazy initialization
-- *Mitigation:* Optional (can be disabled)
+- *Mitigation:* Minimal memory footprint (registry only stores descriptors)
+- *Mitigation:* Zero runtime cost until device loss occurs
 - *Mitigation:* Profile to ensure <1% impact
 
 ## Production Readiness Checklist
@@ -941,16 +1050,19 @@ This epic focuses on resilience and documentation, with no breaking API changes.
 
 ## Definition of Done
 
-- [ ] All 6 tasks completed
+- [ ] All 8 tasks completed (4.0-4.7)
 - [ ] Device recovery system fully working
 - [ ] Resource registry with all resource types
-- [ ] Recovery completes in <5 seconds
+- [ ] Recovery completes in <5 seconds (validated by benchmarks)
 - [ ] All tests passing with >80% coverage
-- [ ] Migration guide published
-- [ ] Best practices guide published
-- [ ] 5 examples working and documented
+- [ ] Migration guide published at `/docs/migrations/RENDERING_API_MIGRATION.md`
+- [ ] Best practices guide published at `/docs/guides/RENDERING_BEST_PRACTICES.md`
+- [ ] 5 examples working and documented in `/examples/rendering/`
+- [ ] Performance benchmarks pass all targets
 - [ ] Production readiness checklist complete
 - [ ] Code reviewed and approved
+- [ ] Old device.lost handler removed from WebGPUBackend
+- [ ] `IRendererBackend.reinitialize()` method implemented
 
 ---
 
