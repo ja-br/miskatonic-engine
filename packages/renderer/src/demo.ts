@@ -1086,6 +1086,18 @@ export class Demo {
     this.backend.endFrame();
     const t7 = performance.now();
 
+    // Release instance buffers (mark as ready for next frame rotation)
+    for (const buffer of this.cubeInstanceBuffers) {
+      if (buffer) {
+        this.instanceBufferManager.release(buffer);
+      }
+    }
+    for (const buffer of this.sphereInstanceBuffers) {
+      if (buffer) {
+        this.instanceBufferManager.release(buffer);
+      }
+    }
+
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
     this.matrixPool.releaseAll();
     this.mat3Pool.releaseAll();
