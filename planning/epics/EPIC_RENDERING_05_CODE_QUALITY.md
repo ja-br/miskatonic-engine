@@ -1,30 +1,32 @@
 # EPIC: Rendering Code Quality & Modularization
 
 **Epic ID:** RENDERING-05
-**Status:** Not Started
+**Status:** In Progress
 **Priority:** HIGH (Technical Debt)
 **Depends On:** None (can start immediately)
 
+> **Note:** Change Status to "In Progress" when work begins, and update to "Complete" when all Definition of Done items are checked.
+
 ## Objective
 
-Eliminate dead code, split the monolithic WebGPUBackend.ts (1929 lines) into 6 focused modules, extract shared utilities, and consolidate magic numbers into constants. Improve code maintainability, readability, and adherence to Single Responsibility Principle.
+Eliminate dead code, split the monolithic WebGPUBackend.ts (1809 lines) into 6 focused modules, extract shared utilities, and consolidate magic numbers into constants. Improve code maintainability, readability, and adherence to Single Responsibility Principle.
 
 ## Success Criteria
 
-- [x] WebGPUBackend.ts split into 6 modules (<400 lines each)
-- [x] All dead code removed (no-op methods, unused queues)
-- [x] Hash functions consolidated into HashUtils.ts (3 → 1)
-- [x] Magic numbers extracted to RenderingConstants.ts (50+ constants)
-- [x] Long methods refactored (no methods >50 lines)
-- [x] All imports updated and working
-- [x] Test coverage maintained (>80%)
-- [x] No performance regression
+- [ ] WebGPUBackend.ts split into 6 modules (<400 lines each)
+- [ ] All dead code removed (no-op methods, unused queues)
+- [ ] Hash functions consolidated into HashUtils.ts (2 → 1)
+- [ ] Magic numbers extracted to RenderingConstants.ts (50+ constants)
+- [ ] Long methods refactored (no methods >50 lines)
+- [ ] All imports updated and working
+- [ ] Test coverage maintained (>80%)
+- [ ] No performance regression (validated via LightingBenchmark)
 
 ## Current State
 
 ### Problems
 
-#### 1. Monolithic WebGPUBackend.ts (1929 lines)
+#### 1. Monolithic WebGPUBackend.ts (1809 lines)
 **Issues:**
 - Violates Single Responsibility Principle
 - Difficult to navigate and maintain
@@ -34,22 +36,14 @@ Eliminate dead code, split the monolithic WebGPUBackend.ts (1929 lines) into 6 f
 
 #### 2. Dead Code Scattered Throughout
 **WebGPUBackend.ts:**
-- Lines 1057-1066: `setVertexAttributeDivisor()` - no-op method
-- Lines 679-686: `clear()` - empty implementation
-- Lines 115-142: Stats methods never exposed or used
-
-**RenderQueue.ts:**
-- Lines 537-541: `hasAlphaTest()` always returns false
-- Lines 404-416: Material/state change tracking never read
-- Alpha-test queue allocated but never used
+- Line 1166-1175: `setVertexAttributeDivisor()` - no-op method with warning
 
 **index.ts:**
 - Line 29: Commented ShaderLoader export
-- Lines 38-40: GPUTimingProfiler/LightingBenchmark dead references
 
 #### 3. Duplicate Code
-- **3 hash function implementations** (WebGPUBackend, RenderQueue, BindGroupDescriptors)
-- Same hash logic copied in 3 places
+- **2 hash function implementations** (WebGPUBackend, ShadowCache)
+- Same hash logic copied in multiple places
 
 #### 4. Magic Numbers Everywhere
 ```typescript
@@ -70,15 +64,15 @@ Eliminate dead code, split the monolithic WebGPUBackend.ts (1929 lines) into 6 f
 
 ## Implementation Tasks
 
-### Task 5.1: Remove Dead Code (4 hours)
+### Task 5.1: Remove Dead Code (2 hours)
 
-**Deliverable:** Clean WebGPUBackend.ts, RenderQueue.ts, index.ts
+**Deliverable:** Clean WebGPUBackend.ts, index.ts
 
 #### Dead Code to Remove:
 
 **WebGPUBackend.ts:**
 ```typescript
-// REMOVE: Lines 1057-1066
+// REMOVE: Lines 1166-1175
 setVertexAttributeDivisor(
   location: number,
   divisor: number,
@@ -86,53 +80,24 @@ setVertexAttributeDivisor(
 ): void {
   // No-op: WebGPU doesn't support per-attribute divisors
   // Use stepMode: 'instance' on vertex buffer layout instead
+  console.warn('WebGPUBackend.setVertexAttributeDivisor: Not yet implemented - configure stepMode in vertex buffer layout');
 }
-
-// REMOVE: Lines 679-686
-clear(): void {
-  // Empty implementation - TODO: implement or remove
-}
-
-// REMOVE: Lines 115-142 (UniformBufferPool internal stats)
-getStats(): PoolStats {
-  return {
-    buffersCreated: this.stats.buffersCreated,
-    buffersReused: this.stats.buffersReused
-  };
-}
-
-resetStats(): void {
-  this.stats = { buffersCreated: 0, buffersReused: 0 };
-}
-```
-
-**RenderQueue.ts:**
-```typescript
-// REMOVE: Lines 537-541
-private hasAlphaTest(command: DrawCommand): boolean {
-  return false; // Always false, alpha-test queue never used
-}
-
-// REMOVE OR IMPLEMENT: Alpha-test queue infrastructure
-private alphaTestQueue: QueuedDrawCommand[] = [];
-// ... all alpha-test related code
 ```
 
 **index.ts:**
 ```typescript
-// REMOVE: Commented exports
-// export { ShaderLoader } from './ShaderLoader'; // Node.js only
-// export { GPUTimingProfiler } from './profiling/GPUTimingProfiler';
-// export { LightingBenchmark } from './profiling/LightingBenchmark';
+// REMOVE: Line 29
+// export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
 ```
 
 **Acceptance Criteria:**
 - [ ] All no-op methods removed
 - [ ] All commented code removed
-- [ ] Alpha-test queue either implemented or removed
 - [ ] No compilation errors after removal
 - [ ] All tests still pass
 - [ ] Git diff shows clear deletions
+- [ ] Verify no demo code depends on removed methods
+- [ ] Update any documentation referencing removed methods
 
 **Dependencies:** None
 
@@ -401,13 +366,16 @@ export const MAX_ERROR_LOG_COUNT = 100;
 ```
 
 **Acceptance Criteria:**
-- [ ] HashUtils.ts with 3 hash functions consolidated
+- [ ] HashUtils.ts with 2 hash functions consolidated
 - [ ] RenderingConstants.ts with 50+ constants
 - [ ] All magic numbers replaced with named constants
 - [ ] All duplicate hash code removed
 - [ ] JSDoc comments on all utilities
 - [ ] Unit tests for hash functions
 - [ ] No hardcoded numbers in main code
+- [ ] Export utilities through packages/rendering/src/index.ts
+- [ ] Mark as @internal in JSDoc (not for public API use)
+- [ ] Add barrel export from utils/ directory
 
 **Dependencies:** None
 
@@ -416,6 +384,33 @@ export const MAX_ERROR_LOG_COUNT = 100;
 ### Task 5.3: Split WebGPUBackend into Modules (16 hours)
 
 **Deliverable:** 6 new files in `/packages/rendering/src/backends/webgpu/`
+
+#### Shared Context Interface
+
+All modules will receive a shared context to avoid tight coupling:
+
+```typescript
+/**
+ * Shared WebGPU context passed to all backend modules.
+ * Provides access to core GPU resources without creating circular dependencies.
+ */
+interface WebGPUContext {
+  device: GPUDevice;
+  adapter: GPUAdapter;
+  context: GPUCanvasContext;
+  queue: GPUQueue;
+  format: GPUTextureFormat;
+}
+
+/**
+ * Module configuration for dependency injection.
+ */
+interface ModuleConfig {
+  enableValidation?: boolean;
+  enableTimingQueries?: boolean;
+  vramBudgetMB?: number;
+}
+```
 
 #### Module Structure:
 
@@ -466,15 +461,17 @@ export class WebGPUBackend implements IRendererBackend {
 ```typescript
 // 2. WebGPUResourceManager.ts (~400 lines) - Resource lifecycle
 export class WebGPUResourceManager {
-  private device: GPUDevice;
   private shaders = new Map<string, ShaderResource>();
   private buffers = new Map<string, BufferResource>();
   private textures = new Map<string, TextureResource>();
   private samplers = new Map<string, SamplerResource>();
 
   constructor(
+    private context: WebGPUContext,
     private bufferPool: GPUBufferPool,
-    private shaderLoader: ShaderLoader
+    private shaderReflection: ShaderReflection,
+    private vramProfiler: VRAMProfiler,
+    private recoverySystem: DeviceRecoverySystem
   ) {}
 
   async initialize(config: BackendConfig): Promise<boolean> {
@@ -574,7 +571,6 @@ export class WebGPUResourceManager {
 ```typescript
 // 3. WebGPUPipelineManager.ts (~350 lines) - Pipeline caching and management
 export class WebGPUPipelineManager {
-  private device: GPUDevice;
   private pipelineCache = new Map<number, GPURenderPipeline>();
   private bindGroupLayoutCache = new Map<number, GPUBindGroupLayout>();
   private stats = {
@@ -584,9 +580,10 @@ export class WebGPUPipelineManager {
     layoutMisses: 0
   };
 
-  constructor(device: GPUDevice) {
-    this.device = device;
-  }
+  constructor(
+    private context: WebGPUContext,
+    private resourceManager: WebGPUResourceManager
+  ) {}
 
   createBindGroupLayout(descriptor: BindGroupLayoutDescriptor): BackendBindGroupLayoutHandle {
     const hash = HashUtils.hashBindGroupLayout(descriptor);
@@ -693,7 +690,6 @@ export class WebGPUPipelineManager {
 ```typescript
 // 4. WebGPUCommandEncoder.ts (~400 lines) - Draw command execution
 export class WebGPUCommandEncoder {
-  private device: GPUDevice;
   private currentEncoder?: GPUCommandEncoder;
   private currentPassEncoder?: GPURenderPassEncoder;
   private frameStats = {
@@ -703,14 +699,14 @@ export class WebGPUCommandEncoder {
   };
 
   constructor(
-    private device: GPUDevice,
+    private context: WebGPUContext,
     private resourceManager: WebGPUResourceManager,
     private pipelineManager: WebGPUPipelineManager,
     private bindGroupPool: BindGroupPool
   ) {}
 
   beginFrame(): void {
-    this.currentEncoder = this.device.createCommandEncoder();
+    this.currentEncoder = this.context.device.createCommandEncoder();
     this.frameStats = { drawCalls: 0, triangles: 0, bufferUpdates: 0 };
   }
 
@@ -722,7 +718,7 @@ export class WebGPUCommandEncoder {
 
     if (this.currentEncoder) {
       const commandBuffer = this.currentEncoder.finish();
-      this.device.queue.submit([commandBuffer]);
+      this.context.queue.submit([commandBuffer]);
       this.currentEncoder = undefined;
     }
 
@@ -800,7 +796,7 @@ export class WebGPUCommandEncoder {
 // 5. WebGPUModernAPI.ts (~250 lines) - Epic 3.14 modern API
 export class WebGPUModernAPI {
   constructor(
-    private device: GPUDevice,
+    private context: WebGPUContext,
     private pipelineManager: WebGPUPipelineManager,
     private bindGroupPool: BindGroupPool
   ) {}
@@ -878,11 +874,15 @@ export class WebGPURenderPassManager {
 - [ ] 6 separate module files created
 - [ ] Each module <400 lines
 - [ ] Clear responsibilities per module
-- [ ] Dependency injection used
+- [ ] Dependency injection used (WebGPUContext passed to all modules)
 - [ ] All imports updated
 - [ ] All tests pass
 - [ ] No functionality lost
 - [ ] Module exports through index.ts
+- [ ] No circular dependencies (verified with import graph)
+- [ ] DeviceRecoverySystem integration maintained
+- [ ] Error handling properly propagates through modules
+- [ ] Module interfaces documented with TypeScript
 
 **Dependencies:** Task 5.2 (needs HashUtils, RenderingConstants)
 
@@ -988,34 +988,57 @@ private async setupContext(config: BackendConfig): Promise<void> {
 
 ### Task 5.5: Update Imports and Tests (4 hours)
 
-**Deliverable:** All imports updated, tests passing
+**Deliverable:** All imports updated, tests passing, migration guide created
 
-**Changes:**
+**Public API (unchanged):**
 ```typescript
-// Before
+// Users continue to import the same way
 import { WebGPUBackend } from '@miskatonic/rendering';
+```
 
-// After
-import { WebGPUBackend } from '@miskatonic/rendering';
-// Internal imports now reference sub-modules
-import { HashUtils } from '@miskatonic/rendering/utils';
-import { UNIFORM_BUFFER_ALIGNMENT } from '@miskatonic/rendering/constants';
+**Internal Module Imports (new):**
+```typescript
+// Within rendering package only
+import { WebGPUResourceManager } from './backends/webgpu/WebGPUResourceManager';
+import { WebGPUPipelineManager } from './backends/webgpu/WebGPUPipelineManager';
+import { HashUtils } from './utils/HashUtils';
+import { UNIFORM_BUFFER_ALIGNMENT } from './constants/RenderingConstants';
 ```
 
 **Test Updates:**
 ```typescript
 // Mock the new module structure
-jest.mock('@miskatonic/rendering/backends/webgpu/WebGPUResourceManager');
-jest.mock('@miskatonic/rendering/backends/webgpu/WebGPUPipelineManager');
+import { WebGPUBackend } from '@miskatonic/rendering';
+import { WebGPUResourceManager } from '@miskatonic/rendering/src/backends/webgpu/WebGPUResourceManager';
+import { WebGPUPipelineManager } from '@miskatonic/rendering/src/backends/webgpu/WebGPUPipelineManager';
+
+// Factory functions for test setup
+function createTestContext(): WebGPUContext {
+  return {
+    device: mockGPUDevice,
+    adapter: mockGPUAdapter,
+    context: mockCanvasContext,
+    queue: mockQueue,
+    format: 'bgra8unorm'
+  };
+}
 ```
+
+**Migration Guide Contents:**
+- Document that public API unchanged
+- List all new internal module paths
+- Provide test setup examples
+- Document WebGPUContext interface for mocking
 
 **Acceptance Criteria:**
 - [ ] All imports resolve correctly
-- [ ] No circular dependencies
+- [ ] No circular dependencies (verified with madge or similar)
 - [ ] All unit tests pass
 - [ ] All integration tests pass
 - [ ] Test coverage maintained (>80%)
 - [ ] No new warnings or errors
+- [ ] Migration guide created in docs/migrations/
+- [ ] Test factory functions provided for module setup
 
 **Dependencies:** Task 5.3, Task 5.4
 
@@ -1047,8 +1070,13 @@ backend.executeDrawCommand(command);
 ### Integration Tests
 - [ ] Full rendering pipeline still works
 - [ ] All demos render correctly
-- [ ] Performance benchmarks pass
-- [ ] Memory usage unchanged
+- [ ] LightingBenchmark passes with no regression
+- [ ] Memory usage unchanged (verified with VRAMProfiler)
+- [ ] Module boundary tests pass
+  - [ ] WebGPUResourceManager instantiates independently
+  - [ ] WebGPUPipelineManager doesn't directly access GPU resources
+  - [ ] CommandEncoder validates resource existence
+  - [ ] Modules handle null/undefined context gracefully
 
 ### Regression Tests
 - [ ] All existing tests still pass
@@ -1060,12 +1088,18 @@ backend.executeDrawCommand(command);
 
 ## Performance Targets
 
-| Metric | Target | Critical |
-|--------|--------|----------|
-| Module load time | <10ms | <50ms |
-| Memory overhead | +0% | +5% |
-| Frame time | No change | +1% |
-| Initialization | No change | +10% |
+Validated using existing LightingBenchmark suite:
+
+| Metric | Target | Critical | Validation |
+|--------|--------|----------|------------|
+| Module load time | <10ms | <50ms | Measure import time |
+| Memory overhead | +0% | +5% | VRAMProfiler.getStats() |
+| Frame time | No change | +1% | LightingBenchmark avg frame time |
+| Initialization | No change | +10% | Backend.initialize() timing |
+| Draw call overhead | +0% | +2% | RenderStats.drawCalls |
+
+**Baseline Measurement:** Run LightingBenchmark before starting Task 5.3 to establish baseline.
+**Validation:** Run LightingBenchmark after each task to detect regressions early.
 
 ## Dependencies
 
@@ -1098,15 +1132,19 @@ backend.executeDrawCommand(command);
 
 ## Definition of Done
 
-- [ ] All 5 tasks completed
+- [ ] All 5 tasks completed with updated acceptance criteria
 - [ ] WebGPUBackend.ts split into 6 modules (<400 lines each)
-- [ ] All dead code removed
-- [ ] HashUtils.ts and RenderingConstants.ts created
-- [ ] All magic numbers replaced with constants
-- [ ] No methods >50 lines
+- [ ] All dead code removed (verified with grep for commented code)
+- [ ] HashUtils.ts and RenderingConstants.ts created and tested
+- [ ] All magic numbers replaced (verified with regex search for numeric literals)
+- [ ] No methods >50 lines (verified with AST analysis or line count)
 - [ ] All tests passing with >80% coverage
-- [ ] No performance regression
-- [ ] All imports working
+- [ ] LightingBenchmark shows no performance regression vs baseline
+- [ ] All imports updated and no circular dependencies (verified with madge)
+- [ ] DeviceRecoverySystem integration maintained
+- [ ] Module interfaces documented with TypeScript types
+- [ ] Migration guide created in docs/migrations/RENDERING-05-modularization.md
+- [ ] Test factory functions provided for module setup
 - [ ] Code reviewed and approved
 
 ---

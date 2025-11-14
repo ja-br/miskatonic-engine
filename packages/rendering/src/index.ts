@@ -25,8 +25,6 @@ export {
   BatchLightCuller,
   type LightCullingStats,
 } from './culling';
-// ShaderLoader is Node.js-only (uses fs/promises), not for browser use
-// export { ShaderLoader, type ShaderFeatures, type LoadedShader, type ShaderLoaderConfig, type ShaderSourceFile } from './ShaderLoader';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
 
 // Epic 3.8: GPU Memory Management

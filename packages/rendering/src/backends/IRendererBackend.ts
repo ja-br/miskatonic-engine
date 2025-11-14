@@ -282,22 +282,6 @@ export interface IRendererBackend {
   deleteBuffer(handle: BackendBufferHandle): void;
 
   /**
-   * Set vertex attribute divisor for instanced rendering (Epic 3.13)
-   *
-   * WebGL2: Calls gl.vertexAttribDivisor(location, divisor)
-   * WebGPU: Configures stepMode in vertex buffer layout
-   *
-   * @param shader - Shader handle to get attribute location from
-   * @param attributeName - Name of the attribute (e.g., 'a_InstanceTransform')
-   * @param divisor - Divisor value (0 = per-vertex, 1 = per-instance, N = per N instances)
-   */
-  setVertexAttributeDivisor(
-    shader: BackendShaderHandle,
-    attributeName: string,
-    divisor: number
-  ): void;
-
-  /**
    * Create texture
    */
   createTexture(
