@@ -112,8 +112,9 @@ export function createSphere(
       const first = lat * (widthSegments + 1) + lon;
       const second = first + widthSegments + 1;
 
-      indices.push(first, second, first + 1);
-      indices.push(second, second + 1, first + 1);
+      // Counter-clockwise winding for front faces (to match cullMode: 'back', frontFace: 'ccw')
+      indices.push(first, first + 1, second);
+      indices.push(second, first + 1, second + 1);
     }
   }
 
