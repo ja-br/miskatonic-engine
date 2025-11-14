@@ -26,8 +26,9 @@
  * ```
  */
 
-import type { BufferUsage, TextureFormat, ShaderSource } from '../types';
+import type { BufferUsage, TextureFormat, ShaderSource, TextureFilter, TextureWrap } from '../types';
 import type { PipelineStateDescriptor } from '../PipelineStateDescriptor';
+import type { GPUVertexBufferLayout, GPUBindGroupLayoutEntry, GPUBindGroupEntry } from './webgpu-types';
 
 export enum ResourceType {
   BUFFER = 'buffer',
@@ -43,7 +44,6 @@ export interface ResourceDescriptor {
   type: ResourceType;
   id: string;
   label?: string;
-  creationParams: any; // Type depends on resource type
 }
 
 export interface BufferDescriptor extends ResourceDescriptor {
@@ -62,10 +62,10 @@ export interface TextureDescriptor extends ResourceDescriptor {
     width: number;
     height: number;
     format: TextureFormat;
-    minFilter?: string;
-    magFilter?: string;
-    wrapS?: string;
-    wrapT?: string;
+    minFilter?: TextureFilter;
+    magFilter?: TextureFilter;
+    wrapS?: TextureWrap;
+    wrapT?: TextureWrap;
     generateMipmaps?: boolean;
   };
   data?: ImageBitmap | ArrayBuffer;
@@ -83,7 +83,7 @@ export interface PipelineDescriptor extends ResourceDescriptor {
   creationParams: {
     shader: string; // Shader ID
     bindGroupLayouts: string[]; // Layout IDs
-    vertexLayouts: any[];
+    vertexLayouts: GPUVertexBufferLayout[];
     pipelineState: PipelineStateDescriptor;
   };
 }
@@ -91,7 +91,7 @@ export interface PipelineDescriptor extends ResourceDescriptor {
 export interface BindGroupLayoutDescriptor extends ResourceDescriptor {
   type: ResourceType.BIND_GROUP_LAYOUT;
   creationParams: {
-    entries: any[];
+    entries: GPUBindGroupLayoutEntry[];
   };
 }
 
@@ -99,18 +99,18 @@ export interface BindGroupDescriptor extends ResourceDescriptor {
   type: ResourceType.BIND_GROUP;
   creationParams: {
     layout: string; // Layout ID
-    bindings: any[];
+    bindings: GPUBindGroupEntry[];
   };
 }
 
 export interface SamplerDescriptor extends ResourceDescriptor {
   type: ResourceType.SAMPLER;
   creationParams: {
-    minFilter?: string;
-    magFilter?: string;
-    addressModeU?: string;
-    addressModeV?: string;
-    addressModeW?: string;
+    minFilter?: TextureFilter;
+    magFilter?: TextureFilter;
+    addressModeU?: TextureWrap;
+    addressModeV?: TextureWrap;
+    addressModeW?: TextureWrap;
   };
 }
 

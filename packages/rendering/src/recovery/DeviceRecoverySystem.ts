@@ -122,6 +122,8 @@ export class DeviceRecoverySystem {
 
   /**
    * Handle device loss and attempt recovery
+   * IMPORTANT: This is called from DeviceLossDetector callback (un-awaited),
+   * so we MUST catch all errors to prevent unhandled rejections.
    */
   private async handleDeviceLoss(info: DeviceLossInfo): Promise<void> {
     if (this.recovering) {
@@ -131,64 +133,79 @@ export class DeviceRecoverySystem {
 
     this.recovering = true;
 
-    if (this.options.logProgress) {
-      console.warn(`[DeviceRecoverySystem] GPU device lost: ${info.reason} - ${info.message}`);
-      console.log('[DeviceRecoverySystem] Attempting automatic recovery...');
-    }
+    try {
+      if (this.options.logProgress) {
+        console.warn(`[DeviceRecoverySystem] GPU device lost: ${info.reason} - ${info.message}`);
+        console.log('[DeviceRecoverySystem] Attempting automatic recovery...');
+      }
 
-    this.notifyProgress({
-      phase: 'detecting',
-      resourcesRecreated: 0,
-      totalResources: this.registry.getAll().length
-    });
+      this.notifyProgress({
+        phase: 'detecting',
+        resourcesRecreated: 0,
+        totalResources: this.registry.getAll().length
+      });
 
-    // Attempt recovery with retries
-    for (let attempt = 1; attempt <= this.options.maxRetries; attempt++) {
-      try {
-        if (this.options.logProgress && attempt > 1) {
-          console.log(`[DeviceRecoverySystem] Recovery attempt ${attempt}/${this.options.maxRetries}...`);
-        }
+      // Attempt recovery with retries
+      for (let attempt = 1; attempt <= this.options.maxRetries; attempt++) {
+        try {
+          if (this.options.logProgress && attempt > 1) {
+            console.log(`[DeviceRecoverySystem] Recovery attempt ${attempt}/${this.options.maxRetries}...`);
+          }
 
-        await this.performRecovery();
+          await this.performRecovery();
 
-        if (this.options.logProgress) {
-          console.log('[DeviceRecoverySystem] Device recovery successful!');
-        }
-
-        this.notifyProgress({
-          phase: 'complete',
-          resourcesRecreated: this.registry.getAll().length,
-          totalResources: this.registry.getAll().length
-        });
-
-        this.recovering = false;
-        return;
-
-      } catch (error) {
-        if (this.options.logProgress) {
-          console.error(`[DeviceRecoverySystem] Recovery attempt ${attempt} failed:`, error);
-        }
-
-        if (attempt < this.options.maxRetries) {
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, this.options.retryDelay));
-        } else {
-          // Final attempt failed
           if (this.options.logProgress) {
-            console.error('[DeviceRecoverySystem] Device recovery failed after all retries');
+            console.log('[DeviceRecoverySystem] Device recovery successful!');
           }
 
           this.notifyProgress({
-            phase: 'failed',
-            resourcesRecreated: 0,
-            totalResources: this.registry.getAll().length,
-            error: error as Error
+            phase: 'complete',
+            resourcesRecreated: this.registry.getAll().length,
+            totalResources: this.registry.getAll().length
           });
 
           this.recovering = false;
-          throw error;
+          return;
+
+        } catch (error) {
+          if (this.options.logProgress) {
+            console.error(`[DeviceRecoverySystem] Recovery attempt ${attempt} failed:`, error);
+          }
+
+          if (attempt < this.options.maxRetries) {
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, this.options.retryDelay));
+          } else {
+            // Final attempt failed - notify and log, but DON'T throw
+            // (this function is called from un-awaited callback)
+            if (this.options.logProgress) {
+              console.error('[DeviceRecoverySystem] Device recovery failed after all retries');
+            }
+
+            this.notifyProgress({
+              phase: 'failed',
+              resourcesRecreated: 0,
+              totalResources: this.registry.getAll().length,
+              error: error as Error
+            });
+
+            this.recovering = false;
+            // Don't throw - just return. Throwing from un-awaited async = unhandled rejection
+            return;
+          }
         }
       }
+    } catch (error) {
+      // Outer catch for any unexpected errors
+      console.error('[DeviceRecoverySystem] FATAL: Unexpected error in handleDeviceLoss:', error);
+      this.notifyProgress({
+        phase: 'failed',
+        resourcesRecreated: 0,
+        totalResources: this.registry.getAll().length,
+        error: error as Error
+      });
+      this.recovering = false;
+      // Don't re-throw - would cause unhandled rejection
     }
   }
 
@@ -238,6 +255,31 @@ export class DeviceRecoverySystem {
           totalResources: this.registry.getAll().length
         });
       }
+    }
+
+    // Phase 3: Clear data references to release RAM
+    // After successful recovery, we no longer need the ArrayBuffer copies
+    // This prevents double memory consumption (VRAM + RAM)
+    this.clearResourceData();
+  }
+
+  /**
+   * Clear data fields from registered resources to release RAM.
+   * Called after successful recovery - data has been uploaded to GPU,
+   * so we can release the RAM copies to avoid double memory footprint.
+   */
+  private clearResourceData(): void {
+    for (const resource of this.registry.getAll()) {
+      // Only Buffer and Texture descriptors have data fields
+      if (resource.type === ResourceType.BUFFER) {
+        (resource as BufferDescriptor).data = undefined;
+      } else if (resource.type === ResourceType.TEXTURE) {
+        (resource as TextureDescriptor).data = undefined;
+      }
+    }
+
+    if (this.options.logProgress) {
+      console.log('[DeviceRecoverySystem] Cleared resource data to release RAM');
     }
   }
 
@@ -304,10 +346,10 @@ export class DeviceRecoverySystem {
       data,
       {
         format,
-        minFilter: minFilter as any,
-        magFilter: magFilter as any,
-        wrapS: wrapS as any,
-        wrapT: wrapT as any,
+        minFilter,
+        magFilter,
+        wrapS,
+        wrapT,
         generateMipmaps
       }
     );
@@ -320,7 +362,7 @@ export class DeviceRecoverySystem {
   private async recreateShader(descriptor: ShaderDescriptor): Promise<void> {
     this.backend.createShader(
       descriptor.id,
-      descriptor.creationParams.source as any
+      descriptor.creationParams.source
     );
 
     if (this.options.logProgress) {
