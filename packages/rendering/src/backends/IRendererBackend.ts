@@ -233,6 +233,11 @@ export interface IRendererBackend {
    */
   getVRAMStats(): VRAMStats;
 
+  /**
+   * Get VRAM profiler (for debugging)
+   */
+  getVRAMProfiler(): VRAMProfiler;
+
   // Resource Management
 
   /**

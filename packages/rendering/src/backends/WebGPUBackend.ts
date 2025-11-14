@@ -702,6 +702,10 @@ export class WebGPUBackend implements IRendererBackend {
     return this.vramProfiler.getStats();
   }
 
+  getVRAMProfiler(): VRAMProfiler {
+    return this.vramProfiler;
+  }
+
   // Pipeline Management - Epic 3.13 Dynamic Vertex Layouts
 
   /**

@@ -95,6 +95,9 @@ export class VRAMProfiler {
    * Returns false if allocation would exceed budget
    */
   allocate(id: string, category: VRAMCategory, bytes: number): boolean {
+    // DEBUG: Log all allocations
+    console.log(`[VRAM] ALLOCATE: ${id}, category=${category}, bytes=${bytes}, total=${this.allocations.size + 1}`);
+
     // Check if already allocated
     if (this.allocations.has(id)) {
       console.warn(`VRAMProfiler: Resource ${id} already allocated`);
@@ -141,6 +144,9 @@ export class VRAMProfiler {
    * Deallocate VRAM for a resource
    */
   deallocate(id: string): void {
+    // DEBUG: Log all deallocations
+    const wasAllocated = this.allocations.has(id);
+    console.log(`[VRAM] DEALLOCATE: ${id}, existed=${wasAllocated}, total=${this.allocations.size - (wasAllocated ? 1 : 0)}`);
     this.allocations.delete(id);
   }
 
@@ -370,5 +376,12 @@ export class VRAMProfiler {
     return Array.from(this.allocations.values())
       .sort((a, b) => b.bytes - a.bytes)
       .slice(0, count);
+  }
+
+  /**
+   * Get all allocation IDs (for debugging)
+   */
+  getAllocationIds(): string[] {
+    return Array.from(this.allocations.keys());
   }
 }

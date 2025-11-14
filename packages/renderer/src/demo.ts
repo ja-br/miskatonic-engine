@@ -70,28 +70,26 @@ export class Demo {
   private cubeShaderInstanced!: BackendShaderHandle;
   private sphereShaderInstanced!: BackendShaderHandle;
   private bindGroupLayout!: BackendBindGroupLayoutHandle;
+  private sharedUniformBuffer!: BackendBufferHandle; // Shared uniform buffer for view/projection
+  private sharedBindGroup!: BackendBindGroupHandle; // Bind group using shared uniform buffer
   private cubePipeline!: BackendPipelineHandle;
   private spherePipeline!: BackendPipelineHandle;
   private cubePipelineInstanced!: BackendPipelineHandle;
   private spherePipelineInstanced!: BackendPipelineHandle;
 
-  // Dynamic resource allocation: uniform buffers and bind groups allocated on-demand
-  private perObjectUniformBuffers: Map<number, BackendBufferHandle> = new Map();
-  private perObjectBindGroups: Map<number, BackendBindGroupHandle> = new Map();
-  private maxDiceCount: number = 0; // Current resource pool size (grows dynamically, capped at MAX_DICE_LIMIT)
-
   // GPU instancing infrastructure (triple-buffered to prevent race conditions)
   private instanceBufferManager!: InstanceBufferManager;
   // Pre-allocated persistent buffers (never deleted, only resized when needed)
+  // Start with 128 capacity to minimize initial VRAM usage, will auto-resize as needed
   private cubeInstanceBuffers: InstanceBuffer[] = [
-    new InstanceBuffer(4096),
-    new InstanceBuffer(4096),
-    new InstanceBuffer(4096),
+    new InstanceBuffer(128),
+    new InstanceBuffer(128),
+    new InstanceBuffer(128),
   ];
   private sphereInstanceBuffers: InstanceBuffer[] = [
-    new InstanceBuffer(4096),
-    new InstanceBuffer(4096),
-    new InstanceBuffer(4096),
+    new InstanceBuffer(128),
+    new InstanceBuffer(128),
+    new InstanceBuffer(128),
   ];
   private instanceBufferFrameIndex: number = 0;
 
@@ -185,7 +183,7 @@ export class Demo {
       // Add Camera component - perspective projection
       this.world.addComponent(this.cameraEntity, Camera, Camera.perspective(
         (45 * Math.PI) / 180, // 45 degrees FOV in radians
-        0.1,                   // near
+        1.0,                   // near (moved from 0.1 to 1.0 for better depth precision)
         300                    // far (large viewing distance)
       ));
 
@@ -258,6 +256,20 @@ export class Demo {
           minBindingSize: 256, // WebGPU requires 256-byte alignment
         },
       ],
+    });
+
+    // Create shared uniform buffer for instanced rendering (view/projection matrix + lighting)
+    // This replaces the 2364 per-object uniform buffers with a single shared buffer
+    this.sharedUniformBuffer = this.backend.createBuffer(
+      'shared-uniforms',
+      'uniform',
+      new Float32Array(Demo.UNIFORM_FLOATS),
+      'dynamic_draw'
+    );
+
+    // Create shared bind group
+    this.sharedBindGroup = this.backend.createBindGroup(this.bindGroupLayout, {
+      bindings: [{ binding: 0, resource: this.sharedUniformBuffer }],
     });
 
     // Epic 3.14: Create render pipelines
@@ -431,77 +443,6 @@ export class Demo {
     this.sphereIndexCount = sphereData.indices.length;
   }
 
-  /**
-   * Ensure we have enough uniform buffers and bind groups for the given dice count
-   * Allocates new resources dynamically as needed, with hard cap for GPU safety
-   */
-  private ensureResourcesForDice(count: number): void {
-    // Enforce hard limit for GPU memory safety
-    if (count > Demo.MAX_DICE_LIMIT) {
-      console.warn(`Capping dice at ${Demo.MAX_DICE_LIMIT} (requested ${count})`);
-      count = Demo.MAX_DICE_LIMIT;
-    }
-
-    const currentPoolSize = this.perObjectUniformBuffers.size;
-
-    if (count <= currentPoolSize) {
-      return; // Already have enough resources
-    }
-
-    // Allocate additional resources with error handling
-    try {
-      for (let i = currentPoolSize; i < count; i++) {
-        const buffer = this.backend.createBuffer(
-          `dice-uniforms-${i}`,
-          'uniform',
-          new Float32Array(Demo.UNIFORM_FLOATS),
-          'dynamic_draw'
-        );
-        const bindGroup = this.backend.createBindGroup(this.bindGroupLayout, {
-          bindings: [{ binding: 0, resource: buffer }],
-        });
-        this.perObjectUniformBuffers.set(i, buffer);
-        this.perObjectBindGroups.set(i, bindGroup);
-      }
-      this.maxDiceCount = count;
-
-      if (process.env.NODE_ENV === 'development') {
-        console.log(`[ResourceAlloc] Allocated resources for ${count} dice (+${count - currentPoolSize})`);
-      }
-    } catch (error) {
-      console.error(`Failed to allocate resources for ${count} dice:`, error);
-      // Stop allocating at last successful count
-      this.maxDiceCount = this.perObjectUniformBuffers.size;
-      alert(`Cannot spawn more dice: GPU memory limit reached (${this.maxDiceCount} max)`);
-    }
-  }
-
-  /**
-   * Free unused resources when dice count decreases significantly
-   * Prevents memory leaks on reset/despawn
-   */
-  private freeUnusedResources(maxNeeded: number): void {
-    const currentPoolSize = this.perObjectUniformBuffers.size;
-
-    if (maxNeeded >= currentPoolSize) {
-      return; // No resources to free
-    }
-
-    // Free buffers beyond what's needed
-    for (let i = maxNeeded; i < currentPoolSize; i++) {
-      const buffer = this.perObjectUniformBuffers.get(i);
-      if (buffer) {
-        this.backend.deleteBuffer(buffer);
-      }
-      this.perObjectUniformBuffers.delete(i);
-      this.perObjectBindGroups.delete(i); // Bind groups are auto-freed by backend
-    }
-    this.maxDiceCount = maxNeeded;
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[ResourceFree] Freed ${currentPoolSize - maxNeeded} unused resources (${maxNeeded} remaining)`);
-    }
-  }
 
   private async initializePhysics(): Promise<void> {
     console.log('Initializing physics...');
@@ -685,12 +626,6 @@ export class Demo {
     // CRITICAL: Initialize all ECS systems (allocates matrix indices, etc.)
     this.world.init();
     console.log('ECS systems initialized');
-
-    // Allocate GPU resources for initial dice
-    const diceQuery = this.world.query().with(DiceEntity).build();
-    const initialDiceCount = Array.from(this.world.executeQuery(diceQuery)).length;
-    this.ensureResourcesForDice(initialDiceCount);
-    console.log(`Allocated GPU resources for ${initialDiceCount} initial dice`);
   }
 
   start(): void {
@@ -813,6 +748,7 @@ export class Demo {
 
   /**
    * Render instanced mesh with triple-buffering to prevent race conditions
+   * Uses shared uniform buffer for view/projection matrix (not per-object buffers)
    */
   private renderInstancedMesh(
     instances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }>,
@@ -821,7 +757,6 @@ export class Demo {
     vertexBuffer: BackendBufferHandle,
     indexBuffer: BackendBufferHandle,
     indexCount: number,
-    uniformBufferIndex: number,
     getDieColor: (sides: number) => [number, number, number],
     viewProjMatrix: Float32Array,
     cameraTransform: Transform
@@ -834,6 +769,7 @@ export class Demo {
     // Resize if needed (rare - only when dice count grows beyond current capacity)
     if (instanceBuffer.getCapacity() < instances.length) {
       const newCapacity = Math.pow(2, Math.ceil(Math.log2(instances.length)));
+      console.log(`[Demo] RESIZING buffer from ${instanceBuffer.getCapacity()} to ${newCapacity}`);
       instanceBuffer.resize(newCapacity);
     }
 
@@ -882,37 +818,18 @@ export class Demo {
     // Upload instance buffer to GPU
     const gpuBuffer = this.instanceBufferManager.upload(instanceBuffer);
 
-    // Create uniform buffer with viewProj matrix and lighting
-    const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
-    uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
-    // Model matrix (offset 16) is UNUSED in instanced shader
-    // Normal matrix (offset 32) is UNUSED in instanced shader
-    uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
-    uniformData[48] = cameraTransform.x;
-    uniformData[49] = cameraTransform.y;
-    uniformData[50] = cameraTransform.z;
-    uniformData[51] = 0.0; // camera pos
-    // Base color (offset 52) is UNUSED in instanced shader (uses instance color)
-
-    const uniformBuffer = this.perObjectUniformBuffers.get(uniformBufferIndex);
-    const bindGroup = this.perObjectBindGroups.get(uniformBufferIndex);
-
-    if (!uniformBuffer || !bindGroup) {
-      console.error(`Missing uniform resources for buffer index ${uniformBufferIndex}`);
-      return false;
-    }
-
-    this.backend!.updateBuffer(uniformBuffer, uniformData);
+    // Shared uniform buffer is updated ONCE per frame in renderLoop, not here
+    // This prevents race conditions from multiple updateBuffer calls
 
     // Issue instanced draw call
     const drawCommand: DrawCommand = {
       pipeline,
-      bindGroups: new Map([[0, bindGroup]]),
+      bindGroups: new Map([[0, this.sharedBindGroup]]),
       geometry: {
         type: 'indexed',
         vertexBuffers: new Map([
           [0, vertexBuffer],
-          [1, gpuBuffer],
+          [1, gpuBuffer.handle], // Extract the actual buffer handle, not the wrapper object
         ]),
         indexBuffer,
         indexFormat: 'uint16',
@@ -1016,6 +933,20 @@ export class Demo {
     const tDiceLoopStart = performance.now();
 
     if (this.physicsWorld && diceEntities.length > 0) {
+      // Update shared uniform buffer ONCE for all instanced rendering this frame
+      // This prevents race conditions from multiple updateBuffer calls
+      const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
+      uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
+      // Model matrix (offset 16) is UNUSED in instanced shader
+      // Normal matrix (offset 32) is UNUSED in instanced shader
+      uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
+      uniformData[48] = cameraTransform.x;
+      uniformData[49] = cameraTransform.y;
+      uniformData[50] = cameraTransform.z;
+      uniformData[51] = 0.0; // camera pos
+      // Base color (offset 52) is UNUSED in instanced shader (uses instance color)
+      this.backend!.updateBuffer(this.sharedUniformBuffer, uniformData);
+
       // Group dice by mesh type (cube vs sphere)
       const cubeInstances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }> = [];
       const sphereInstances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }> = [];
@@ -1044,7 +975,6 @@ export class Demo {
           this.cubeVertexBuffer,
           this.cubeIndexBuffer,
           this.cubeIndexCount,
-          0, // uniformBufferIndex
           getDieColor,
           viewProjMatrix,
           cameraTransform
@@ -1065,7 +995,6 @@ export class Demo {
           this.sphereVertexBuffer,
           this.sphereIndexBuffer,
           this.sphereIndexCount,
-          1, // uniformBufferIndex
           getDieColor,
           viewProjMatrix,
           cameraTransform
@@ -1137,11 +1066,18 @@ export class Demo {
         }
       }
 
-      // Resource pool utilization metrics
-      const resourcePoolStats = {
-        poolSize: this.maxDiceCount,
-        used: diceCount
-      };
+      // DEBUG: Dump all VRAM allocation IDs every 120 frames (~2 seconds at 60 FPS)
+      if (this.frameCount % 120 === 0) {
+        const allocationIds = this.backend.getVRAMProfiler().getAllocationIds();
+        console.log(`[VRAM DUMP] Frame ${this.frameCount}: ${allocationIds.length} allocations`);
+        // Group by prefix to see patterns
+        const byPrefix = new Map<string, number>();
+        for (const id of allocationIds) {
+          const prefix = id.split('_')[0];
+          byPrefix.set(prefix, (byPrefix.get(prefix) || 0) + 1);
+        }
+        console.log('[VRAM DUMP] By prefix:', Object.fromEntries(byPrefix));
+      }
 
       // Calculate CPU timing for this frame (t6-t7 calculated after executeCommands)
       const cpuTiming = {
@@ -1173,7 +1109,7 @@ export class Demo {
         bufferCount,
         textureCount,
         cpuTiming,
-        resourcePoolStats,
+        undefined, // resourcePoolStats removed (was tracking obsolete per-object uniform buffer pool)
         gpuExec
       );
       this.frameCount = 0;
@@ -1307,11 +1243,6 @@ export class Demo {
     // after multiple button clicks when capacity is exceeded
     this.transformSystem.init();
 
-    // Allocate GPU resources for new dice count
-    const diceQuery = this.world.query().with(DiceEntity).build();
-    const totalDice = Array.from(this.world.executeQuery(diceQuery)).length;
-    this.ensureResourcesForDice(totalDice);
-
     // Update the dice count display
     this.updateDiceCountDisplay();
   }
@@ -1335,9 +1266,6 @@ export class Demo {
         this.physicsWorld.removeRigidBody(diceEntity.bodyHandle);
       }
     }
-
-    // Free unused GPU resources to prevent memory leak
-    this.freeUnusedResources(keepCount);
   }
 
   /**
@@ -1573,8 +1501,24 @@ export class Demo {
     const remainingEntities = Array.from(this.world.executeQuery(verifyQuery));
     console.log(`[RESET] After removal, ${remainingEntities.length} dice entities remain`);
 
-    // Free all GPU resources to prevent memory leak
-    this.freeUnusedResources(0);
+    // Clear and resize instance buffers to minimum capacity to free VRAM
+    const minCapacity = 128;
+    console.log(`[RESET] Clearing and resizing instance buffers to minimum capacity: ${minCapacity}`);
+    for (let i = 0; i < 3; i++) {
+      // Delete GPU buffers FIRST to free VRAM immediately
+      // CRITICAL: Without this, GPU buffers persist at old capacity since renderInstancedMesh
+      // won't be called when there are 0 dice
+      this.instanceBufferManager.delete(this.cubeInstanceBuffers[i]);
+      this.instanceBufferManager.delete(this.sphereInstanceBuffers[i]);
+
+      // Clear the CPU buffers (sets count to 0)
+      this.cubeInstanceBuffers[i].clear();
+      this.sphereInstanceBuffers[i].clear();
+
+      // Resize CPU buffers to minimum capacity
+      this.cubeInstanceBuffers[i].resize(minCapacity);
+      this.sphereInstanceBuffers[i].resize(minCapacity);
+    }
 
     // The entities are now removed. The next render loop will show an empty scene.
     // No need to force a render - the animation loop will handle it.
