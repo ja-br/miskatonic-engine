@@ -289,18 +289,39 @@ export class DeviceRecoverySystem {
    */
   private clearResourceData(resources?: ResourceDescriptor[]): void {
     const resourcesToClear = resources || this.registry.getAll();
+    let totalBytesFreed = 0;
 
     for (const resource of resourcesToClear) {
       // Only Buffer and Texture descriptors have data fields
       if (resource.type === ResourceType.BUFFER) {
-        (resource as BufferDescriptor).data = undefined;
+        const bufferDesc = resource as BufferDescriptor;
+        const bytesFreed = bufferDesc.data?.byteLength ?? 0;
+        bufferDesc.data = undefined;
+
+        if (this.options.logProgress && bytesFreed > 0) {
+          console.log(`[DeviceRecoverySystem] Cleared ${resource.id} (${bytesFreed} bytes)`);
+        }
+        totalBytesFreed += bytesFreed;
       } else if (resource.type === ResourceType.TEXTURE) {
-        (resource as TextureDescriptor).data = undefined;
+        const textureDesc = resource as TextureDescriptor;
+        let bytesFreed = 0;
+
+        if (textureDesc.data instanceof ArrayBuffer) {
+          bytesFreed = textureDesc.data.byteLength;
+        }
+
+        textureDesc.data = undefined;
+
+        if (this.options.logProgress && bytesFreed > 0) {
+          console.log(`[DeviceRecoverySystem] Cleared ${resource.id} (${bytesFreed} bytes)`);
+        }
+        totalBytesFreed += bytesFreed;
       }
     }
 
     if (this.options.logProgress) {
-      console.log(`[DeviceRecoverySystem] Cleared data from ${resourcesToClear.length} resources to release RAM`);
+      const totalMB = (totalBytesFreed / 1024 / 1024).toFixed(2);
+      console.log(`[DeviceRecoverySystem] Cleared data from ${resourcesToClear.length} resources, freed ${totalMB} MB of RAM`);
     }
   }
 
@@ -402,13 +423,31 @@ export class DeviceRecoverySystem {
   }
 
   /**
-   * Get recovery statistics
+   * Get recovery statistics including memory usage
    */
-  getStats(): { registered: number; byType: Record<string, number> } {
+  getStats(): { registered: number; byType: Record<string, number>; memoryHeldBytes: number } {
     const stats = this.registry.getStats();
+
+    // Calculate memory held in ArrayBuffers
+    let memoryHeldBytes = 0;
+
+    for (const resource of this.registry.getAll()) {
+      if (resource.type === ResourceType.BUFFER) {
+        const bufferDesc = resource as BufferDescriptor;
+        memoryHeldBytes += bufferDesc.data?.byteLength ?? 0;
+      } else if (resource.type === ResourceType.TEXTURE) {
+        const textureDesc = resource as TextureDescriptor;
+        if (textureDesc.data instanceof ArrayBuffer) {
+          memoryHeldBytes += textureDesc.data.byteLength;
+        }
+        // Note: ImageBitmap memory is not easily queryable in JavaScript
+      }
+    }
+
     return {
       registered: stats.total,
-      byType: stats.byType
+      byType: stats.byType,
+      memoryHeldBytes
     };
   }
 
