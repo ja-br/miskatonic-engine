@@ -188,6 +188,13 @@ export interface IRendererBackend {
   isContextLost(): boolean;
 
   /**
+   * Reinitialize the backend after device loss (Epic 3.19 - RENDERING-04)
+   * Recreates the GPU device and context without destroying the backend instance
+   * All resources must be recreated after this call
+   */
+  reinitialize(): Promise<void>;
+
+  /**
    * Begin a new frame
    */
   beginFrame(): void;
