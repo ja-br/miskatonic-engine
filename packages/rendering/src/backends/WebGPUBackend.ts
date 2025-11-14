@@ -39,6 +39,9 @@ import type { BindGroupLayoutDescriptor } from '../BindGroupDescriptors';
 import { WGSLReflectionParser, ShaderReflectionCache, type ShaderReflectionData } from '../ShaderReflection';
 import type { DrawCommand } from '../commands/DrawCommand';
 import { isIndexedGeometry, isNonIndexedGeometry, isIndirectGeometry, isComputeGeometry } from '../commands/DrawCommand';
+import { DeviceRecoverySystem } from '../recovery/DeviceRecoverySystem';
+import { ResourceType } from '../recovery/ResourceRegistry';
+import type { BufferDescriptor, TextureDescriptor, ShaderDescriptor } from '../recovery/ResourceRegistry';
 
 
 /**
@@ -132,12 +135,19 @@ export class WebGPUBackend implements IRendererBackend {
   private reflectionParser = new WGSLReflectionParser();
   private reflectionCache = new ShaderReflectionCache();
 
+  // Epic RENDERING-04: Device recovery system
+  private recoverySystem: DeviceRecoverySystem | null = null;
+  private config: BackendConfig | null = null; // Store for reinitialize
+
   constructor() {
     // Initialize VRAM profiler with 256MB budget (typical for integrated GPUs)
     this.vramProfiler = new VRAMProfiler(256 * 1024 * 1024);
   }
 
   async initialize(config: BackendConfig): Promise<boolean> {
+    // Store config for reinitialize() (Epic RENDERING-04)
+    this.config = config;
+
     // Check if WebGPU is available
     if (!navigator.gpu) {
       console.error('WebGPU not supported in this browser');
@@ -230,14 +240,27 @@ export class WebGPUBackend implements IRendererBackend {
         }
       }
 
-      // Set up device lost handler
-      this.device.lost.then((info) => {
-        console.error(`WebGPU device lost: ${info.message}`);
-        // Clean up timestamp resources on device lost
-        this.timestampQuerySet = null;
-        this.timestampBuffer = null;
-        this.timestampReadBuffers = [];
-        this.pendingTimestampReads.clear();
+      // Epic RENDERING-04: Initialize device recovery system
+      this.recoverySystem = new DeviceRecoverySystem(this, {
+        maxRetries: 3,
+        retryDelay: 1000,
+        logProgress: true
+      });
+
+      this.recoverySystem.initializeDetector(this.device);
+
+      this.recoverySystem.onRecovery((progress) => {
+        if (progress.phase === 'detecting') {
+          console.warn(`[WebGPUBackend] Device loss detected, beginning recovery...`);
+        } else if (progress.phase === 'complete') {
+          console.log(`[WebGPUBackend] Device recovery complete - ${progress.resourcesRecreated} resources recreated`);
+          // Reinitialize detector with new device
+          if (this.device && this.recoverySystem) {
+            this.recoverySystem.initializeDetector(this.device);
+          }
+        } else if (progress.phase === 'failed') {
+          console.error(`[WebGPUBackend] Device recovery failed:`, progress.error);
+        }
       });
 
       return true;
@@ -270,6 +293,73 @@ export class WebGPUBackend implements IRendererBackend {
 
   isContextLost(): boolean {
     return this.device === null;
+  }
+
+  /**
+   * Reinitialize backend after device loss (Epic RENDERING-04)
+   */
+  async reinitialize(): Promise<void> {
+    if (!this.config) {
+      throw new Error('Cannot reinitialize: no previous config');
+    }
+
+    // CRITICAL: Destroy GPU resources before clearing maps to prevent VRAM leak
+    // Note: Device is already lost, but we still need to call destroy() for cleanup
+
+    if (this.depthTexture) {
+      this.depthTexture.destroy();
+      this.depthTexture = null;
+    }
+
+    if (this.timestampQuerySet) {
+      this.timestampQuerySet.destroy();
+      this.timestampQuerySet = null;
+    }
+
+    if (this.timestampBuffer) {
+      this.timestampBuffer.destroy();
+      this.timestampBuffer = null;
+    }
+
+    for (const buffer of this.timestampReadBuffers) {
+      buffer.destroy();
+    }
+    this.timestampReadBuffers = [];
+
+    // Destroy all buffers in maps (skip pooled ones - pool will handle them)
+    for (const bufferData of this.buffers.values()) {
+      if (!bufferData.pooled) {
+        bufferData.buffer.destroy();
+      }
+    }
+
+    // Destroy all textures
+    for (const textureData of this.textures.values()) {
+      textureData.texture.destroy();
+    }
+
+    // Clear old device references (already lost)
+    this.device = null;
+    this.context = null;
+
+    // Clear all resource maps
+    this.buffers.clear();
+    this.textures.clear();
+    this.shaders.clear();
+    this.framebuffers.clear();
+    this.bindGroupLayouts.clear();
+    this.bindGroups.clear();
+    this.pipelines.clear();
+
+    // Reset pools (will destroy pooled buffers internally)
+    this.gpuBufferPool.clear();
+
+    // Re-initialize with original config
+    const success = await this.initialize(this.config);
+
+    if (!success) {
+      throw new Error('Failed to reinitialize WebGPU device');
+    }
   }
 
   beginFrame(): void {
@@ -924,6 +1014,17 @@ export class WebGPUBackend implements IRendererBackend {
     const shader: WebGPUShader = { id, shaderModule, bindGroupLayout };
     this.shaders.set(id, shader);
 
+    // Epic RENDERING-04: Auto-register resource for recovery
+    if (this.recoverySystem) {
+      this.recoverySystem.registerResource({
+        type: ResourceType.SHADER,
+        id,
+        creationParams: {
+          source
+        }
+      } as ShaderDescriptor);
+    }
+
     return { __brand: 'BackendShader', id } as BackendShaderHandle;
   }
 
@@ -996,6 +1097,20 @@ export class WebGPUBackend implements IRendererBackend {
       requestedSize: dataArray.byteLength,
     };
     this.buffers.set(id, bufferData);
+
+    // Epic RENDERING-04: Auto-register resource for recovery
+    if (this.recoverySystem) {
+      this.recoverySystem.registerResource({
+        type: ResourceType.BUFFER,
+        id,
+        creationParams: {
+          bufferType: type,
+          size: dataArray.byteLength,
+          usage: _usage
+        },
+        data: dataArray.buffer
+      } as BufferDescriptor);
+    }
 
     return { __brand: 'BackendBuffer', id } as BackendBufferHandle;
   }
@@ -1115,6 +1230,25 @@ export class WebGPUBackend implements IRendererBackend {
 
     const textureData: WebGPUTexture = { id, texture, view, width, height };
     this.textures.set(id, textureData);
+
+    // Epic RENDERING-04: Auto-register resource for recovery
+    if (this.recoverySystem) {
+      this.recoverySystem.registerResource({
+        type: ResourceType.TEXTURE,
+        id,
+        creationParams: {
+          width,
+          height,
+          format: config.format,
+          minFilter: config.minFilter,
+          magFilter: config.magFilter,
+          wrapS: config.wrapS,
+          wrapT: config.wrapT,
+          generateMipmaps: config.generateMipmaps
+        },
+        data: data instanceof ImageData ? data.data.buffer : null // Store ImageData, others can't be serialized
+      } as TextureDescriptor);
+    }
 
     return { __brand: 'BackendTexture', id } as BackendTextureHandle;
   }

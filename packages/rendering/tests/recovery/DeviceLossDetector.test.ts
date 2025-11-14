@@ -250,15 +250,6 @@ describe('DeviceLossDetector', () => {
   });
 
   describe('isDeviceValid', () => {
-    it('should return false when device.destroyed is true', () => {
-      const device = createMockDevice();
-      (device as any).destroyed = true;
-
-      const detector = new DeviceLossDetector(device);
-
-      expect(detector.isDeviceValid()).toBe(false);
-    });
-
     it('should return true for healthy device', () => {
       const device = createMockDevice();
       const detector = new DeviceLossDetector(device);

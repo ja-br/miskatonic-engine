@@ -18,7 +18,7 @@ import type {
   TextureFilter,
   TextureWrap,
 } from '../types';
-import type { VRAMStats } from '../VRAMProfiler';
+import type { VRAMStats, VRAMProfiler } from '../VRAMProfiler';
 import type {
   BindGroupLayoutDescriptor,
 } from '../BindGroupDescriptors';

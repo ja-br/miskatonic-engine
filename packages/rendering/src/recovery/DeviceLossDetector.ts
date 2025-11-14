@@ -94,7 +94,7 @@ export class DeviceLossDetector {
    * Check if device is still valid
    */
   isDeviceValid(): boolean {
-    return !this.isLost && this.device && !this.device.destroyed;
+    return !this.isLost && !!this.device;
   }
 
   /**
@@ -102,5 +102,16 @@ export class DeviceLossDetector {
    */
   getDevice(): GPUDevice {
     return this.device;
+  }
+
+  /**
+   * Update device after recovery (Epic RENDERING-04 Fix #2)
+   * Transfers callbacks to new device and starts monitoring
+   */
+  updateDevice(newDevice: GPUDevice): void {
+    this.device = newDevice;
+    this.lostPromise = newDevice.lost;
+    this.isLost = false;
+    this.startMonitoring();
   }
 }

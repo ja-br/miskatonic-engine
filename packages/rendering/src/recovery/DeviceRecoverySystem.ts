@@ -73,7 +73,11 @@ export class DeviceRecoverySystem {
    */
   initializeDetector(device: GPUDevice): void {
     if (this.detector) {
-      // Already initialized
+      // Update existing detector with new device (after recovery)
+      this.detector.updateDevice(device);
+      if (this.options.logProgress) {
+        console.log('[DeviceRecoverySystem] Updated detector with new device');
+      }
       return;
     }
 
@@ -284,11 +288,20 @@ export class DeviceRecoverySystem {
   private async recreateTexture(descriptor: TextureDescriptor): Promise<void> {
     const { width, height, format, minFilter, magFilter, wrapS, wrapT, generateMipmaps } = descriptor.creationParams;
 
+    // Convert ArrayBuffer to Uint8Array if needed
+    // Skip ImageBitmap (can't be serialized for recovery)
+    let data: ArrayBufferView | HTMLImageElement | HTMLCanvasElement | ImageData | null = null;
+    if (descriptor.data instanceof ArrayBuffer) {
+      data = new Uint8Array(descriptor.data);
+    } else if (descriptor.data && !(descriptor.data instanceof ImageBitmap)) {
+      data = descriptor.data as HTMLImageElement | HTMLCanvasElement | ImageData;
+    }
+
     this.backend.createTexture(
       descriptor.id,
       width,
       height,
-      descriptor.data || null,
+      data,
       {
         format,
         minFilter: minFilter as any,

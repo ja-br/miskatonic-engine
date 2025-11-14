@@ -4,18 +4,29 @@
  * Tracks all GPU resources for recreation after device loss.
  * Stores creation parameters so resources can be recreated exactly.
  *
+ * IMPORTANT LIMITATION: Resource data is captured at creation time only.
+ * If you call updateBuffer() or updateTexture() after creation, those updates
+ * will NOT be reflected in the registry. After device recovery, resources will
+ * be recreated with their ORIGINAL creation data.
+ *
+ * For dynamic resources that change frequently, consider:
+ * - Regenerating data from application state after recovery
+ * - Using the recovery callback to manually update resources
+ * - Storing mutable data in application state, not GPU resources
+ *
  * Usage:
  * ```typescript
  * const registry = new ResourceRegistry();
  * registry.register({
  *   type: ResourceType.BUFFER,
  *   id: 'vertexBuffer',
- *   creationParams: { size: 1024, usage: 'static_draw' }
+ *   creationParams: { size: 1024, usage: 'static_draw' },
+ *   data: vertexData  // Captured at creation, not updated later
  * });
  * ```
  */
 
-import type { BufferUsage, TextureFormat } from '../types';
+import type { BufferUsage, TextureFormat, ShaderSource } from '../types';
 import type { PipelineStateDescriptor } from '../PipelineStateDescriptor';
 
 export enum ResourceType {
@@ -63,7 +74,7 @@ export interface TextureDescriptor extends ResourceDescriptor {
 export interface ShaderDescriptor extends ResourceDescriptor {
   type: ResourceType.SHADER;
   creationParams: {
-    source: string;
+    source: ShaderSource;
   };
 }
 
