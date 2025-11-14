@@ -62,6 +62,13 @@ export class InstanceBufferManager {
     const count = instanceBuffer.getCount();
     const capacity = instanceBuffer.getCapacity();
 
+    // Re-create buffer if capacity changed (resize occurred)
+    if (gpuBuffer && gpuBuffer.capacity !== capacity) {
+      this.backend.deleteBuffer(gpuBuffer.handle);
+      this.gpuBuffers.delete(instanceBuffer);
+      gpuBuffer = undefined;
+    }
+
     // Create new buffer if needed
     if (!gpuBuffer) {
       const id = `instance_buffer_${this.nextBufferId++}`;
@@ -90,9 +97,6 @@ export class InstanceBufferManager {
 
     // Mark buffer as clean after upload
     instanceBuffer.markClean();
-
-    // Mark buffer as in-flight (GPU will use it)
-    instanceBuffer.markInFlight();
 
     return gpuBuffer;
   }

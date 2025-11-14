@@ -82,8 +82,17 @@ export class Demo {
 
   // GPU instancing infrastructure (triple-buffered to prevent race conditions)
   private instanceBufferManager!: InstanceBufferManager;
-  private cubeInstanceBuffers: InstanceBuffer[] = [];
-  private sphereInstanceBuffers: InstanceBuffer[] = [];
+  // Pre-allocated persistent buffers (never deleted, only resized when needed)
+  private cubeInstanceBuffers: InstanceBuffer[] = [
+    new InstanceBuffer(4096),
+    new InstanceBuffer(4096),
+    new InstanceBuffer(4096),
+  ];
+  private sphereInstanceBuffers: InstanceBuffer[] = [
+    new InstanceBuffer(4096),
+    new InstanceBuffer(4096),
+    new InstanceBuffer(4096),
+  ];
   private instanceBufferFrameIndex: number = 0;
 
   // Rendering resources
@@ -819,22 +828,13 @@ export class Demo {
   ): boolean {
     if (!this.physicsWorld) return false;
 
-    const requiredCapacity = Math.max(instances.length, Demo.MIN_INSTANCE_BUFFER_CAPACITY);
-
     // Get current buffer for this frame (triple-buffered rotation)
-    let instanceBuffer = bufferArray[this.instanceBufferFrameIndex];
+    const instanceBuffer = bufferArray[this.instanceBufferFrameIndex];
 
-    // Ensure buffer exists and has sufficient capacity
-    if (!instanceBuffer || instanceBuffer.getCapacity() < instances.length) {
-      // Release old buffer to pool if it exists
-      if (instanceBuffer) {
-        this.instanceBufferManager.delete(instanceBuffer); // Delete GPU buffer
-        globalInstanceBufferPool.release(instanceBuffer);  // Return to pool
-      }
-
-      // Acquire new buffer from pool
-      instanceBuffer = globalInstanceBufferPool.acquire(requiredCapacity);
-      bufferArray[this.instanceBufferFrameIndex] = instanceBuffer;
+    // Resize if needed (rare - only when dice count grows beyond current capacity)
+    if (instanceBuffer.getCapacity() < instances.length) {
+      const newCapacity = Math.pow(2, Math.ceil(Math.log2(instances.length)));
+      instanceBuffer.resize(newCapacity);
     }
 
     // Safe to clear: GPU finished with this buffer 2 frames ago
@@ -1085,18 +1085,6 @@ export class Demo {
     const t6 = performance.now();
     this.backend.endFrame();
     const t7 = performance.now();
-
-    // Release instance buffers (mark as ready for next frame rotation)
-    for (const buffer of this.cubeInstanceBuffers) {
-      if (buffer) {
-        this.instanceBufferManager.release(buffer);
-      }
-    }
-    for (const buffer of this.sphereInstanceBuffers) {
-      if (buffer) {
-        this.instanceBufferManager.release(buffer);
-      }
-    }
 
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
     this.matrixPool.releaseAll();
