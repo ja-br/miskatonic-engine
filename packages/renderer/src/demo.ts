@@ -14,6 +14,7 @@ import {
   OPAQUE_PIPELINE_STATE,
   InstanceBuffer,
   InstanceBufferManager,
+  globalInstanceBufferPool,
   type DrawCommand,
   type IRendererBackend,
   type BackendShaderHandle,
@@ -41,6 +42,8 @@ export class Demo {
   private static readonly WEBGPU_UNIFORM_ALIGNMENT = 256; // WebGPU requires 256-byte uniform buffer alignment
   private static readonly UNIFORM_FLOATS = 64; // 256 bytes / 4 bytes per float
   private static readonly INSTANCE_FLOATS_PER_DIE = 20; // mat4 (16 floats) + vec4 color (4 floats) = 80 bytes
+  private static readonly MIN_INSTANCE_BUFFER_CAPACITY = 64; // Matches pool bucket size (power of 2)
+  private static readonly INSTANCE_BUFFER_COUNT = 3; // Triple-buffering to prevent GPU race conditions
 
   private canvas: HTMLCanvasElement;
   private backend: IRendererBackend | null = null;
@@ -77,10 +80,11 @@ export class Demo {
   private perObjectBindGroups: Map<number, BackendBindGroupHandle> = new Map();
   private maxDiceCount: number = 0; // Current resource pool size (grows dynamically, capped at MAX_DICE_LIMIT)
 
-  // GPU instancing infrastructure
+  // GPU instancing infrastructure (triple-buffered to prevent race conditions)
   private instanceBufferManager!: InstanceBufferManager;
-  private cubeInstanceBuffer: InstanceBuffer | null = null;
-  private sphereInstanceBuffer: InstanceBuffer | null = null;
+  private cubeInstanceBuffers: InstanceBuffer[] = [];
+  private sphereInstanceBuffers: InstanceBuffer[] = [];
+  private instanceBufferFrameIndex: number = 0;
 
   // Rendering resources
   private cubeVertexBuffer!: BackendBufferHandle;
@@ -798,6 +802,129 @@ export class Demo {
     });
   }
 
+  /**
+   * Render instanced mesh with triple-buffering to prevent race conditions
+   */
+  private renderInstancedMesh(
+    instances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }>,
+    bufferArray: InstanceBuffer[],
+    pipeline: BackendPipelineHandle,
+    vertexBuffer: BackendBufferHandle,
+    indexBuffer: BackendBufferHandle,
+    indexCount: number,
+    uniformBufferIndex: number,
+    getDieColor: (sides: number) => [number, number, number],
+    viewProjMatrix: Float32Array,
+    cameraTransform: Transform
+  ): boolean {
+    if (!this.physicsWorld) return false;
+
+    const requiredCapacity = Math.max(instances.length, Demo.MIN_INSTANCE_BUFFER_CAPACITY);
+
+    // Get current buffer for this frame (triple-buffered rotation)
+    let instanceBuffer = bufferArray[this.instanceBufferFrameIndex];
+
+    // Ensure buffer exists and has sufficient capacity
+    if (!instanceBuffer || instanceBuffer.getCapacity() < instances.length) {
+      // Release old buffer to pool if it exists
+      if (instanceBuffer) {
+        this.instanceBufferManager.delete(instanceBuffer); // Delete GPU buffer
+        globalInstanceBufferPool.release(instanceBuffer);  // Return to pool
+      }
+
+      // Acquire new buffer from pool
+      instanceBuffer = globalInstanceBufferPool.acquire(requiredCapacity);
+      bufferArray[this.instanceBufferFrameIndex] = instanceBuffer;
+    }
+
+    // Safe to clear: GPU finished with this buffer 2 frames ago
+    instanceBuffer.clear();
+
+    // Build instance data
+    let validInstanceCount = 0;
+    for (let i = 0; i < instances.length; i++) {
+      const { entity, transform, diceEntity } = instances[i];
+
+      // Use cached rotation from sync loop
+      const rotation = this.rotationCache.get(entity);
+      if (!rotation) continue;
+
+      let position;
+      try {
+        position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
+        if (!position) continue;
+      } catch (e) {
+        continue;
+      }
+
+      // Build model matrix
+      const modelMatrix = this.matrixPool.acquire();
+      const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
+      this.createModelMatrix(modelMatrix, position, rotation, scale);
+
+      // Calculate color with depth-based darkening
+      const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
+      const [r, g, b] = getDieColor(diceEntity.sides);
+      const brightness = 0.7 + depth * 0.3;
+
+      // Set instance transform and color
+      instanceBuffer.setInstanceTransform(validInstanceCount, modelMatrix);
+      instanceBuffer.setInstanceColor(validInstanceCount, r * brightness, g * brightness, b * brightness, 1.0);
+
+      // CRITICAL: Release matrix back to pool (fixes matrix pool leak)
+      this.matrixPool.release(modelMatrix);
+
+      validInstanceCount++;
+    }
+
+    if (validInstanceCount === 0) return false;
+
+    // Upload instance buffer to GPU
+    const gpuBuffer = this.instanceBufferManager.upload(instanceBuffer);
+
+    // Create uniform buffer with viewProj matrix and lighting
+    const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
+    uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
+    // Model matrix (offset 16) is UNUSED in instanced shader
+    // Normal matrix (offset 32) is UNUSED in instanced shader
+    uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
+    uniformData[48] = cameraTransform.x;
+    uniformData[49] = cameraTransform.y;
+    uniformData[50] = cameraTransform.z;
+    uniformData[51] = 0.0; // camera pos
+    // Base color (offset 52) is UNUSED in instanced shader (uses instance color)
+
+    const uniformBuffer = this.perObjectUniformBuffers.get(uniformBufferIndex);
+    const bindGroup = this.perObjectBindGroups.get(uniformBufferIndex);
+
+    if (!uniformBuffer || !bindGroup) {
+      console.error(`Missing uniform resources for buffer index ${uniformBufferIndex}`);
+      return false;
+    }
+
+    this.backend!.updateBuffer(uniformBuffer, uniformData);
+
+    // Issue instanced draw call
+    const drawCommand: DrawCommand = {
+      pipeline,
+      bindGroups: new Map([[0, bindGroup]]),
+      geometry: {
+        type: 'indexed',
+        vertexBuffers: new Map([
+          [0, vertexBuffer],
+          [1, gpuBuffer],
+        ]),
+        indexBuffer,
+        indexFormat: 'uint16',
+        indexCount,
+        instanceCount: instanceBuffer.getCount(),
+      },
+    };
+
+    this.backend!.executeDrawCommand(drawCommand);
+    return true;
+  }
+
   private renderLoop = (): void => {
     if (!this.backend || !this.cameraEntity) return;
 
@@ -881,6 +1008,9 @@ export class Demo {
     let instancedObjectCount = 0;
     let instanceGroupCount = 0;
 
+    // Rotate to next buffer frame (GPU finished with this buffer 2 frames ago)
+    this.instanceBufferFrameIndex = (this.instanceBufferFrameIndex + 1) % Demo.INSTANCE_BUFFER_COUNT;
+
     // Render all dice using GPU instancing
     const diceEntities = this.world.executeQuery(this.diceQuery!);
     const tDiceLoopStart = performance.now();
@@ -905,164 +1035,45 @@ export class Demo {
         }
       }
 
-      // Process cube instances
+      // Render cube instances
       if (cubeInstances.length > 0) {
-        // Create or resize instance buffer
-        if (!this.cubeInstanceBuffer || this.cubeInstanceBuffer.getCapacity() < cubeInstances.length) {
-          this.cubeInstanceBuffer = new InstanceBuffer(Math.max(cubeInstances.length, 64));
-        }
-        this.cubeInstanceBuffer.clear();
-
-        // Build instance data
-        for (let i = 0; i < cubeInstances.length; i++) {
-          const { entity, transform, diceEntity } = cubeInstances[i];
-
-          // Use cached rotation from sync loop
-          const rotation = this.rotationCache.get(entity);
-          if (!rotation) continue;
-
-          let position;
-          try {
-            position = this.physicsWorld!.getPosition(diceEntity.bodyHandle);
-            if (!position) continue;
-          } catch (e) {
-            continue;
-          }
-
-          // Build model matrix
-          const modelMatrix = this.matrixPool.acquire();
-          const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
-          this.createModelMatrix(modelMatrix, position, rotation, scale);
-
-          // Calculate color with depth-based darkening
-          const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
-          const [r, g, b] = getDieColor(diceEntity.sides);
-          const brightness = 0.7 + depth * 0.3;
-
-          // Set instance transform and color
-          this.cubeInstanceBuffer.setInstanceTransform(i, modelMatrix);
-          this.cubeInstanceBuffer.setInstanceColor(i, r * brightness, g * brightness, b * brightness, 1.0);
-
-          instancedObjectCount++;
-        }
-
-        // Upload instance buffer to GPU
-        const cubeGPUBuffer = this.instanceBufferManager.upload(this.cubeInstanceBuffer);
-
-        // Create uniform buffer with viewProj matrix and lighting (no per-object model matrix)
-        const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
-        uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
-        // Model matrix (offset 16) is UNUSED in instanced shader
-        // Normal matrix (offset 32) is UNUSED in instanced shader
-        uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
-        uniformData[48] = cameraTransform.x; uniformData[49] = cameraTransform.y; uniformData[50] = cameraTransform.z; uniformData[51] = 0.0; // camera pos
-        // Base color (offset 52) is UNUSED in instanced shader (uses instance color)
-
-        const cubeUniformBuffer = this.perObjectUniformBuffers.get(0);
-        const cubeBindGroup = this.perObjectBindGroups.get(0);
-
-        if (cubeUniformBuffer && cubeBindGroup) {
-          this.backend.updateBuffer(cubeUniformBuffer, uniformData);
-
-          // Issue instanced draw call
-          const drawCommand: DrawCommand = {
-            pipeline: this.cubePipelineInstanced,
-            bindGroups: new Map([[0, cubeBindGroup]]),
-            geometry: {
-              type: 'indexed',
-              vertexBuffers: new Map([
-                [0, this.cubeVertexBuffer],
-                [1, cubeGPUBuffer],
-              ]),
-              indexBuffer: this.cubeIndexBuffer,
-              indexFormat: 'uint16',
-              indexCount: this.cubeIndexCount,
-              instanceCount: this.cubeInstanceBuffer.getCount(),
-            },
-          };
-
-          this.backend.executeDrawCommand(drawCommand);
+        const rendered = this.renderInstancedMesh(
+          cubeInstances,
+          this.cubeInstanceBuffers,
+          this.cubePipelineInstanced,
+          this.cubeVertexBuffer,
+          this.cubeIndexBuffer,
+          this.cubeIndexCount,
+          0, // uniformBufferIndex
+          getDieColor,
+          viewProjMatrix,
+          cameraTransform
+        );
+        if (rendered) {
           drawCallCount++;
           instanceGroupCount++;
+          instancedObjectCount += cubeInstances.length;
         }
       }
 
-      // Process sphere instances
+      // Render sphere instances
       if (sphereInstances.length > 0) {
-        // Create or resize instance buffer
-        if (!this.sphereInstanceBuffer || this.sphereInstanceBuffer.getCapacity() < sphereInstances.length) {
-          this.sphereInstanceBuffer = new InstanceBuffer(Math.max(sphereInstances.length, 64));
-        }
-        this.sphereInstanceBuffer.clear();
-
-        // Build instance data
-        for (let i = 0; i < sphereInstances.length; i++) {
-          const { entity, transform, diceEntity } = sphereInstances[i];
-
-          // Use cached rotation from sync loop
-          const rotation = this.rotationCache.get(entity);
-          if (!rotation) continue;
-
-          let position;
-          try {
-            position = this.physicsWorld!.getPosition(diceEntity.bodyHandle);
-            if (!position) continue;
-          } catch (e) {
-            continue;
-          }
-
-          // Build model matrix
-          const modelMatrix = this.matrixPool.acquire();
-          const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
-          this.createModelMatrix(modelMatrix, position, rotation, scale);
-
-          // Calculate color with depth-based darkening
-          const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
-          const [r, g, b] = getDieColor(diceEntity.sides);
-          const brightness = 0.7 + depth * 0.3;
-
-          // Set instance transform and color
-          this.sphereInstanceBuffer.setInstanceTransform(i, modelMatrix);
-          this.sphereInstanceBuffer.setInstanceColor(i, r * brightness, g * brightness, b * brightness, 1.0);
-
-          instancedObjectCount++;
-        }
-
-        // Upload instance buffer to GPU
-        const sphereGPUBuffer = this.instanceBufferManager.upload(this.sphereInstanceBuffer);
-
-        // Create uniform buffer with viewProj matrix and lighting
-        const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
-        uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
-        uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
-        uniformData[48] = cameraTransform.x; uniformData[49] = cameraTransform.y; uniformData[50] = cameraTransform.z; uniformData[51] = 0.0; // camera pos
-
-        const sphereUniformBuffer = this.perObjectUniformBuffers.get(1);
-        const sphereBindGroup = this.perObjectBindGroups.get(1);
-
-        if (sphereUniformBuffer && sphereBindGroup) {
-          this.backend.updateBuffer(sphereUniformBuffer, uniformData);
-
-          // Issue instanced draw call
-          const drawCommand: DrawCommand = {
-            pipeline: this.spherePipelineInstanced,
-            bindGroups: new Map([[0, sphereBindGroup]]),
-            geometry: {
-              type: 'indexed',
-              vertexBuffers: new Map([
-                [0, this.sphereVertexBuffer],
-                [1, sphereGPUBuffer],
-              ]),
-              indexBuffer: this.sphereIndexBuffer,
-              indexFormat: 'uint16',
-              indexCount: this.sphereIndexCount,
-              instanceCount: this.sphereInstanceBuffer.getCount(),
-            },
-          };
-
-          this.backend.executeDrawCommand(drawCommand);
+        const rendered = this.renderInstancedMesh(
+          sphereInstances,
+          this.sphereInstanceBuffers,
+          this.spherePipelineInstanced,
+          this.sphereVertexBuffer,
+          this.sphereIndexBuffer,
+          this.sphereIndexCount,
+          1, // uniformBufferIndex
+          getDieColor,
+          viewProjMatrix,
+          cameraTransform
+        );
+        if (rendered) {
           drawCallCount++;
           instanceGroupCount++;
+          instancedObjectCount += sphereInstances.length;
         }
       }
     }
