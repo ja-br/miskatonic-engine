@@ -182,6 +182,10 @@ export class DeviceRecoverySystem {
               console.error('[DeviceRecoverySystem] Device recovery failed after all retries');
             }
 
+            // CRITICAL: Clear data even on failure - GPU is dead, data is useless
+            // Without this, failed recovery permanently leaks RAM
+            this.clearResourceData();
+
             this.notifyProgress({
               phase: 'failed',
               resourcesRecreated: 0,
@@ -198,6 +202,10 @@ export class DeviceRecoverySystem {
     } catch (error) {
       // Outer catch for any unexpected errors
       console.error('[DeviceRecoverySystem] FATAL: Unexpected error in handleDeviceLoss:', error);
+
+      // CRITICAL: Clear data even on unexpected failure
+      this.clearResourceData();
+
       this.notifyProgress({
         phase: 'failed',
         resourcesRecreated: 0,
@@ -213,11 +221,17 @@ export class DeviceRecoverySystem {
    * Perform actual recovery
    */
   private async performRecovery(): Promise<void> {
+    // CRITICAL: Capture resources BEFORE starting async operations
+    // If we call registry.getAll() after await points, new resources registered
+    // during recovery could have their data prematurely cleared
+    const resourcesToRecover = this.registry.getAll();
+    const totalResources = resourcesToRecover.length;
+
     // Phase 1: Reinitialize device
     this.notifyProgress({
       phase: 'reinitializing',
       resourcesRecreated: 0,
-      totalResources: this.registry.getAll().length
+      totalResources
     });
 
     await this.backend.reinitialize();
@@ -226,7 +240,7 @@ export class DeviceRecoverySystem {
     this.notifyProgress({
       phase: 'recreating',
       resourcesRecreated: 0,
-      totalResources: this.registry.getAll().length
+      totalResources
     });
 
     // Resource recreation order matters - dependencies first
@@ -243,7 +257,9 @@ export class DeviceRecoverySystem {
     let recreated = 0;
 
     for (const type of resourceOrder) {
-      const resources = this.registry.getByType(type);
+      // Filter captured resources, not current registry
+      // (new resources may have been registered during recovery)
+      const resources = resourcesToRecover.filter(r => r.type === type);
 
       for (const descriptor of resources) {
         await this.recreateResource(descriptor);
@@ -252,7 +268,7 @@ export class DeviceRecoverySystem {
         this.notifyProgress({
           phase: 'recreating',
           resourcesRecreated: recreated,
-          totalResources: this.registry.getAll().length
+          totalResources
         });
       }
     }
@@ -260,16 +276,21 @@ export class DeviceRecoverySystem {
     // Phase 3: Clear data references to release RAM
     // After successful recovery, we no longer need the ArrayBuffer copies
     // This prevents double memory consumption (VRAM + RAM)
-    this.clearResourceData();
+    // Only clear data from resources we actually recovered (not newly registered ones)
+    this.clearResourceData(resourcesToRecover);
   }
 
   /**
    * Clear data fields from registered resources to release RAM.
-   * Called after successful recovery - data has been uploaded to GPU,
-   * so we can release the RAM copies to avoid double memory footprint.
+   * Called after recovery (successful or failed) - data has been uploaded to GPU
+   * or is no longer needed, so we can release the RAM copies to avoid memory leaks.
+   *
+   * @param resources Optional specific resources to clear. If not provided, clears all.
    */
-  private clearResourceData(): void {
-    for (const resource of this.registry.getAll()) {
+  private clearResourceData(resources?: ResourceDescriptor[]): void {
+    const resourcesToClear = resources || this.registry.getAll();
+
+    for (const resource of resourcesToClear) {
       // Only Buffer and Texture descriptors have data fields
       if (resource.type === ResourceType.BUFFER) {
         (resource as BufferDescriptor).data = undefined;
@@ -279,7 +300,7 @@ export class DeviceRecoverySystem {
     }
 
     if (this.options.logProgress) {
-      console.log('[DeviceRecoverySystem] Cleared resource data to release RAM');
+      console.log(`[DeviceRecoverySystem] Cleared data from ${resourcesToClear.length} resources to release RAM`);
     }
   }
 
