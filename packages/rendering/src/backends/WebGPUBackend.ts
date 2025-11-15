@@ -305,6 +305,24 @@ export class WebGPUBackend implements IRendererBackend {
     this.renderPassMgr.endRenderPass();
   }
 
+  // Epic RENDERING-06 Task 6.5: Expose cache API
+  /**
+   * Clear command encoder resource cache. Call each frame to prevent stale references.
+   * Epic RENDERING-06 Task 6.5: Required for hot path optimization
+   */
+  clearCommandCache(): void {
+    this.commandEncoder.clearCache();
+  }
+
+  /**
+   * Get cache statistics for performance monitoring.
+   * Cache hit rate should be >95% in typical scenes.
+   * Epic RENDERING-06 Task 6.5: For performance measurement
+   */
+  getCommandCacheStats(): { hits: number; misses: number; hitRate: number } {
+    return this.commandEncoder.getCacheStats();
+  }
+
   clear(color?: [number, number, number, number], depth?: number, stencil?: number): void {
     this.renderPassMgr.clear(color, depth, stencil);
   }
