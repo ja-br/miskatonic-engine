@@ -101,14 +101,14 @@ export class WebGPURenderPassManager {
       this.depthTexture.destroy();
     }
 
-    const newSize = width * height * 2; // depth16unorm is 2 bytes per pixel
+    const newSize = width * height * 4; // depth24plus is 4 bytes per pixel
     const depthCategory = VRAMCategory.TEXTURES;
     this.vramProfiler.allocate('depth-texture', depthCategory, newSize);
     this.depthTextureSize = newSize;
 
     this.depthTexture = this.ctx.device.createTexture({
       size: { width, height },
-      format: 'depth16unorm',
+      format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
   }
@@ -126,14 +126,14 @@ export class WebGPURenderPassManager {
   initializeDepthTexture(width: number, height: number): void {
     if (!this.ctx.device) return;
 
-    const size = width * height * 2; // depth16unorm is 2 bytes per pixel
+    const size = width * height * 4; // depth24plus is 4 bytes per pixel
     const depthCategory = VRAMCategory.TEXTURES;
     this.vramProfiler.allocate('depth-texture', depthCategory, size);
     this.depthTextureSize = size;
 
     this.depthTexture = this.ctx.device.createTexture({
       size: { width, height },
-      format: 'depth16unorm',
+      format: 'depth24plus',
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
   }
