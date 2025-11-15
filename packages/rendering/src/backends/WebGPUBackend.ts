@@ -8,6 +8,7 @@
  * will require additional work for shader transpilation, complex render passes, etc.
  */
 
+import { DEFAULT_VRAM_BUDGET_MB } from '../constants/RenderingConstants.js';
 import type {
   IRendererBackend,
   BackendConfig,
@@ -140,8 +141,8 @@ export class WebGPUBackend implements IRendererBackend {
   private config: BackendConfig | null = null; // Store for reinitialize
 
   constructor() {
-    // Initialize VRAM profiler with 256MB budget (typical for integrated GPUs)
-    this.vramProfiler = new VRAMProfiler(256 * 1024 * 1024);
+    // Initialize VRAM profiler with default budget (typical for integrated GPUs)
+    this.vramProfiler = new VRAMProfiler(DEFAULT_VRAM_BUDGET_MB * 1024 * 1024);
   }
 
   async initialize(config: BackendConfig): Promise<boolean> {

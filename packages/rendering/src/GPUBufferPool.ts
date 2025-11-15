@@ -10,6 +10,12 @@
  * - Automatic cleanup of unused buffers
  */
 
+import {
+  MIN_POOLED_BUFFER_SIZE,
+  MAX_POOLED_BUFFER_SIZE,
+  BUFFER_CLEANUP_FRAME_THRESHOLD,
+} from './constants/RenderingConstants.js';
+
 export enum BufferUsageType {
   VERTEX = 'vertex',
   INDEX = 'index',
@@ -69,11 +75,11 @@ export class GPUBufferPool {
   };
 
   private currentFrame = 0;
-  private maxUnusedFrames = 300; // ~5 seconds at 60 FPS
+  private maxUnusedFrames = BUFFER_CLEANUP_FRAME_THRESHOLD;
 
-  // Power-of-2 buckets from 256 bytes to 16MB
-  private readonly MIN_BUCKET_SIZE = 256;
-  private readonly MAX_BUCKET_SIZE = 16 * 1024 * 1024; // 16MB
+  // Power-of-2 buckets (from RenderingConstants)
+  private readonly MIN_BUCKET_SIZE = MIN_POOLED_BUFFER_SIZE;
+  private readonly MAX_BUCKET_SIZE = MAX_POOLED_BUFFER_SIZE;
 
   // Track buffer IDs and device loss
   private nextBufferId = 1;

@@ -11,6 +11,11 @@
  * - Frame-based statistics
  */
 
+import {
+  BIND_GROUP_CACHE_SIZE,
+  BIND_GROUP_CLEANUP_FRAME_THRESHOLD,
+} from './constants/RenderingConstants.js';
+
 export interface BindGroupPoolEntry {
   /** The WebGPU bind group */
   bindGroup: GPUBindGroup;
@@ -47,7 +52,7 @@ export class BindGroupPool {
   private nextId = 1;
 
   /** Maximum bind groups per pool before LRU cleanup triggers */
-  private maxPoolSize = 1000;
+  private maxPoolSize = BIND_GROUP_CACHE_SIZE;
 
   /** Current frame number for LRU tracking */
   private currentFrame = 0;
@@ -224,11 +229,11 @@ export class BindGroupPool {
 
   /**
    * Cleanup old bind groups using LRU eviction
-   * Removes bind groups not used in the last 60 frames
+   * Removes bind groups not used recently
    * @private
    */
   private cleanup(): void {
-    const frameCutoff = this.currentFrame - 60; // Keep entries used in last 60 frames
+    const frameCutoff = this.currentFrame - BIND_GROUP_CLEANUP_FRAME_THRESHOLD;
 
     for (const [key, pool] of this.pools.entries()) {
       // Remove entries that are not in use and haven't been used recently

@@ -10,6 +10,8 @@
  * - Real-time usage tracking
  */
 
+import { DEFAULT_VRAM_BUDGET_MB } from './constants/RenderingConstants.js';
+
 export enum VRAMCategory {
   TEXTURES = 'textures',
   VERTEX_BUFFERS = 'vertex_buffers',
@@ -77,7 +79,7 @@ export class VRAMProfiler {
   private warningThreshold = 0.8; // Warn at 80% usage
   private errorThreshold = 0.95; // Error at 95% usage
 
-  constructor(totalBudget: number = 256 * 1024 * 1024) { // 256MB default
+  constructor(totalBudget: number = DEFAULT_VRAM_BUDGET_MB * 1024 * 1024) {
     this.budget = {
       textures: totalBudget * 0.45,        // 115MB
       vertexBuffers: totalBudget * 0.20,   // 51MB

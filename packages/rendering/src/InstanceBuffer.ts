@@ -27,6 +27,8 @@
  * ```
  */
 
+import { INSTANCE_BUFFER_BUCKETS } from './constants/RenderingConstants.js';
+
 // Stride per instance: mat4 (64 bytes) + vec4 (16 bytes) = 80 bytes
 const FLOATS_PER_INSTANCE = 20; // 16 (mat4) + 4 (vec4)
 const BYTES_PER_INSTANCE = 80;  // 20 floats * 4 bytes
@@ -300,8 +302,8 @@ export class InstanceBuffer {
 export class InstanceBufferPool {
   private pools: Map<number, InstanceBuffer[]> = new Map();
 
-  // Bucket sizes (power of 2)
-  private static readonly BUCKET_SIZES = [64, 128, 256, 512, 1024, 2048, 4096];
+  // Bucket sizes (power of 2, from RenderingConstants)
+  private static readonly BUCKET_SIZES: number[] = [...INSTANCE_BUFFER_BUCKETS];
 
   // Maximum capacity (5MB = 65536 instances * 80 bytes)
   private static readonly MAX_CAPACITY = 65536;
