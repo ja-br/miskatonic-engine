@@ -193,6 +193,7 @@ export * as highlevel from './highlevel';
 
 // Epic RENDERING-06: Builder patterns for ergonomic API
 export { VertexLayoutBuilder } from './builders/VertexLayoutBuilder';
+export { PipelineBuilder, type BlendMode, type TopologyMode, type CullMode, type DepthCompare } from './builders/PipelineBuilder';
 
 // Types and enums
 export {
