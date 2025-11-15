@@ -44,6 +44,9 @@ import { WebGPUPipelineManager } from './webgpu/WebGPUPipelineManager';
 import { WebGPUCommandEncoder } from './webgpu/WebGPUCommandEncoder';
 import { WebGPUModernAPI } from './webgpu/WebGPUModernAPI';
 import { WebGPURenderPassManager } from './webgpu/WebGPURenderPassManager';
+import { WebGPUTimestampProfiler } from './webgpu/WebGPUTimestampProfiler';
+import { initializeDeviceAndContext } from './webgpu/WebGPUDeviceInitializer';
+import { initializeModules } from './webgpu/WebGPUModuleInitializer';
 import type { WebGPUContext, ModuleConfig } from './webgpu/WebGPUTypes';
 
 /**
@@ -84,14 +87,9 @@ export class WebGPUBackend implements IRendererBackend {
   private stats: RenderStats = this.createEmptyStats();
   private selectedDepthFormat: GPUTextureFormat = 'depth16unorm'; // Default to optimized format
 
-  // GPU timestamp queries for measuring actual GPU execution time
-  private timestampQuerySet: GPUQuerySet | null = null;
-  private timestampBuffer: GPUBuffer | null = null;
-  private timestampReadBuffers: GPUBuffer[] = [];
-  private currentReadBufferIndex: number = 0;
-  private gpuTimeMs: number = 0;
+  // GPU timestamp profiling for measuring actual GPU execution time
+  private timestampProfiler: WebGPUTimestampProfiler | null = null;
   private hasTimestampQuery: boolean = false;
-  private pendingTimestampReads: Set<GPUBuffer> = new Set();
 
   constructor() {
     this.vramProfiler = new VRAMProfiler(DEFAULT_VRAM_BUDGET_MB * 1024 * 1024);
@@ -121,11 +119,14 @@ export class WebGPUBackend implements IRendererBackend {
         console.log(`[WebGPUBackend] Using optimized depth format: ${this.selectedDepthFormat} (50% VRAM savings)`);
       }
 
+      // Initialize timestamp profiler
+      this.timestampProfiler = new WebGPUTimestampProfiler(this.ctx, this.hasTimestampQuery);
       try {
-        this.initializeTimestampQueries();
+        this.timestampProfiler.initialize();
       } catch (error) {
         console.warn('[WebGPUBackend] Failed to initialize timestamp queries:', error);
-        this.hasTimestampQuery = false; // Prevent usage of uninitialized resources
+        this.hasTimestampQuery = false;
+        this.timestampProfiler = null;
       }
 
       if (!this.ctx.canvas) {
@@ -133,10 +134,8 @@ export class WebGPUBackend implements IRendererBackend {
       }
 
       const moduleConfig = this.createModuleConfig();
-      this.initializeModules(moduleConfig);
+      this.initializeModulesInternal(moduleConfig);
       this.renderPassMgr.initializeDepthTexture(this.ctx.canvas.width, this.ctx.canvas.height);
-
-      this.initializeDeviceRecovery(moduleConfig);
 
       return true;
     } catch (error) {
@@ -179,23 +178,8 @@ export class WebGPUBackend implements IRendererBackend {
     this.renderPassMgr.dispose();
     this.resourceMgr.dispose();
 
-    // Cancel all pending timestamp reads before destroying buffers
-    for (const buffer of this.pendingTimestampReads) {
-      try {
-        buffer.unmap();
-      } catch (e) {
-        // Buffer may not be mapped, that's ok
-      }
-    }
-    this.pendingTimestampReads.clear();
-
-    if (this.timestampQuerySet) this.timestampQuerySet.destroy();
-    if (this.timestampBuffer) this.timestampBuffer.destroy();
-    for (const buffer of this.timestampReadBuffers) buffer.destroy();
-
-    this.timestampQuerySet = null;
-    this.timestampBuffer = null;
-    this.timestampReadBuffers = [];
+    // Cleanup timestamp profiler
+    this.timestampProfiler = null;
 
     // Reset pools
     this.gpuBufferPool.clear();
@@ -252,101 +236,18 @@ export class WebGPUBackend implements IRendererBackend {
    * Submit command buffer with optional timestamp query resolution
    */
   private submitCommandBuffer(): void {
-    if (!this.ctx.device || !this.ctx.commandEncoder) return;
-
-    if (this.hasTimestampQuery && this.timestampQuerySet && this.timestampBuffer && this.timestampReadBuffers.length > 0) {
-      this.resolveAndSubmitWithTimestamps();
+    if (this.timestampProfiler?.isEnabled()) {
+      this.timestampProfiler.resolveAndSubmit();
     } else {
+      if (!this.ctx.device || !this.ctx.commandEncoder) return;
       const commandBuffer = this.ctx.commandEncoder.finish();
       this.ctx.device.queue.submit([commandBuffer]);
       this.ctx.commandEncoder = null;
-    }
-  }
-
-  /**
-   * Resolve timestamp queries and submit command buffer
-   */
-  private resolveAndSubmitWithTimestamps(): void {
-    if (!this.ctx.device || !this.ctx.commandEncoder || !this.timestampQuerySet || !this.timestampBuffer) {
-      // Fallback to simple submit if resources not available
-      if (this.ctx.device && this.ctx.commandEncoder) {
-        const commandBuffer = this.ctx.commandEncoder.finish();
-        this.ctx.device.queue.submit([commandBuffer]);
-        this.ctx.commandEncoder = null;
-      }
-      return;
-    }
-
-    this.ctx.commandEncoder.resolveQuerySet(
-      this.timestampQuerySet,
-      0,
-      2,
-      this.timestampBuffer,
-      0
-    );
-
-    const targetBuffer = this.findAvailableTimestampBuffer();
-
-    if (targetBuffer) {
-      this.ctx.commandEncoder.copyBufferToBuffer(
-        this.timestampBuffer,
-        0,
-        targetBuffer,
-        0,
-        16
-      );
-
-      const commandBuffer = this.ctx.commandEncoder.finish();
-      this.ctx.device.queue.submit([commandBuffer]);
-      this.ctx.commandEncoder = null;
-
-      this.pendingTimestampReads.add(targetBuffer);
-      this.readTimestamps(targetBuffer);
-    } else {
-      const commandBuffer = this.ctx.commandEncoder.finish();
-      this.ctx.device.queue.submit([commandBuffer]);
-      this.ctx.commandEncoder = null;
-    }
-  }
-
-  /**
-   * Find next available timestamp read buffer
-   */
-  private findAvailableTimestampBuffer(): GPUBuffer | null {
-    for (let i = 0; i < this.timestampReadBuffers.length; i++) {
-      const bufferIndex = (this.currentReadBufferIndex + i) % this.timestampReadBuffers.length;
-      const buffer = this.timestampReadBuffers[bufferIndex];
-      if (!this.pendingTimestampReads.has(buffer)) {
-        this.currentReadBufferIndex = (bufferIndex + 1) % this.timestampReadBuffers.length;
-        return buffer;
-      }
-    }
-    return null;
-  }
-
-  private async readTimestamps(buffer: GPUBuffer): Promise<void> {
-    try {
-      await buffer.mapAsync(GPUMapMode.READ);
-      const arrayBuffer = buffer.getMappedRange();
-      const timestamps = new BigUint64Array(arrayBuffer);
-      const gpuTimeNs = Number(timestamps[1] - timestamps[0]);
-      this.gpuTimeMs = gpuTimeNs / 1_000_000;
-    } catch (error) {
-      if (Math.random() < 0.01) {
-        console.warn('Timestamp read failed (expected occasionally):', error);
-      }
-    } finally {
-      try {
-        buffer.unmap();
-      } catch (e) {
-        // Buffer might not be mapped
-      }
-      this.pendingTimestampReads.delete(buffer);
     }
   }
 
   getGPUTime(): number {
-    return this.gpuTimeMs;
+    return this.timestampProfiler?.getGPUTime() ?? 0;
   }
 
   // Delegate to modules
@@ -528,12 +429,8 @@ export class WebGPUBackend implements IRendererBackend {
     this.renderPassMgr.dispose();
     this.resourceMgr.dispose();
 
-    if (this.timestampQuerySet) this.timestampQuerySet.destroy();
-    if (this.timestampBuffer) this.timestampBuffer.destroy();
-    for (const buffer of this.timestampReadBuffers) buffer.destroy();
-
-    this.timestampReadBuffers = [];
-    this.pendingTimestampReads.clear();
+    // Cleanup profiler
+    this.timestampProfiler = null;
 
     this.gpuBufferPool.clear();
     this.reflectionCache.clear();
@@ -552,82 +449,17 @@ export class WebGPUBackend implements IRendererBackend {
    * Initialize WebGPU device and canvas context
    */
   private async initializeDeviceAndContext(config: BackendConfig): Promise<boolean> {
-    // Request adapter
-    this.adapter = await navigator.gpu.requestAdapter({
-      powerPreference: (config.powerPreference ?? 'high-performance') as GPUPowerPreference,
-    });
+    const result = await initializeDeviceAndContext(this.ctx, config);
 
-    if (!this.adapter) {
-      console.error('Failed to get WebGPU adapter');
+    if (!result.success) {
       return false;
     }
 
-    // Check for timestamp-query support
-    const requiredFeatures: GPUFeatureName[] = [];
-    if (this.adapter.features.has('timestamp-query')) {
-      requiredFeatures.push('timestamp-query');
-      this.hasTimestampQuery = true;
-      console.log('WebGPU: timestamp-query feature available');
-    } else {
-      console.warn('WebGPU: timestamp-query not available, GPU timing will not be measured');
-    }
-
-    // Request device
-    this.ctx.device = await this.adapter.requestDevice({
-      requiredFeatures,
-    });
-
-    // Add WebGPU error handler
-    this.ctx.device.addEventListener('uncapturederror', (event: GPUUncapturedErrorEvent) => {
-      console.error('🚨 WebGPU Uncaptured Error:', event.error);
-      console.error('   Type:', event.error.constructor.name);
-      console.error('   Message:', event.error.message);
-      if ('lineNum' in event.error) {
-        console.error('   Line:', (event.error as any).lineNum);
-      }
-    });
-
-    // Configure canvas context
-    this.ctx.context = this.ctx.canvas!.getContext('webgpu');
-    if (!this.ctx.context) {
-      console.error('Failed to get WebGPU context');
-      return false;
-    }
-
-    this.ctx.preferredFormat = navigator.gpu.getPreferredCanvasFormat();
-
-    this.ctx.context.configure({
-      device: this.ctx.device,
-      format: this.ctx.preferredFormat,
-      alphaMode: config.alpha ? 'premultiplied' : 'opaque',
-    });
-
+    this.adapter = result.adapter;
+    this.hasTimestampQuery = result.hasTimestampQuery;
     return true;
   }
 
-  /**
-   * Initialize GPU timestamp query resources for performance profiling
-   */
-  private initializeTimestampQueries(): void {
-    if (!this.hasTimestampQuery || !this.ctx.device) return;
-
-    this.timestampQuerySet = this.ctx.device.createQuerySet({
-      type: 'timestamp',
-      count: 2,
-    });
-
-    this.timestampBuffer = this.ctx.device.createBuffer({
-      size: 16,
-      usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
-    });
-
-    for (let i = 0; i < 3; i++) {
-      this.timestampReadBuffers.push(this.ctx.device.createBuffer({
-        size: 16,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      }));
-    }
-  }
 
   /**
    * Create module configuration shared by all WebGPU modules
@@ -636,85 +468,29 @@ export class WebGPUBackend implements IRendererBackend {
     return {
       vramProfiler: this.vramProfiler,
       bufferPool: this.gpuBufferPool,
-      bindGroupPool: new BindGroupPool(this.ctx.device!),
-      recoverySystem: null, // Set after creating recovery system
+      bindGroupPool: null as any, // Will be created during module initialization
+      recoverySystem: null, // Will be set during module initialization
       reflectionParser: this.reflectionParser,
       reflectionCache: this.reflectionCache,
       enableValidation: this.config?.enableValidation ?? ENABLE_VALIDATION,
-      depthFormat: this.selectedDepthFormat, // Inject selected depth format
+      depthFormat: this.selectedDepthFormat,
     };
   }
 
   /**
-   * Initialize all WebGPU rendering modules
-   *
-   * IMPORTANT: Order matters - modernAPI must be created before commandEncoder
-   * because commandEncoder depends on modernAPI callbacks.
+   * Initialize all WebGPU rendering modules in correct dependency order
    */
-  private initializeModules(moduleConfig: ModuleConfig): void {
-    // Step 1: Resource management (no dependencies)
-    this.resourceMgr = new WebGPUResourceManager(this.ctx, moduleConfig);
+  private initializeModulesInternal(moduleConfig: ModuleConfig): void {
+    const modules = initializeModules(this.ctx, this, moduleConfig);
 
-    // Step 2: Pipeline management (depends on resourceMgr, needs depth format)
-    this.pipelineMgr = new WebGPUPipelineManager(
-      this.ctx,
-      (id) => this.resourceMgr.getShader(id),
-      moduleConfig
-    );
+    this.resourceMgr = modules.resourceMgr;
+    this.pipelineMgr = modules.pipelineMgr;
+    this.commandEncoder = modules.commandEncoder;
+    this.modernAPI = modules.modernAPI;
+    this.renderPassMgr = modules.renderPassMgr;
+    this.recoverySystem = modules.recoverySystem;
 
-    // Step 3: Modern API (depends on resourceMgr) - MUST come before commandEncoder
-    this.modernAPI = new WebGPUModernAPI(
-      this.ctx,
-      (id) => this.resourceMgr.getShader(id),
-      (id) => this.resourceMgr.getBuffer(id),
-      (id) => this.resourceMgr.getTexture(id),
-      moduleConfig
-    );
-
-    // Step 4: Command encoder (depends on resourceMgr AND modernAPI)
-    this.commandEncoder = new WebGPUCommandEncoder(
-      this.ctx,
-      (id) => this.resourceMgr.getBuffer(id),
-      (id) => this.modernAPI.getBindGroup(id), // No longer using optional chaining - modernAPI is guaranteed initialized
-      (id) => this.modernAPI.getPipeline(id),  // No longer using optional chaining - modernAPI is guaranteed initialized
-      this.stats
-    );
-
-    // Step 5: Render pass management (depends on resourceMgr, vramProfiler, needs depth format)
-    this.renderPassMgr = new WebGPURenderPassManager(
-      this.ctx,
-      (id) => this.resourceMgr.getFramebuffer(id),
-      this.vramProfiler,
-      moduleConfig
-    );
-  }
-
-  /**
-   * Initialize device recovery system for handling GPU device loss
-   */
-  private initializeDeviceRecovery(moduleConfig: ModuleConfig): void {
-    this.recoverySystem = new DeviceRecoverySystem(this, {
-      maxRetries: 3,
-      retryDelay: 1000,
-      logProgress: true
-    });
-
-    this.recoverySystem.initializeDetector(this.ctx.device!);
-
-    this.recoverySystem.onRecovery((progress) => {
-      if (progress.phase === 'detecting') {
-        console.warn(`[WebGPUBackend] Device loss detected, beginning recovery...`);
-      } else if (progress.phase === 'complete') {
-        console.log(`[WebGPUBackend] Device recovery complete - ${progress.resourcesRecreated} resources recreated`);
-        if (this.ctx.device && this.recoverySystem) {
-          this.recoverySystem.initializeDetector(this.ctx.device);
-        }
-      } else if (progress.phase === 'failed') {
-        console.error(`[WebGPUBackend] Device recovery failed:`, progress.error);
-      }
-    });
-
-    // Update module config with recovery system
+    // Update module config with recovery system for other modules to use
     moduleConfig.recoverySystem = this.recoverySystem;
   }
 
