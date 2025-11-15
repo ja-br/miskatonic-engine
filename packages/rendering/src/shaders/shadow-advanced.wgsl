@@ -455,3 +455,243 @@ fn calculatePenumbraSize(
   }
   return (receiverDistance - blockerDistance) * lightSize / blockerDistance;
 }
+
+/**
+ * Search for average blocker depth (PCSS Step 1).
+ * Uses Poisson disk sampling to find occluders in search region.
+ *
+ * Epic 3.18 Task 3.3: Contact Hardening / PCSS-Lite
+ * Retro-appropriate: Simple blocker search, no complex filtering
+ *
+ * TECHNIQUE: Since WebGPU doesn't allow non-comparison sampling of depth textures,
+ * we approximate blocker depth using comparison samples. A sample that fails the
+ * comparison indicates a blocker. We reconstruct approximate blocker depth from
+ * the receiver depth minus a reasonable offset.
+ *
+ * @param shadowAtlas Shadow atlas texture
+ * @param shadowSampler Comparison sampler
+ * @param uv Base UV coordinate in shadow space [0,1]
+ * @param receiverDepth Fragment depth in shadow space
+ * @param searchRadius Search radius in UV space
+ * @param uvBounds Atlas region bounds
+ * @returns Average blocker depth, or -1.0 if no blockers found
+ */
+fn findBlockerDepth(
+  shadowAtlas: texture_depth_2d,
+  shadowSampler: sampler_comparison,
+  uv: vec2<f32>,
+  receiverDepth: f32,
+  searchRadius: f32,
+  uvBounds: vec4<f32>
+) -> f32 {
+  var blockerCount: f32 = 0.0;
+
+  // Use 16-sample Poisson disk for blocker search (retro-lite approach)
+  for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+    let offset = POISSON_DISK_16[i] * searchRadius;
+    let sampleUV = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
+
+    // Map to atlas region
+    let atlasUV = vec2<f32>(
+      mix(uvBounds.x, uvBounds.z, sampleUV.x),
+      mix(uvBounds.y, uvBounds.w, sampleUV.y)
+    );
+
+    // Use comparison sample: 0.0 = blocker, 1.0 = no blocker
+    let shadowResult = textureSampleCompare(shadowAtlas, shadowSampler, atlasUV, receiverDepth);
+
+    // Count blockers (inverted: 0.0 means shadowed/blocked)
+    if (shadowResult < 0.5) {
+      blockerCount += 1.0;
+    }
+  }
+
+  // No blockers found - fully lit
+  if (blockerCount < 0.5) {
+    return -1.0;
+  }
+
+  // Approximate blocker depth as proportional to blocker percentage
+  // More blockers = closer average blocker depth
+  let blockerRatio = blockerCount / 16.0;
+  // Assume blockers are approximately halfway between light and receiver
+  return receiverDepth * 0.5 * blockerRatio;
+}
+
+/**
+ * Sample spot light shadow with contact hardening (PCSS-Lite).
+ *
+ * Epic 3.18 Task 3.3: Contact Hardening
+ * Variable penumbra based on blocker distance for natural soft shadows.
+ *
+ * Retro-appropriate simplifications:
+ * - 16 samples for blocker search (not 32)
+ * - Simple penumbra calculation (no advanced PCSS tricks)
+ * - Approximated blocker depth (no separate depth sampler needed)
+ *
+ * @param shadowAtlas Shadow atlas texture
+ * @param shadowSampler Comparison sampler
+ * @param spotShadow Spot light shadow data
+ * @param fragWorldPos Fragment position in world space
+ * @param lightSize Light source size (affects penumbra)
+ * @param bias Shadow bias
+ * @param searchRadius Blocker search radius (world space)
+ * @returns Shadow factor (0.0 = fully shadowed, 1.0 = fully lit)
+ */
+fn sampleSpotShadowContactHardening(
+  shadowAtlas: texture_depth_2d,
+  shadowSampler: sampler_comparison,
+  spotShadow: SpotShadowData,
+  fragWorldPos: vec3<f32>,
+  lightSize: f32,
+  bias: f32,
+  searchRadius: f32
+) -> f32 {
+  // Transform to light clip space
+  let clipPos = spotShadow.viewProjectionMatrix * vec4<f32>(fragWorldPos, 1.0);
+  let ndcPos = clipPos.xyz / clipPos.w;
+
+  // Check frustum bounds
+  if (ndcPos.x < -1.0 || ndcPos.x > 1.0 ||
+      ndcPos.y < -1.0 || ndcPos.y > 1.0 ||
+      ndcPos.z < 0.0 || ndcPos.z > 1.0) {
+    return 1.0; // Outside shadow frustum
+  }
+
+  let uv = ndcPos.xy * 0.5 + 0.5;
+  let uvBounds = spotShadow.uvBounds;
+
+  // Validate atlas allocation
+  let boundsWidth = uvBounds.z - uvBounds.x;
+  let boundsHeight = uvBounds.w - uvBounds.y;
+  if (boundsWidth <= 0.0 || boundsHeight <= 0.0) {
+    return 1.0; // Allocation failed
+  }
+
+  let receiverDepth = ndcPos.z - bias;
+  let receiverDistance = length(fragWorldPos - spotShadow.position);
+
+  // PCSS Step 1: Find average blocker depth
+  let shadowMapResolution = boundsWidth * 2048.0;
+  let uvSearchRadius = searchRadius / shadowMapResolution;
+
+  let avgBlockerDepth = findBlockerDepth(
+    shadowAtlas,
+    uv,
+    receiverDepth,
+    uvSearchRadius,
+    uvBounds
+  );
+
+  // No blockers - fully lit
+  if (avgBlockerDepth < 0.0) {
+    return 1.0;
+  }
+
+  // PCSS Step 2: Calculate penumbra size
+  let blockerDistance = avgBlockerDepth * receiverDistance; // Approximate world-space blocker distance
+  let penumbraSize = calculatePenumbraSize(lightSize, receiverDistance, blockerDistance);
+
+  // PCSS Step 3: Variable-sized PCF based on penumbra
+  let filterRadius = max(penumbraSize / shadowMapResolution, 1.0); // Minimum 1 texel
+  let uvFilterRadius = filterRadius / shadowMapResolution;
+
+  // Poisson disk PCF with variable radius
+  var shadowSum: f32 = 0.0;
+  for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+    let offset = POISSON_DISK_16[i] * uvFilterRadius;
+    let sampleUV = clamp(uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
+    let atlasUV = vec2<f32>(
+      mix(uvBounds.x, uvBounds.z, sampleUV.x),
+      mix(uvBounds.y, uvBounds.w, sampleUV.y)
+    );
+    shadowSum += textureSampleCompare(shadowAtlas, shadowSampler, atlasUV, receiverDepth);
+  }
+
+  return shadowSum / 16.0;
+}
+
+/**
+ * Sample point light shadow with contact hardening (PCSS-Lite for cubemaps).
+ *
+ * Epic 3.18 Task 3.3: Contact Hardening for point lights
+ *
+ * @param shadowAtlas Shadow atlas texture
+ * @param shadowSampler Comparison sampler
+ * @param pointShadow Point light shadow data
+ * @param fragWorldPos Fragment position in world space
+ * @param lightSize Light source radius
+ * @param bias Shadow bias
+ * @param searchRadius Blocker search radius (world space)
+ * @returns Shadow factor (0.0 = fully shadowed, 1.0 = fully lit)
+ */
+fn samplePointShadowContactHardening(
+  shadowAtlas: texture_depth_2d,
+  shadowSampler: sampler_comparison,
+  pointShadow: PointShadowData,
+  fragWorldPos: vec3<f32>,
+  lightSize: f32,
+  bias: f32,
+  searchRadius: f32
+) -> f32 {
+  // Direction from light to fragment
+  let direction = fragWorldPos - pointShadow.position;
+  let distance = length(direction);
+
+  if (distance > pointShadow.range) {
+    return 1.0;
+  }
+
+  // Select cubemap face
+  let faceData = selectCubeFace(direction);
+  let faceIndex = u32(faceData.x);
+  let faceUV = faceData.yz;
+  let uvBounds = pointShadow.faceRegions[faceIndex];
+
+  // Validate atlas allocation
+  let boundsWidth = uvBounds.z - uvBounds.x;
+  let boundsHeight = uvBounds.w - uvBounds.y;
+  if (boundsWidth <= 0.0 || boundsHeight <= 0.0) {
+    return 1.0;
+  }
+
+  let receiverDepth = (distance - bias) / pointShadow.range;
+
+  // PCSS Step 1: Find blockers
+  let faceResolution = boundsWidth * 2048.0;
+  let uvSearchRadius = searchRadius / faceResolution;
+
+  let avgBlockerDepth = findBlockerDepth(
+    shadowAtlas,
+    faceUV,
+    receiverDepth,
+    uvSearchRadius,
+    uvBounds
+  );
+
+  // No blockers - fully lit
+  if (avgBlockerDepth < 0.0) {
+    return 1.0;
+  }
+
+  // PCSS Step 2: Calculate penumbra
+  let blockerDistance = avgBlockerDepth * distance;
+  let penumbraSize = calculatePenumbraSize(lightSize, distance, blockerDistance);
+
+  // PCSS Step 3: Variable PCF
+  let filterRadius = max(penumbraSize / faceResolution, 1.0);
+  let uvFilterRadius = filterRadius / faceResolution;
+
+  var shadowSum: f32 = 0.0;
+  for (var i: u32 = 0u; i < 16u; i = i + 1u) {
+    let offset = POISSON_DISK_16[i] * uvFilterRadius;
+    let sampleUV = clamp(faceUV + offset, vec2<f32>(0.0), vec2<f32>(1.0));
+    let atlasUV = vec2<f32>(
+      mix(uvBounds.x, uvBounds.z, sampleUV.x),
+      mix(uvBounds.y, uvBounds.w, sampleUV.y)
+    );
+    shadowSum += textureSampleCompare(shadowAtlas, shadowSampler, atlasUV, receiverDepth);
+  }
+
+  return shadowSum / 16.0;
+}
