@@ -140,7 +140,7 @@ export class Material {
         vertexLayouts: [vertexLayout],
         pipelineState,
         colorFormat: 'bgra8unorm',
-        depthFormat: 'depth24plus',
+        depthFormat: this.renderer.backend.getDepthFormat(),
       });
 
       // Load textures

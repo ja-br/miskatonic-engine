@@ -111,6 +111,8 @@ export interface BackendConfig {
   depth?: boolean;
   stencil?: boolean;
   powerPreference?: 'default' | 'high-performance' | 'low-power';
+  /** Depth buffer format (defaults to depth16unorm for 50% VRAM savings) */
+  depthFormat?: 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8';
 }
 
 /**
@@ -136,7 +138,7 @@ export interface RenderPipelineDescriptor {
   bindGroupLayouts: BackendBindGroupLayoutHandle[];
   pipelineState: PipelineStateDescriptor;
   colorFormat: 'bgra8unorm' | 'rgba8unorm';
-  depthFormat?: 'depth24plus' | 'depth24plus-stencil8';
+  depthFormat?: 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8';
 }
 
 /**
@@ -244,6 +246,11 @@ export interface IRendererBackend {
    * Get VRAM profiler (for debugging)
    */
   getVRAMProfiler(): VRAMProfiler;
+
+  /**
+   * Get current depth format used by this backend
+   */
+  getDepthFormat(): GPUTextureFormat;
 
   // Resource Management
 

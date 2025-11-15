@@ -82,6 +82,7 @@ export class WebGPUBackend implements IRendererBackend {
   private adapter: GPUAdapter | null = null;
   private config: BackendConfig | null = null;
   private stats: RenderStats = this.createEmptyStats();
+  private selectedDepthFormat: GPUTextureFormat = 'depth16unorm'; // Default to optimized format
 
   // GPU timestamp queries for measuring actual GPU execution time
   private timestampQuerySet: GPUQuerySet | null = null;
@@ -109,6 +110,15 @@ export class WebGPUBackend implements IRendererBackend {
     try {
       if (!await this.initializeDeviceAndContext(config)) {
         return false;
+      }
+
+      // Select depth format (optimize for VRAM by default)
+      if (config.depthFormat) {
+        this.selectedDepthFormat = config.depthFormat;
+        console.log(`[WebGPUBackend] Using user-requested depth format: ${this.selectedDepthFormat}`);
+      } else {
+        this.selectedDepthFormat = 'depth16unorm'; // 50% VRAM savings vs depth24plus
+        console.log(`[WebGPUBackend] Using optimized depth format: ${this.selectedDepthFormat} (50% VRAM savings)`);
       }
 
       try {
@@ -631,6 +641,7 @@ export class WebGPUBackend implements IRendererBackend {
       reflectionParser: this.reflectionParser,
       reflectionCache: this.reflectionCache,
       enableValidation: false, // TODO: Add debug flag to BackendConfig
+      depthFormat: this.selectedDepthFormat, // Inject selected depth format
     };
   }
 
@@ -644,8 +655,12 @@ export class WebGPUBackend implements IRendererBackend {
     // Step 1: Resource management (no dependencies)
     this.resourceMgr = new WebGPUResourceManager(this.ctx, moduleConfig);
 
-    // Step 2: Pipeline management (depends on resourceMgr)
-    this.pipelineMgr = new WebGPUPipelineManager(this.ctx, (id) => this.resourceMgr.getShader(id));
+    // Step 2: Pipeline management (depends on resourceMgr, needs depth format)
+    this.pipelineMgr = new WebGPUPipelineManager(
+      this.ctx,
+      (id) => this.resourceMgr.getShader(id),
+      moduleConfig
+    );
 
     // Step 3: Modern API (depends on resourceMgr) - MUST come before commandEncoder
     this.modernAPI = new WebGPUModernAPI(
@@ -665,11 +680,12 @@ export class WebGPUBackend implements IRendererBackend {
       this.stats
     );
 
-    // Step 5: Render pass management (depends on resourceMgr, vramProfiler)
+    // Step 5: Render pass management (depends on resourceMgr, vramProfiler, needs depth format)
     this.renderPassMgr = new WebGPURenderPassManager(
       this.ctx,
       (id) => this.resourceMgr.getFramebuffer(id),
-      this.vramProfiler
+      this.vramProfiler,
+      moduleConfig
     );
   }
 
@@ -713,6 +729,10 @@ export class WebGPUBackend implements IRendererBackend {
       stateChanges: 0,
       frameTime: 0,
     };
+  }
+
+  getDepthFormat(): GPUTextureFormat {
+    return this.selectedDepthFormat;
   }
 
   getDevice(): GPUDevice {

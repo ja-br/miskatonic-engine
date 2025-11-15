@@ -4,7 +4,7 @@
  */
 
 import type { VertexLayout } from '../../types.js';
-import type { WebGPUContext, WebGPUShader } from './WebGPUTypes.js';
+import type { WebGPUContext, WebGPUShader, ModuleConfig } from './WebGPUTypes.js';
 import { WebGPUErrors } from './WebGPUTypes.js';
 
 interface PipelineCacheEntry {
@@ -14,11 +14,15 @@ interface PipelineCacheEntry {
 
 export class WebGPUPipelineManager {
   private pipelineCache = new Map<string, PipelineCacheEntry>();
+  private depthFormat: GPUTextureFormat;
 
   constructor(
     private ctx: WebGPUContext,
-    private getShader: (id: string) => WebGPUShader | undefined
-  ) {}
+    private getShader: (id: string) => WebGPUShader | undefined,
+    config: ModuleConfig
+  ) {
+    this.depthFormat = config.depthFormat;
+  }
 
   /**
    * Get or create cached pipeline for shader + vertex layout combination
@@ -84,7 +88,7 @@ export class WebGPUPipelineManager {
         cullMode: 'back',
       },
       depthStencil: {
-        format: 'depth24plus',
+        format: this.depthFormat,
         depthWriteEnabled: true,
         depthCompare: 'less',
       },

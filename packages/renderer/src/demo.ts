@@ -287,7 +287,7 @@ export class Demo {
       bindGroupLayouts: [this.bindGroupLayout],
       pipelineState: OPAQUE_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
-      depthFormat: 'depth24plus',
+      depthFormat: this.backend.getDepthFormat(),
     });
 
     this.spherePipeline = this.backend.createRenderPipeline({
@@ -304,7 +304,7 @@ export class Demo {
       bindGroupLayouts: [this.bindGroupLayout],
       pipelineState: OPAQUE_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
-      depthFormat: 'depth24plus',
+      depthFormat: this.backend.getDepthFormat(),
     });
 
     // Create instanced render pipelines
@@ -339,7 +339,7 @@ export class Demo {
       bindGroupLayouts: [this.bindGroupLayout],
       pipelineState: OPAQUE_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
-      depthFormat: 'depth24plus',
+      depthFormat: this.backend.getDepthFormat(),
     });
 
     this.spherePipelineInstanced = this.backend.createRenderPipeline({
@@ -371,7 +371,7 @@ export class Demo {
       bindGroupLayouts: [this.bindGroupLayout],
       pipelineState: OPAQUE_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
-      depthFormat: 'depth24plus',
+      depthFormat: this.backend.getDepthFormat(),
     });
 
     console.log('Render pipelines created successfully (both standard and instanced)');

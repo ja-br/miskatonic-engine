@@ -178,8 +178,17 @@ export const MAX_TEXTURE_MIP_LEVELS = 14;
 /** Default texture format for color targets */
 export const DEFAULT_COLOR_FORMAT: GPUTextureFormat = 'bgra8unorm';
 
-/** Default depth format */
+/**
+ * Default depth format (4 bytes/pixel, 24-bit precision)
+ * Consider OPTIMIZED_DEPTH_FORMAT for 50% VRAM savings
+ */
 export const DEFAULT_DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
+
+/**
+ * Memory-optimized depth format (2 bytes/pixel, 16-bit precision)
+ * 50% less VRAM than depth24plus
+ */
+export const OPTIMIZED_DEPTH_FORMAT: GPUTextureFormat = 'depth16unorm';
 
 /** Texture atlas default size */
 export const DEFAULT_ATLAS_SIZE = 2048;

@@ -3,7 +3,7 @@
  * Manages render pass lifecycle, frame management
  */
 
-import type { WebGPUContext, WebGPUFramebuffer } from './WebGPUTypes.js';
+import type { WebGPUContext, WebGPUFramebuffer, ModuleConfig } from './WebGPUTypes.js';
 import { WebGPUErrors } from './WebGPUTypes.js';
 import type { BackendFramebufferHandle } from '../IRendererBackend.js';
 import type { VRAMProfiler } from '../../VRAMProfiler.js';
@@ -12,12 +12,31 @@ import { VRAMCategory } from '../../VRAMProfiler.js';
 export class WebGPURenderPassManager {
   private depthTexture: GPUTexture | null = null;
   private depthTextureSize = 0;
+  private depthFormat: GPUTextureFormat;
 
   constructor(
     private ctx: WebGPUContext,
     private getFramebuffer: (id: string) => WebGPUFramebuffer | undefined,
-    private vramProfiler: VRAMProfiler
-  ) {}
+    private vramProfiler: VRAMProfiler,
+    config: ModuleConfig
+  ) {
+    this.depthFormat = config.depthFormat;
+  }
+
+  /**
+   * Get bytes per pixel for depth format
+   */
+  private getDepthFormatBytes(): number {
+    switch (this.depthFormat) {
+      case 'depth16unorm':
+        return 2;
+      case 'depth24plus':
+      case 'depth24plus-stencil8':
+        return 4;
+      default:
+        return 4; // Fallback
+    }
+  }
 
   /**
    * Begin render pass - extracted from WebGPUBackend.ts lines 560-582
@@ -101,14 +120,15 @@ export class WebGPURenderPassManager {
       this.depthTexture.destroy();
     }
 
-    const newSize = width * height * 4; // depth24plus is 4 bytes per pixel
+    const bytesPerPixel = this.getDepthFormatBytes();
+    const newSize = width * height * bytesPerPixel;
     const depthCategory = VRAMCategory.TEXTURES;
     this.vramProfiler.allocate('depth-texture', depthCategory, newSize);
     this.depthTextureSize = newSize;
 
     this.depthTexture = this.ctx.device.createTexture({
       size: { width, height },
-      format: 'depth24plus',
+      format: this.depthFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
   }
@@ -126,14 +146,15 @@ export class WebGPURenderPassManager {
   initializeDepthTexture(width: number, height: number): void {
     if (!this.ctx.device) return;
 
-    const size = width * height * 4; // depth24plus is 4 bytes per pixel
+    const bytesPerPixel = this.getDepthFormatBytes();
+    const size = width * height * bytesPerPixel;
     const depthCategory = VRAMCategory.TEXTURES;
     this.vramProfiler.allocate('depth-texture', depthCategory, size);
     this.depthTextureSize = size;
 
     this.depthTexture = this.ctx.device.createTexture({
       size: { width, height },
-      format: 'depth24plus',
+      format: this.depthFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
   }

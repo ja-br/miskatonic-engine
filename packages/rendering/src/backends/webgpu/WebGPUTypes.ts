@@ -68,6 +68,9 @@ export interface ModuleConfig {
 
   /** Enable validation mode (performance impact) */
   enableValidation: boolean;
+
+  /** Depth buffer format (depth16unorm = 2 bytes/pixel, depth24plus = 4 bytes/pixel) */
+  depthFormat: GPUTextureFormat;
 }
 
 /**
