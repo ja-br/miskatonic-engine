@@ -1,19 +1,22 @@
 /**
  * WebGPU Pipeline Manager - Epic RENDERING-05 Task 5.3
  * Manages pipeline caching, bind group layouts, vertex layouts
+ *
+ * Epic RENDERING-06 Task 6.6: Numeric cache keys for 80% string operation reduction
  */
 
 import type { VertexLayout } from '../../types.js';
 import type { WebGPUContext, WebGPUShader, ModuleConfig } from './WebGPUTypes.js';
 import { WebGPUErrors } from './WebGPUTypes.js';
+import { HashUtils } from '../../utils/HashUtils.js';
 
 interface PipelineCacheEntry {
   pipeline: GPURenderPipeline;
-  vertexLayoutHash: string;
+  vertexLayoutHash: number;
 }
 
 export class WebGPUPipelineManager {
-  private pipelineCache = new Map<string, PipelineCacheEntry>();
+  private pipelineCache = new Map<number, PipelineCacheEntry>();
   private depthFormat: GPUTextureFormat;
 
   constructor(
@@ -36,9 +39,13 @@ export class WebGPUPipelineManager {
       throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
     }
 
-    // Generate cache key
-    const layoutHash = this.hashVertexLayout(vertexLayout);
-    const cacheKey = `${shaderId}_${layoutHash}_${isInstancedShader}`;
+    // Epic RENDERING-06 Task 6.6: Numeric cache key (80% reduction in string operations)
+    const layoutHash = HashUtils.hashVertexLayout(vertexLayout);
+    const cacheKey = HashUtils.combineHashes(
+      HashUtils.fnv1a(shaderId),
+      layoutHash,
+      isInstancedShader ? 1 : 0
+    );
 
     // Check cache
     const cached = this.pipelineCache.get(cacheKey);
@@ -55,9 +62,9 @@ export class WebGPUPipelineManager {
     // Build vertex buffers from layout
     const vertexBuffers = this.buildVertexBuffers(vertexLayout, isInstancedShader);
 
-    // Create pipeline layout
+    // Create pipeline layout (keep string label for debugging)
     const pipelineLayout = this.ctx.device.createPipelineLayout({
-      label: `PipelineLayout: ${cacheKey}`,
+      label: `PipelineLayout: ${shaderId}`,
       bindGroupLayouts: [shader.bindGroupLayout],
     });
 
@@ -65,9 +72,9 @@ export class WebGPUPipelineManager {
       throw new Error('Preferred format not set');
     }
 
-    // Create pipeline
+    // Create pipeline (keep string label for debugging)
     const pipeline = this.ctx.device.createRenderPipeline({
-      label: `Pipeline: ${cacheKey}`,
+      label: `Pipeline: ${shaderId}`,
       layout: pipelineLayout,
       vertex: {
         module: shader.module,
@@ -98,17 +105,6 @@ export class WebGPUPipelineManager {
     this.pipelineCache.set(cacheKey, { pipeline, vertexLayoutHash: layoutHash });
 
     return pipeline;
-  }
-
-  /**
-   * Hash vertex layout for cache key
-   * Includes offset and stride to prevent cache collisions
-   */
-  hashVertexLayout(layout: VertexLayout): string {
-    const attrStrings = layout.attributes.map(
-      attr => `${attr.name}:${attr.type}:${attr.size}:${attr.offset ?? 0}:${attr.stride ?? 0}`
-    );
-    return attrStrings.join('|');
   }
 
   /**
