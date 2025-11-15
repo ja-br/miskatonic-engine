@@ -5,6 +5,11 @@
  * Culls thousands of lights efficiently on GPU.
  */
 
+import {
+  LIGHT_CULLING_TILE_SIZE,
+  MAX_LIGHTS_PER_TILE,
+  MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT,
+} from '../constants/RenderingConstants.js';
 import type { LightData } from '../LightCollection';
 import { TileGrid } from './TileGrid';
 import type { Plane } from './Frustum';
@@ -86,12 +91,12 @@ export class GPULightCuller {
 
   constructor(config: GPUCullingConfig) {
     this.device = config.device;
-    this.maxLightsPerTile = config.maxLightsPerTile ?? 256;
+    this.maxLightsPerTile = config.maxLightsPerTile ?? MAX_LIGHTS_PER_TILE;
 
     this.tileGrid = new TileGrid({
       screenWidth: config.screenWidth,
       screenHeight: config.screenHeight,
-      tileSize: config.tileSize ?? 16,
+      tileSize: config.tileSize ?? LIGHT_CULLING_TILE_SIZE,
     });
 
     this.initializeComputePipeline();
@@ -327,10 +332,9 @@ export class GPULightCuller {
     this.bindGroup = undefined;
 
     // Light buffer: array of Light structs (64 bytes each)
-    // Align to 256 bytes for storage buffer requirements
-    const minAlignment = 256;
+    // Align to storage buffer offset requirements (WebGPU spec)
     const rawLightSize = Math.max(lightCount * 64, 64);
-    const lightBufferSize = Math.ceil(rawLightSize / minAlignment) * minAlignment;
+    const lightBufferSize = Math.ceil(rawLightSize / MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT) * MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT;
     this.lightBuffer = this.device.createBuffer({
       label: 'Light Buffer',
       size: lightBufferSize,
