@@ -191,6 +191,9 @@ export {
 // Import from '@miskatonic/rendering/highlevel' for the simplified API
 export * as highlevel from './highlevel';
 
+// Epic RENDERING-06: Builder patterns for ergonomic API
+export { VertexLayoutBuilder } from './builders/VertexLayoutBuilder';
+
 // Types and enums
 export {
   // Enums
