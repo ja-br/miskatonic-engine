@@ -296,27 +296,72 @@ const directionalLights = lightSystem.getDirectionalLights();
 - Zero type safety violations
 - <5% overhead vs direct WebGPU
 
-### 📋 Epic 3.4: Advanced Rendering Features
+### 📋 Epic 3.4: Retro Rendering Pipeline
 **Priority:** P1
-**Dependencies:** Epic 3.15 (3.14 now complete)
+**Dependencies:** Epic 3.15 ✅, Epic 3.14 ✅
+**Aesthetic:** PlayStation 2 / Early 2000s / Lo-Fi / Demake Style
 
-**Acceptance Criteria:**
-- Post-processing pipeline complete
-- LOD system working
-- Screen-space effects (SSAO, SSR)
-- Temporal anti-aliasing
-- Quality preset system
+**Philosophy:** Authentically retro visuals using period-appropriate techniques. No modern AAA features (SSAO, SSR, TAA). Embrace limitations as artistic choices.
 
-### 📋 Epic 3.5: Culling & Optimization
-**Priority:** P1  
+**Post-Processing (Retro):**
+- [ ] Simple additive bloom (low-res buffer → bilinear upsample)
+- [ ] Basic tone mapping (simple Reinhard or clamping, no HDR thresholds)
+- [ ] Single-LUT color grading (256x16 texture lookup)
+- [ ] Ordered dither patterns for color/alpha blending (Bayer matrix)
+- [ ] Noise/grain overlay for film aesthetic
+
+**Lighting (Retro):**
+- [ ] Vertex-painted ambient lighting (baked per-vertex colors)
+- [ ] Simple lightmaps (baked ambient occlusion/GI, 128x128 max)
+- [ ] Distance fog (linear/exponential falloff)
+- [ ] Contrast fog (depth-based desaturation)
+- [ ] Unlit emissive materials for neon signs/UI
+- [ ] Specular highlights via simple cube map (not real-time SSR)
+
+**LOD System (Retro):**
+- [ ] Dithered crossfade LOD transitions (alpha-to-coverage or stipple patterns)
+- [ ] Distance-based switching (2-3 LOD levels max)
+- [ ] No smooth mesh morphing, no temporal blending
+
+**Textures & Materials:**
+- [ ] 256px maximum texture resolution constraint
+- [ ] Point filtering / nearest-neighbor sampling option
+- [ ] Texture dithering for smooth gradients (avoid banding)
+- [ ] Separate retro/unlit shader variants (not PBR extension)
+
+**Quality Preset System:**
+- [ ] Low/Medium/High presets for dither density, bloom resolution, fog distance
+- [ ] Optional toggles: bloom, dither, grain, point filtering
+
+**Deferred:**
+- CRT filter / scanlines / phosphor glow (separate epic)
+- Low-pass filter / blur (separate epic)
+
+**Estimated Effort:** 2-3 weeks
+
+---
+
+### 📋 Epic 3.5: Lightweight Culling
+**Priority:** P1
 **Dependencies:** Epic 3.1-3.3 ✅
+**Philosophy:** Retro aesthetics with modern lightweight performance
 
-**Acceptance Criteria:**
-- Frustum culling with SIMD
-- GPU-based occlusion culling
-- Octree/BVH spatial structures
-- Visibility buffer optimization
-- LOD-based culling
+**CPU-Side Culling:**
+- [ ] Frustum culling (CPU-side, no SIMD required for retro scene complexity)
+- [ ] Simple spatial structure (loose octree or uniform grid)
+- [ ] Manual occluder volumes for large buildings/terrain
+- [ ] Lightweight software occlusion test (huge objects only, e.g., mountains)
+
+**Removed (Not Retro-Appropriate):**
+- ❌ GPU-based occlusion queries (too modern, too complex)
+- ❌ Complex BVH structures (overkill for retro scene density)
+- ❌ Visibility buffer optimization (modern deferred technique)
+
+**Performance Target:**
+- 1000-2000 objects with simple culling @ 60 FPS
+- CPU culling budget: <2ms per frame
+
+**Estimated Effort:** 2 weeks
 
 ### 📋 Epic 3.6: Advanced Material Features
 **Priority:** P2  
