@@ -1098,12 +1098,13 @@ export class Demo {
       // Estimate GPU execution time (frame time - CPU time)
       const gpuExec = Math.max(0, avgFrameTime - totalCpu);
 
-      // Get instance buffer pool statistics
-      const poolStats = this.instanceBufferManager.getPoolStats();
-      const resourcePoolStats = poolStats.reduce((acc, bucket) => ({
-        poolSize: acc.poolSize + bucket.count,
-        used: acc.used + bucket.count // All pooled buffers are actively used
-      }), { poolSize: 0, used: 0 });
+      // Get instance buffer statistics (cube + sphere buffers)
+      const cubeBuffersUsed = this.cubeInstanceBuffers.filter(b => b.getCount() > 0).length;
+      const sphereBuffersUsed = this.sphereInstanceBuffers.filter(b => b.getCount() > 0).length;
+      const resourcePoolStats = {
+        poolSize: this.cubeInstanceBuffers.length + this.sphereInstanceBuffers.length,
+        used: cubeBuffersUsed + sphereBuffersUsed
+      };
 
       this.updateStats(
         fps,
