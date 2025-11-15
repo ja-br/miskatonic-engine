@@ -908,6 +908,9 @@ export class Demo {
     // Epic 3.14: Begin frame
     this.backend.beginFrame();
 
+    // Begin render pass with clear color
+    this.backend.beginRenderPass(null, [0.05, 0.05, 0.08, 1.0], 1.0, 0, 'Main Render Pass');
+
     // Helper function to get die color based on number of sides
     const getDieColor = (sides: number): [number, number, number] => {
       switch (sides) {
