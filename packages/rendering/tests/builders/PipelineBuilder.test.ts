@@ -24,8 +24,8 @@ describe('PipelineBuilder', () => {
       expect(descriptor.shader).toBe(mockShader);
       expect(descriptor.vertexLayouts).toHaveLength(1);
       expect(descriptor.colorFormat).toBe('bgra8unorm');
-      expect(descriptor.pipelineState.cullMode).toBe('back');
-      expect(descriptor.pipelineState.blend.enabled).toBe(false);
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('back');
+      expect(descriptor.pipelineState.blend?.enabled).toBe(false);
     });
 
     it('should allow setting label', () => {
@@ -41,8 +41,8 @@ describe('PipelineBuilder', () => {
     });
 
     it('should allow multiple vertex layouts', () => {
-      const layout1 = VertexLayoutBuilder.Simple().build();
-      const layout2 = VertexLayoutBuilder.Colored().setStepMode('instance').build();
+      const layout1 = VertexLayoutBuilder.Simple(0).build(); // locations 0-1
+      const layout2 = VertexLayoutBuilder.Colored(2).setStepMode('instance').build(); // locations 2-3
 
       const descriptor = new PipelineBuilder()
         .shader(mockShader)
@@ -104,9 +104,8 @@ describe('PipelineBuilder', () => {
         .buildDescriptor();
 
       expect(descriptor.depthFormat).toBe('depth24plus');
-      expect(descriptor.pipelineState.depthTest).toBe(true);
-      expect(descriptor.pipelineState.depthWrite).toBe(true);
-      expect(descriptor.pipelineState.depthCompare).toBe('less');
+      expect(descriptor.pipelineState.depthStencil?.depthWriteEnabled).toBe(true);
+      expect(descriptor.pipelineState.depthStencil?.depthCompare).toBe('less');
     });
 
     it('should default to depth16unorm', () => {
@@ -142,7 +141,7 @@ describe('PipelineBuilder', () => {
         .depthStencil('depth16unorm', false)
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.depthWrite).toBe(false);
+      expect(descriptor.pipelineState.depthStencil?.depthWriteEnabled).toBe(false);
     });
 
     it('should support different depth compare functions', () => {
@@ -154,7 +153,7 @@ describe('PipelineBuilder', () => {
         .depthStencil('depth16unorm', true, 'greater')
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.depthCompare).toBe('greater');
+      expect(descriptor.pipelineState.depthStencil?.depthCompare).toBe('greater');
     });
   });
 
@@ -224,7 +223,7 @@ describe('PipelineBuilder', () => {
         .buildDescriptor();
 
       // Topology is part of pipeline state in our abstraction
-      expect(descriptor.pipelineState.cullMode).toBeDefined();
+      expect(descriptor.pipelineState.topology).toBe('triangle-list');
     });
 
     it('should allow line-list topology', () => {
@@ -260,7 +259,7 @@ describe('PipelineBuilder', () => {
         .vertexLayout(vertexLayout)
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.cullMode).toBe('back');
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('back');
     });
 
     it('should allow front culling', () => {
@@ -272,7 +271,7 @@ describe('PipelineBuilder', () => {
         .cullMode('front')
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.cullMode).toBe('front');
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('front');
     });
 
     it('should allow no culling', () => {
@@ -284,7 +283,7 @@ describe('PipelineBuilder', () => {
         .cullMode('none')
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.cullMode).toBe('none');
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('none');
     });
   });
 
@@ -295,9 +294,9 @@ describe('PipelineBuilder', () => {
       const descriptor = PipelineBuilder.Opaque(mockShader, vertexLayout)
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.blend.enabled).toBe(false);
-      expect(descriptor.pipelineState.cullMode).toBe('back');
-      expect(descriptor.pipelineState.depthWrite).toBe(true);
+      expect(descriptor.pipelineState.blend?.enabled).toBe(false);
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('back');
+      expect(descriptor.pipelineState.depthStencil?.depthWriteEnabled).toBe(true);
       expect(descriptor.depthFormat).toBe('depth16unorm');
     });
 
@@ -307,10 +306,10 @@ describe('PipelineBuilder', () => {
       const descriptor = PipelineBuilder.Transparent(mockShader, vertexLayout)
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.blend.enabled).toBe(true);
-      expect(descriptor.pipelineState.blend.srcFactor).toBe('src-alpha');
-      expect(descriptor.pipelineState.cullMode).toBe('none');
-      expect(descriptor.pipelineState.depthWrite).toBe(false);
+      expect(descriptor.pipelineState.blend?.enabled).toBe(true);
+      expect(descriptor.pipelineState.blend?.srcFactor).toBe('src-alpha');
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('none');
+      expect(descriptor.pipelineState.depthStencil?.depthWriteEnabled).toBe(false);
     });
 
     it('should create Additive preset', () => {
@@ -319,10 +318,10 @@ describe('PipelineBuilder', () => {
       const descriptor = PipelineBuilder.Additive(mockShader, vertexLayout)
         .buildDescriptor();
 
-      expect(descriptor.pipelineState.blend.enabled).toBe(true);
-      expect(descriptor.pipelineState.blend.srcFactor).toBe('one');
-      expect(descriptor.pipelineState.blend.dstFactor).toBe('one');
-      expect(descriptor.pipelineState.depthWrite).toBe(false);
+      expect(descriptor.pipelineState.blend?.enabled).toBe(true);
+      expect(descriptor.pipelineState.blend?.srcFactor).toBe('one');
+      expect(descriptor.pipelineState.blend?.dstFactor).toBe('one');
+      expect(descriptor.pipelineState.depthStencil?.depthWriteEnabled).toBe(false);
     });
 
     it('should create Wireframe preset', () => {
@@ -384,6 +383,131 @@ describe('PipelineBuilder', () => {
 
       warnSpy.mockRestore();
     });
+
+    it('should throw error for transparent blend with depth write enabled', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .blend('transparent')
+          .depthStencil('depth16unorm', true) // depth write enabled
+          .buildDescriptor();
+      }).toThrow('sorting artifacts');
+    });
+
+    it('should allow transparent blend with depth write disabled', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .blend('transparent')
+          .depthStencil('depth16unorm', false) // depth write disabled
+          .buildDescriptor();
+      }).not.toThrow();
+    });
+
+    it('should allow opaque blend with depth write enabled', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .blend('opaque')
+          .depthStencil('depth16unorm', true)
+          .buildDescriptor();
+      }).not.toThrow();
+    });
+
+    it('should detect duplicate shader locations across multiple layouts', () => {
+      const layout1 = VertexLayoutBuilder.Simple(0).build(); // locations 0-1
+      const layout2 = VertexLayoutBuilder.PBR(0).build(); // locations 0-3 (overlap!)
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(layout1)
+          .vertexLayout(layout2)
+          .buildDescriptor();
+      }).toThrow('Duplicate shader location 0');
+    });
+
+    it('should allow non-overlapping shader locations across layouts', () => {
+      const layout1 = VertexLayoutBuilder.Simple(0).build(); // locations 0-1
+      const layout2 = VertexLayoutBuilder.Colored(2).build(); // locations 2-3 (no overlap)
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(layout1)
+          .vertexLayout(layout2)
+          .buildDescriptor();
+      }).not.toThrow();
+    });
+
+    it('should accept multisample count of 2', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .multisample(2)
+          .buildDescriptor();
+      }).not.toThrow();
+    });
+
+    it('should accept multisample count of 8', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .multisample(8)
+          .buildDescriptor();
+      }).not.toThrow();
+    });
+
+    it('should accept multisample count of 16', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .multisample(16)
+          .buildDescriptor();
+      }).not.toThrow();
+    });
+
+    it('should reject non-power-of-2 multisample count', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .multisample(3)
+          .buildDescriptor();
+      }).toThrow('Must be power of 2');
+    });
+
+    it('should reject multisample count > 16', () => {
+      const vertexLayout = VertexLayoutBuilder.Simple().build();
+
+      expect(() => {
+        new PipelineBuilder()
+          .shader(mockShader)
+          .vertexLayout(vertexLayout)
+          .multisample(32)
+          .buildDescriptor();
+      }).toThrow('Must be power of 2 between 1-16');
+    });
   });
 
   describe('Fluent API', () => {
@@ -396,7 +520,7 @@ describe('PipelineBuilder', () => {
         .vertexLayout(vertexLayout)
         .bindGroupLayout(mockBindGroupLayout)
         .colorFormat('rgba8unorm')
-        .depthStencil('depth24plus', true, 'less')
+        .depthStencil('depth24plus', false, 'less') // Disable depth write to avoid warning
         .blend('transparent')
         .cullMode('none')
         .topology('triangle-strip')
@@ -406,7 +530,7 @@ describe('PipelineBuilder', () => {
       expect(descriptor.label).toBe('TestPipeline');
       expect(descriptor.colorFormat).toBe('rgba8unorm');
       expect(descriptor.depthFormat).toBe('depth24plus');
-      expect(descriptor.pipelineState.cullMode).toBe('none');
+      expect(descriptor.pipelineState.rasterization?.cullMode).toBe('none');
     });
   });
 });

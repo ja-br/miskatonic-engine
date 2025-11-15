@@ -225,6 +225,11 @@ export class VertexLayoutBuilder {
       'float16x2': 4,
       'float16x4': 8
     };
-    return sizes[format] || 4;
+
+    const size = sizes[format];
+    if (size === undefined) {
+      throw new Error(`Unknown vertex format: "${format}". Valid formats: ${Object.keys(sizes).join(', ')}`);
+    }
+    return size;
   }
 }

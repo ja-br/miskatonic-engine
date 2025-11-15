@@ -49,19 +49,47 @@ export class DrawCommandBuilder {
   }
 
   /**
+   * Add multiple bind groups at once.
+   * Epic RENDERING-06 Task 6.3: Batch bind group setting
+   *
+   * @param groups - Map of slot to bind group handle
+   * @example
+   * ```typescript
+   * builder.bindGroups(new Map([
+   *   [0, sceneBindGroup],
+   *   [1, materialBindGroup]
+   * ]))
+   * ```
+   */
+  bindGroups(groups: Map<number, BackendBindGroupHandle>): this {
+    for (const [slot, handle] of groups) {
+      this.bindGroup(slot, handle); // Reuse validation
+    }
+    return this;
+  }
+
+  /**
    * Configure indexed geometry.
    * Draws using an index buffer to reference vertices.
+   * Epic RENDERING-06 Task 6.3: Enhanced with array support and options object
    *
-   * @param vertexBuffers - Map of vertex buffers by slot number
+   * @param vertexBuffers - Map or array of vertex buffers
    * @param indexBuffer - Index buffer handle
    * @param indexFormat - Format of indices ('uint16' or 'uint32')
    * @param indexCount - Number of indices to draw
+   * @param options - Optional parameters
    */
   indexed(
-    vertexBuffers: Map<number, BackendBufferHandle>,
+    vertexBuffers: Map<number, BackendBufferHandle> | BackendBufferHandle[],
     indexBuffer: BackendBufferHandle,
     indexFormat: 'uint16' | 'uint32',
-    indexCount: number
+    indexCount: number,
+    options?: {
+      instanceCount?: number;
+      firstIndex?: number;
+      baseVertex?: number;
+      firstInstance?: number;
+    }
   ): this {
     if (this.geometrySet) {
       throw new Error(
@@ -70,7 +98,12 @@ export class DrawCommandBuilder {
       );
     }
 
-    if (vertexBuffers.size === 0) {
+    // Convert array to Map if needed
+    const bufferMap = Array.isArray(vertexBuffers)
+      ? new Map(vertexBuffers.map((buf, idx) => [idx, buf]))
+      : vertexBuffers;
+
+    if (bufferMap.size === 0) {
       throw new Error('At least one vertex buffer is required');
     }
 
@@ -83,10 +116,11 @@ export class DrawCommandBuilder {
 
     this.command.geometry = {
       type: 'indexed',
-      vertexBuffers,
+      vertexBuffers: bufferMap,
       indexBuffer,
       indexFormat,
-      indexCount
+      indexCount,
+      ...options
     };
     this.geometrySet = true;
     return this;
@@ -95,11 +129,21 @@ export class DrawCommandBuilder {
   /**
    * Configure non-indexed geometry.
    * Draws vertices sequentially without an index buffer.
+   * Epic RENDERING-06 Task 6.3: Enhanced with array support and options object
    *
-   * @param vertexBuffers - Map of vertex buffers by slot number
+   * @param vertexBuffers - Map or array of vertex buffers
    * @param vertexCount - Number of vertices to draw
+   * @param options - Optional parameters
    */
-  nonIndexed(vertexBuffers: Map<number, BackendBufferHandle>, vertexCount: number): this {
+  nonIndexed(
+    vertexBuffers: Map<number, BackendBufferHandle> | BackendBufferHandle[],
+    vertexCount: number,
+    options?: {
+      instanceCount?: number;
+      firstVertex?: number;
+      firstInstance?: number;
+    }
+  ): this {
     if (this.geometrySet) {
       throw new Error(
         `Geometry already configured as '${this.command.geometry!.type}'. ` +
@@ -107,7 +151,12 @@ export class DrawCommandBuilder {
       );
     }
 
-    if (vertexBuffers.size === 0) {
+    // Convert array to Map if needed
+    const bufferMap = Array.isArray(vertexBuffers)
+      ? new Map(vertexBuffers.map((buf, idx) => [idx, buf]))
+      : vertexBuffers;
+
+    if (bufferMap.size === 0) {
       throw new Error('At least one vertex buffer is required');
     }
 
@@ -117,8 +166,9 @@ export class DrawCommandBuilder {
 
     this.command.geometry = {
       type: 'nonIndexed',
-      vertexBuffers,
-      vertexCount
+      vertexBuffers: bufferMap,
+      vertexCount,
+      ...options
     };
     this.geometrySet = true;
     return this;
@@ -295,6 +345,7 @@ export class DrawCommandBuilder {
   /**
    * Build the final DrawCommand.
    * Validates that all required fields are set and prevents builder reuse.
+   * Epic RENDERING-06: Clones bindGroups Map to prevent mutation leaks between builds.
    */
   build(): DrawCommand {
     if (!this.command.pipeline) {
@@ -330,12 +381,118 @@ export class DrawCommandBuilder {
       }
     }
 
-    const result = this.command as DrawCommand;
+    // Create result with cloned bindGroups Map to prevent mutation leaks
+    const result: DrawCommand = {
+      pipeline: this.command.pipeline,
+      bindGroups: new Map(this.command.bindGroups), // CLONE to prevent shared state
+      geometry: this.command.geometry,
+      label: this.command.label,
+      debugInfo: this.command.debugInfo
+    };
 
     // Reset builder to prevent accidental reuse
     this.command = { bindGroups: new Map() };
     this.geometrySet = false;
 
     return result;
+  }
+
+  // Epic RENDERING-06 Task 6.3: Quick builder static methods
+
+  /**
+   * Quick builder for simple indexed draws.
+   * Reduces common case from ~10 lines to 1 line.
+   *
+   * @param pipeline - Render pipeline handle (NOT compute)
+   * @param bindGroup - Bind group (will be bound to slot 0)
+   * @param vertexBuffer - Single vertex buffer
+   * @param indexBuffer - Index buffer
+   * @param indexCount - Number of indices
+   * @param indexFormat - Format of indices (default: 'uint16')
+   * @example
+   * ```typescript
+   * const cmd = DrawCommandBuilder.quickIndexed(
+   *   pipeline, bindGroup, vertexBuf, indexBuf, 36
+   * );
+   * ```
+   */
+  static quickIndexed(
+    pipeline: BackendPipelineHandle,
+    bindGroup: BackendBindGroupHandle,
+    vertexBuffer: BackendBufferHandle,
+    indexBuffer: BackendBufferHandle,
+    indexCount: number,
+    indexFormat: 'uint16' | 'uint32' = 'uint16'
+  ): DrawCommand {
+    if (pipeline.type !== 'render') {
+      throw new Error(`quickIndexed requires render pipeline, got ${pipeline.type} pipeline`);
+    }
+    return new DrawCommandBuilder()
+      .pipeline(pipeline)
+      .bindGroup(0, bindGroup)
+      .indexed([vertexBuffer], indexBuffer, indexFormat, indexCount)
+      .build();
+  }
+
+  /**
+   * Quick builder for simple non-indexed draws.
+   * Reduces common case from ~10 lines to 1 line.
+   *
+   * @param pipeline - Render pipeline handle (NOT compute)
+   * @param bindGroup - Bind group (will be bound to slot 0)
+   * @param vertexBuffer - Single vertex buffer
+   * @param vertexCount - Number of vertices
+   * @example
+   * ```typescript
+   * const cmd = DrawCommandBuilder.quickNonIndexed(
+   *   pipeline, bindGroup, vertexBuf, 36
+   * );
+   * ```
+   */
+  static quickNonIndexed(
+    pipeline: BackendPipelineHandle,
+    bindGroup: BackendBindGroupHandle,
+    vertexBuffer: BackendBufferHandle,
+    vertexCount: number
+  ): DrawCommand {
+    if (pipeline.type !== 'render') {
+      throw new Error(`quickNonIndexed requires render pipeline, got ${pipeline.type} pipeline`);
+    }
+    return new DrawCommandBuilder()
+      .pipeline(pipeline)
+      .bindGroup(0, bindGroup)
+      .nonIndexed([vertexBuffer], vertexCount)
+      .build();
+  }
+
+  /**
+   * Quick builder for instanced indexed draws.
+   * Common pattern for particle systems, crowds, etc.
+   *
+   * @param pipeline - Render pipeline handle (NOT compute)
+   * @param bindGroup - Bind group (will be bound to slot 0)
+   * @param vertexBuffer - Single vertex buffer
+   * @param indexBuffer - Index buffer
+   * @param indexCount - Number of indices per instance
+   * @param instanceCount - Number of instances
+   * @param indexFormat - Format of indices (default: 'uint16')
+   */
+  static quickInstanced(
+    pipeline: BackendPipelineHandle,
+    bindGroup: BackendBindGroupHandle,
+    vertexBuffer: BackendBufferHandle,
+    indexBuffer: BackendBufferHandle,
+    indexCount: number,
+    instanceCount: number,
+    indexFormat: 'uint16' | 'uint32' = 'uint16'
+  ): DrawCommand {
+    if (pipeline.type !== 'render') {
+      throw new Error(`quickInstanced requires render pipeline, got ${pipeline.type} pipeline`);
+    }
+    return new DrawCommandBuilder()
+      .pipeline(pipeline)
+      .bindGroup(0, bindGroup)
+      .indexed([vertexBuffer], indexBuffer, indexFormat, indexCount, { instanceCount })
+      .build();
   }
 }

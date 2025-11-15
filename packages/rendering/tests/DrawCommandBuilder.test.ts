@@ -323,6 +323,42 @@ describe('DrawCommandBuilder', () => {
         builder.build();
       }).toThrow('Pipeline is required');
     });
+
+    it('should isolate bind groups between successive builds', () => {
+      const vertexBuffers = new Map([[0, mockVertexBuffer]]);
+      const builder = new DrawCommandBuilder();
+      const bindGroup2: BackendBindGroupHandle = {
+        __brand: 'BackendBindGroup' as const,
+        id: 'bg-2'
+      };
+
+      // First build
+      const cmd1 = builder
+        .pipeline(mockPipeline)
+        .bindGroup(0, mockBindGroup)
+        .indexed(vertexBuffers, mockIndexBuffer, 'uint16', 36)
+        .build();
+
+      // Attempt to mutate cmd1's bind groups (should not affect cmd2)
+      const hackGroup: BackendBindGroupHandle = {
+        __brand: 'BackendBindGroup' as const,
+        id: 'hack-group'
+      };
+      cmd1.bindGroups.set(999, hackGroup);
+
+      // Second build
+      const cmd2 = builder
+        .pipeline(mockPipeline)
+        .bindGroup(0, bindGroup2)
+        .indexed(vertexBuffers, mockIndexBuffer, 'uint16', 36)
+        .build();
+
+      // cmd2 should NOT have the hacked bind group
+      expect(cmd2.bindGroups.has(999)).toBe(false);
+      expect(cmd2.bindGroups.get(0)).toBe(bindGroup2);
+      expect(cmd1.bindGroups.get(0)).toBe(mockBindGroup);
+      expect(cmd1.bindGroups.get(999)).toBe(hackGroup); // cmd1 was mutated
+    });
   });
 
   describe('Label and Debug Info', () => {
@@ -389,6 +425,226 @@ describe('DrawCommandBuilder', () => {
       expect(command.bindGroups.size).toBe(2);
       expect(command.bindGroups.get(0)).toBe(bg0);
       expect(command.bindGroups.get(1)).toBe(bg1);
+    });
+  });
+
+  // Epic RENDERING-06 Task 6.3: Enhanced DrawCommandBuilder tests
+
+  describe('Enhanced Features (Epic RENDERING-06)', () => {
+    describe('bindGroups() - Batch binding', () => {
+      it('should add multiple bind groups at once', () => {
+        const vertexBuffers = new Map([[0, mockVertexBuffer]]);
+        const bindGroups = new Map([
+          [0, mockBindGroup],
+          [1, mockBindGroup],
+          [2, mockBindGroup]
+        ]);
+
+        const command = new DrawCommandBuilder()
+          .pipeline(mockPipeline)
+          .bindGroups(bindGroups)
+          .indexed(vertexBuffers, mockIndexBuffer, 'uint16', 36)
+          .build();
+
+        expect(command.bindGroups.size).toBe(3);
+        expect(command.bindGroups.get(0)).toBe(mockBindGroup);
+        expect(command.bindGroups.get(1)).toBe(mockBindGroup);
+        expect(command.bindGroups.get(2)).toBe(mockBindGroup);
+      });
+
+      it('should validate bind group slots', () => {
+        const badBindGroups = new Map([[5, mockBindGroup]]); // Invalid slot
+
+        expect(() => {
+          new DrawCommandBuilder()
+            .pipeline(mockPipeline)
+            .bindGroups(badBindGroups);
+        }).toThrow('Bind group slot must be 0-3');
+      });
+    });
+
+    describe('Array vertex buffer support', () => {
+      it('should accept array of vertex buffers in indexed()', () => {
+        const command = new DrawCommandBuilder()
+          .pipeline(mockPipeline)
+          .bindGroup(0, mockBindGroup)
+          .indexed([mockVertexBuffer], mockIndexBuffer, 'uint16', 36)
+          .build();
+
+        expect(command.geometry.type).toBe('indexed');
+        expect(command.geometry.vertexBuffers.size).toBe(1);
+        expect(command.geometry.vertexBuffers.get(0)).toBe(mockVertexBuffer);
+      });
+
+      it('should accept array of vertex buffers in nonIndexed()', () => {
+        const command = new DrawCommandBuilder()
+          .pipeline(mockPipeline)
+          .bindGroup(0, mockBindGroup)
+          .nonIndexed([mockVertexBuffer], 36)
+          .build();
+
+        expect(command.geometry.type).toBe('nonIndexed');
+        expect(command.geometry.vertexBuffers.size).toBe(1);
+        expect(command.geometry.vertexBuffers.get(0)).toBe(mockVertexBuffer);
+      });
+    });
+
+    describe('Options objects', () => {
+      it('should accept options in indexed()', () => {
+        const command = new DrawCommandBuilder()
+          .pipeline(mockPipeline)
+          .bindGroup(0, mockBindGroup)
+          .indexed([mockVertexBuffer], mockIndexBuffer, 'uint16', 36, {
+            instanceCount: 100,
+            firstIndex: 10,
+            baseVertex: 5,
+            firstInstance: 2
+          })
+          .build();
+
+        const geom = command.geometry as any;
+        expect(geom.instanceCount).toBe(100);
+        expect(geom.firstIndex).toBe(10);
+        expect(geom.baseVertex).toBe(5);
+        expect(geom.firstInstance).toBe(2);
+      });
+
+      it('should accept options in nonIndexed()', () => {
+        const command = new DrawCommandBuilder()
+          .pipeline(mockPipeline)
+          .bindGroup(0, mockBindGroup)
+          .nonIndexed([mockVertexBuffer], 36, {
+            instanceCount: 50,
+            firstVertex: 10,
+            firstInstance: 1
+          })
+          .build();
+
+        const geom = command.geometry as any;
+        expect(geom.instanceCount).toBe(50);
+        expect(geom.firstVertex).toBe(10);
+        expect(geom.firstInstance).toBe(1);
+      });
+    });
+
+    describe('Quick builder static methods', () => {
+      it('should create simple indexed draw with quickIndexed()', () => {
+        const command = DrawCommandBuilder.quickIndexed(
+          mockPipeline,
+          mockBindGroup,
+          mockVertexBuffer,
+          mockIndexBuffer,
+          36
+        );
+
+        expect(command.pipeline).toBe(mockPipeline);
+        expect(command.bindGroups.get(0)).toBe(mockBindGroup);
+        expect(command.geometry.type).toBe('indexed');
+        const geom = command.geometry as any;
+        expect(geom.indexCount).toBe(36);
+        expect(geom.indexFormat).toBe('uint16');
+      });
+
+      it('should create simple non-indexed draw with quickNonIndexed()', () => {
+        const command = DrawCommandBuilder.quickNonIndexed(
+          mockPipeline,
+          mockBindGroup,
+          mockVertexBuffer,
+          36
+        );
+
+        expect(command.pipeline).toBe(mockPipeline);
+        expect(command.bindGroups.get(0)).toBe(mockBindGroup);
+        expect(command.geometry.type).toBe('nonIndexed');
+        const geom = command.geometry as any;
+        expect(geom.vertexCount).toBe(36);
+      });
+
+      it('should create instanced draw with quickInstanced()', () => {
+        const command = DrawCommandBuilder.quickInstanced(
+          mockPipeline,
+          mockBindGroup,
+          mockVertexBuffer,
+          mockIndexBuffer,
+          36,
+          100
+        );
+
+        expect(command.pipeline).toBe(mockPipeline);
+        expect(command.bindGroups.get(0)).toBe(mockBindGroup);
+        expect(command.geometry.type).toBe('indexed');
+        const geom = command.geometry as any;
+        expect(geom.indexCount).toBe(36);
+        expect(geom.instanceCount).toBe(100);
+      });
+
+      it('should support custom indexFormat in quickIndexed()', () => {
+        const command = DrawCommandBuilder.quickIndexed(
+          mockPipeline,
+          mockBindGroup,
+          mockVertexBuffer,
+          mockIndexBuffer,
+          36,
+          'uint32'
+        );
+
+        const geom = command.geometry as any;
+        expect(geom.indexFormat).toBe('uint32');
+      });
+
+      it('should reject compute pipeline in quickIndexed()', () => {
+        const computePipeline: BackendPipelineHandle = {
+          __brand: 'BackendPipeline' as const,
+          id: 'compute-1',
+          type: 'compute'
+        };
+
+        expect(() => {
+          DrawCommandBuilder.quickIndexed(
+            computePipeline,
+            mockBindGroup,
+            mockVertexBuffer,
+            mockIndexBuffer,
+            36
+          );
+        }).toThrow('quickIndexed requires render pipeline');
+      });
+
+      it('should reject compute pipeline in quickNonIndexed()', () => {
+        const computePipeline: BackendPipelineHandle = {
+          __brand: 'BackendPipeline' as const,
+          id: 'compute-1',
+          type: 'compute'
+        };
+
+        expect(() => {
+          DrawCommandBuilder.quickNonIndexed(
+            computePipeline,
+            mockBindGroup,
+            mockVertexBuffer,
+            36
+          );
+        }).toThrow('quickNonIndexed requires render pipeline');
+      });
+
+      it('should reject compute pipeline in quickInstanced()', () => {
+        const computePipeline: BackendPipelineHandle = {
+          __brand: 'BackendPipeline' as const,
+          id: 'compute-1',
+          type: 'compute'
+        };
+
+        expect(() => {
+          DrawCommandBuilder.quickInstanced(
+            computePipeline,
+            mockBindGroup,
+            mockVertexBuffer,
+            mockIndexBuffer,
+            36,
+            100
+          );
+        }).toThrow('quickInstanced requires render pipeline');
+      });
     });
   });
 });

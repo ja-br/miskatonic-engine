@@ -252,6 +252,27 @@ describe('VertexLayoutBuilder', () => {
 
       expect(() => builder.build()).toThrow('No attributes added to vertex layout');
     });
+
+    it('should throw error for unknown vertex format', () => {
+      expect(() => {
+        new VertexLayoutBuilder()
+          .custom(0, 'invalid-format')
+          .build();
+      }).toThrow('Unknown vertex format: "invalid-format"');
+    });
+
+    it('should provide list of valid formats in error message', () => {
+      try {
+        new VertexLayoutBuilder()
+          .custom(0, 'bad-format')
+          .build();
+        fail('Should have thrown');
+      } catch (e: any) {
+        expect(e.message).toContain('Valid formats:');
+        expect(e.message).toContain('float32x3');
+        expect(e.message).toContain('uint16x4');
+      }
+    });
   });
 
   describe('Fluent API', () => {

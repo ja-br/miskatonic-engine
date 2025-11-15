@@ -50,8 +50,21 @@ import { initializeModules } from './webgpu/WebGPUModuleInitializer';
 import type { WebGPUContext, ModuleConfig } from './webgpu/WebGPUTypes';
 
 /**
+ * Epic RENDERING-06 Task 6.4: Dependency injection interface
+ * Allows injecting dependencies for testing
+ */
+export interface WebGPUBackendDependencies {
+  vramProfiler?: VRAMProfiler;
+  bufferPool?: GPUBufferPool;
+  reflectionParser?: WGSLReflectionParser;
+  reflectionCache?: ShaderReflectionCache;
+}
+
+/**
  * WebGPU backend coordinator
  * Delegates to specialized modules for resource management, pipeline caching, etc.
+ *
+ * Epic RENDERING-06 Task 6.4: Now supports dependency injection for testing
  */
 export class WebGPUBackend implements IRendererBackend {
   readonly name = 'WebGPU';
@@ -69,9 +82,9 @@ export class WebGPUBackend implements IRendererBackend {
 
   // Module configuration
   private vramProfiler: VRAMProfiler;
-  private gpuBufferPool = new GPUBufferPool();
-  private reflectionParser = new WGSLReflectionParser();
-  private reflectionCache = new ShaderReflectionCache();
+  private gpuBufferPool: GPUBufferPool;
+  private reflectionParser: WGSLReflectionParser;
+  private reflectionCache: ShaderReflectionCache;
   private recoverySystem: DeviceRecoverySystem | null = null;
 
   // Modules
@@ -91,8 +104,31 @@ export class WebGPUBackend implements IRendererBackend {
   private timestampProfiler: WebGPUTimestampProfiler | null = null;
   private hasTimestampQuery: boolean = false;
 
-  constructor() {
-    this.vramProfiler = new VRAMProfiler(DEFAULT_VRAM_BUDGET_MB * 1024 * 1024);
+  /**
+   * Epic RENDERING-06 Task 6.4: Constructor with dependency injection
+   * @param dependencies - Optional dependencies for testing
+   * @example
+   * ```typescript
+   * // Default usage (production)
+   * const backend = new WebGPUBackend();
+   *
+   * // Testing usage with mocks
+   * const backend = new WebGPUBackend({
+   *   vramProfiler: mockProfiler,
+   *   bufferPool: mockPool
+   * });
+   * ```
+   */
+  constructor(dependencies: WebGPUBackendDependencies = {}) {
+    // Use injected dependencies or create defaults
+    this.vramProfiler = dependencies.vramProfiler ||
+      new VRAMProfiler(DEFAULT_VRAM_BUDGET_MB * 1024 * 1024);
+    this.gpuBufferPool = dependencies.bufferPool ||
+      new GPUBufferPool();
+    this.reflectionParser = dependencies.reflectionParser ||
+      new WGSLReflectionParser();
+    this.reflectionCache = dependencies.reflectionCache ||
+      new ShaderReflectionCache();
   }
 
   async initialize(config: BackendConfig): Promise<boolean> {

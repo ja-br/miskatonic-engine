@@ -188,13 +188,22 @@ export class PipelineBuilder {
   } {
     this.validate();
 
-    // Build pipeline state
+    // Build correct PipelineStateDescriptor structure
     const pipelineState: PipelineStateDescriptor = {
-      cullMode: this.descriptor.cullMode || 'back',
-      depthTest: this.descriptor.depthFormat !== undefined,
-      depthWrite: this.descriptor.depthWriteEnabled ?? true,
-      depthCompare: this.descriptor.depthCompare || 'less',
-      blend: this.getBlendState(this.descriptor.blendMode || 'opaque')
+      topology: this.descriptor.topology || 'triangle-list',
+      blend: this.getBlendState(this.descriptor.blendMode || 'opaque'),
+      depthStencil: this.descriptor.depthFormat ? {
+        depthWriteEnabled: this.descriptor.depthWriteEnabled ?? true,
+        depthCompare: this.descriptor.depthCompare || 'less'
+      } : undefined,
+      rasterization: {
+        cullMode: this.descriptor.cullMode || 'back',
+        frontFace: 'ccw'
+      },
+      multisample: this.descriptor.multisampleCount ? {
+        count: this.descriptor.multisampleCount,
+        alphaToCoverageEnabled: this.descriptor.alphaToCoverage
+      } : undefined
     };
 
     return {
@@ -296,6 +305,44 @@ export class PipelineBuilder {
     }
     if (this.descriptor.vertexLayouts.length === 0) {
       console.warn('No vertex layouts added. Did you forget vertexLayout()?');
+    }
+
+    // Validate multisample count (must be power of 2 between 1-16)
+    if (this.descriptor.multisampleCount !== undefined) {
+      const count = this.descriptor.multisampleCount;
+      // Check: count >= 1, count <= 16, and count is power of 2
+      if (count < 1 || count > 16 || (count & (count - 1)) !== 0) {
+        throw new Error(
+          `Invalid multisample count: ${count}. Must be power of 2 between 1-16 (1, 2, 4, 8, 16). ` +
+          `Note: Actual support depends on texture format and device capabilities.`
+        );
+      }
+    }
+
+    // Error on blend + depth write contradictions (common rendering mistake)
+    if (this.descriptor.blendMode && this.descriptor.blendMode !== 'opaque') {
+      if (this.descriptor.depthWriteEnabled === true) {
+        throw new Error(
+          `Transparent blend mode '${this.descriptor.blendMode}' with depth write enabled will cause sorting artifacts. ` +
+          `Disable depth write with depthStencil(format, false) or use the Transparent/Additive presets which handle this correctly.`
+        );
+      }
+    }
+
+    // Check for duplicate shader locations in vertex layouts
+    const usedLocations = new Set<number>();
+    for (const layout of this.descriptor.vertexLayouts) {
+      for (const attr of layout.attributes) {
+        if (usedLocations.has(attr.shaderLocation)) {
+          throw new Error(`Duplicate shader location ${attr.shaderLocation} in vertex layouts. Each attribute must have a unique location.`);
+        }
+        usedLocations.add(attr.shaderLocation);
+      }
+    }
+
+    // Validate alphaToCoverage requires multisampling
+    if (this.descriptor.alphaToCoverage && (!this.descriptor.multisampleCount || this.descriptor.multisampleCount === 1)) {
+      throw new Error('alphaToCoverage requires multisample count > 1. Call multisample() or alphaToCoverage() which auto-enables 4x MSAA.');
     }
   }
 
