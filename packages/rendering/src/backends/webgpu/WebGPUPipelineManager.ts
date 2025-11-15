@@ -5,6 +5,7 @@
 
 import type { VertexLayout } from '../../types.js';
 import type { WebGPUContext, WebGPUShader } from './WebGPUTypes.js';
+import { WebGPUErrors } from './WebGPUTypes.js';
 
 interface PipelineCacheEntry {
   pipeline: GPURenderPipeline;
@@ -28,7 +29,7 @@ export class WebGPUPipelineManager {
     isInstancedShader: boolean
   ): GPURenderPipeline {
     if (!this.ctx.device) {
-      throw new Error('Device not initialized');
+      throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
     }
 
     // Generate cache key
@@ -53,7 +54,7 @@ export class WebGPUPipelineManager {
     // Create pipeline layout
     const pipelineLayout = this.ctx.device.createPipelineLayout({
       label: `PipelineLayout: ${cacheKey}`,
-      bindGroupLayouts: [(shader as any).bindGroupLayout], // FIXME: WebGPUShader needs bindGroupLayout
+      bindGroupLayouts: [shader.bindGroupLayout],
     });
 
     if (!this.ctx.preferredFormat) {

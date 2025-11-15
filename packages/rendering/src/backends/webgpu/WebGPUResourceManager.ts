@@ -11,6 +11,7 @@ import type {
 } from '../IRendererBackend.js';
 import type { ShaderSource, BufferUsage, TextureFormat } from '../../types.js';
 import type { WebGPUContext, ModuleConfig, WebGPUShader, WebGPUBuffer, WebGPUTexture, WebGPUFramebuffer } from './WebGPUTypes.js';
+import { WebGPUErrors } from './WebGPUTypes.js';
 import { BufferUsageType } from '../../GPUBufferPool.js';
 import { VRAMCategory } from '../../VRAMProfiler.js';
 import { ResourceType, type BufferDescriptor, type TextureDescriptor } from '../../recovery/ResourceRegistry.js';
@@ -28,7 +29,7 @@ export class WebGPUResourceManager {
   ) {}
 
   createShader(id: string, source: ShaderSource): BackendShaderHandle {
-    if (!this.ctx.device) throw new Error('Device not initialized');
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
 
     const shaderCode = source.vertex || source.fragment || '';
     const shaderModule = this.ctx.device.createShaderModule({
@@ -39,9 +40,24 @@ export class WebGPUResourceManager {
     // Parse and cache shader reflection data
     this.config.reflectionCache.getOrCompute(shaderCode, this.config.reflectionParser);
 
+    // Create default bind group layout (from WebGPUBackend.ts lines 1000-1011)
+    const bindGroupLayout = this.ctx.device.createBindGroupLayout({
+      label: `BindGroupLayout: ${id}`,
+      entries: [
+        {
+          binding: 0,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: {
+            type: 'uniform',
+          },
+        },
+      ],
+    });
+
     this.shaders.set(id, {
       id,
       module: shaderModule,
+      bindGroupLayout,
       source: shaderCode,
       type: source.vertex ? 'vertex' : 'fragment',
     });
@@ -56,7 +72,7 @@ export class WebGPUResourceManager {
     mode: 'static' | 'dynamic',
     type: 'vertex' | 'index' | 'uniform' | 'storage' = 'vertex'
   ): BackendBufferHandle {
-    if (!this.ctx.device) throw new Error('Device not initialized');
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
 
     const shouldPool = mode === 'dynamic' && (type === 'vertex' || type === 'index');
     const bufferUsageType = type === 'vertex' ? BufferUsageType.VERTEX : type === 'index' ? BufferUsageType.INDEX : undefined;
@@ -65,7 +81,8 @@ export class WebGPUResourceManager {
     let buffer: GPUBuffer;
 
     if (shouldPool && bufferUsageType) {
-      const bucketSize = (this.config.bufferPool as any).findBucket(dataArray.byteLength);
+      // Calculate bucket size using the same algorithm as GPUBufferPool
+      const bucketSize = this.calculateBucketSize(dataArray.byteLength);
       if (!this.config.vramProfiler.allocate(id, category, bucketSize)) {
         throw new Error(`VRAM budget exceeded: cannot allocate ${bucketSize} bytes for ${id}`);
       }
@@ -110,7 +127,7 @@ export class WebGPUResourceManager {
   }
 
   updateBuffer(handle: BackendBufferHandle, data: ArrayBufferView, offset: number = 0): void {
-    if (!this.ctx.device) throw new Error('Device not initialized');
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
     const bufferData = this.buffers.get(handle.id);
     if (!bufferData) throw new Error(`Buffer not found: ${handle.id}`);
     this.ctx.device.queue.writeBuffer(bufferData.buffer, offset, data);
@@ -137,7 +154,7 @@ export class WebGPUResourceManager {
     format: TextureFormat,
     data?: ArrayBufferView
   ): BackendTextureHandle {
-    if (!this.ctx.device) throw new Error('Device not initialized');
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
 
     const gpuFormat = this.getWebGPUTextureFormat(format);
     const textureSize = width * height * 4;
@@ -223,7 +240,7 @@ export class WebGPUResourceManager {
   }
 
   createSampler(config: { minFilter?: string; magFilter?: string; wrapS?: string; wrapT?: string }): GPUSampler {
-    if (!this.ctx.device) throw new Error('Device not initialized');
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
     return this.ctx.device.createSampler({
       minFilter: config.minFilter === 'linear' ? 'linear' : 'nearest',
       magFilter: config.magFilter === 'linear' ? 'linear' : 'nearest',
@@ -259,15 +276,36 @@ export class WebGPUResourceManager {
     return formatMap[format] || 'rgba8unorm';
   }
 
+  /**
+   * Calculate bucket size for buffer pooling
+   * Duplicates GPUBufferPool's private findBucket() logic
+   */
+  private calculateBucketSize(sizeBytes: number): number {
+    const MIN_BUCKET_SIZE = 256; // RenderingConstants.MIN_POOLED_BUFFER_SIZE
+    const MAX_BUCKET_SIZE = 16 * 1024 * 1024; // RenderingConstants.MAX_POOLED_BUFFER_SIZE
+
+    if (sizeBytes <= MIN_BUCKET_SIZE) {
+      return MIN_BUCKET_SIZE;
+    }
+
+    if (sizeBytes >= MAX_BUCKET_SIZE) {
+      return MAX_BUCKET_SIZE;
+    }
+
+    // Round up to next power of 2
+    return Math.pow(2, Math.ceil(Math.log2(sizeBytes)));
+  }
+
   dispose(): void {
-    for (const bufferData of this.buffers.values()) {
+    // Clear buffers and prevent double-release by using entries iterator
+    for (const [id, bufferData] of this.buffers.entries()) {
       if (bufferData.pooled && bufferData.bufferUsageType) {
         this.config.bufferPool.release(bufferData.buffer, bufferData.bufferUsageType, bufferData.requestedSize);
       } else {
         bufferData.buffer.destroy();
       }
+      this.buffers.delete(id); // Remove immediately to prevent double-release
     }
-    this.buffers.clear();
 
     for (const textureData of this.textures.values()) {
       textureData.texture.destroy();

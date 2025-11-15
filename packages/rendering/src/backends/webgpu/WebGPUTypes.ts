@@ -24,6 +24,9 @@ export interface WebGPUContext {
   /** WebGPU device instance */
   device: GPUDevice | null;
 
+  /** Canvas element */
+  canvas: HTMLCanvasElement | null;
+
   /** Canvas context for presenting rendered frames */
   context: GPUCanvasContext | null;
 
@@ -73,6 +76,7 @@ export interface ModuleConfig {
 export interface WebGPUShader {
   id: string;
   module: GPUShaderModule;
+  bindGroupLayout: GPUBindGroupLayout;
   source: string;
   type: 'vertex' | 'fragment' | 'compute';
 }
@@ -118,3 +122,14 @@ export interface PipelineCacheEntry {
   type: 'render' | 'compute';
   lastUsedFrame: number;
 }
+
+/**
+ * Standardized error messages for WebGPU backend
+ */
+export const WebGPUErrors = {
+  DEVICE_NOT_INITIALIZED: 'WebGPU device not initialized',
+  ENCODER_NOT_INITIALIZED: 'WebGPU command encoder not initialized',
+  CONTEXT_NOT_INITIALIZED: 'WebGPU context not initialized',
+  CANVAS_NOT_INITIALIZED: 'WebGPU canvas not initialized',
+  NO_ACTIVE_RENDER_PASS: 'No active render pass',
+} as const;
