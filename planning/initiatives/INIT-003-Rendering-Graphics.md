@@ -27,23 +27,20 @@
 - Added flexible index types (uint8, uint16, uint32)
 
 ### ✅ Epic 3.2: WebGPU Implementation
-**Status:** COMPLETE (January 2026)  
+**Status:** COMPLETE (January 2026)
 **Priority:** P1
 
 **Deliverables:**
 - WebGPU backend with compute shader support
-- Automatic WebGL2 fallback
 - Backend abstraction layer (IRendererBackend)
 - Opaque resource handles (no backend leakage)
 
 **Browser Support:**
 - WebGPU: Chrome 113+, Safari 26+, Firefox 141+
-- WebGL2: Universal
 
 **Architecture:**
 - Command-based rendering (no immediate mode)
 - Automatic capability detection
-- Graceful degradation (WebGPU → WebGL2 → error)
 
 ### ✅ Epic 3.3: PBR Material System
 **Status:** COMPLETE  
@@ -740,7 +737,7 @@ interface ShadowBias {
 - Memory: 64MB max (HIGH), 16MB (MEDIUM), 4MB (LOW)
 
 ### Epic 3.18: Lighting Performance & Utilities
-**Status:** 🚧 IN PROGRESS (Phase 1 ✅, Phase 2 ✅, Phase 3 ✅, Phase 4 ✅)
+**Status:** 🚧 PARTIALLY COMPLETE (Phase 3 ✅, Phase 4 ✅, Phases 1-2 & 5 ❌ DELETED)
 **Priority:** P0 - VALIDATION
 **Dependencies:** Epic 3.15 ✅, Epic 3.16 ✅, Epic 3.17 ✅
 
@@ -748,18 +745,13 @@ interface ShadowBias {
 
 #### Completion Summary (Phases 1-5)
 
-**Phase 1: GPU Timing Infrastructure - ✅ COMPLETE (2025-11-11)**
-- GPUTimingProfiler.ts (474 lines, 100% tests passing)
-- WebGPU timestamp query support with CPU fallback
-- 35 comprehensive tests
-- Production-ready with 6 critical fixes applied
+**Phase 1: GPU Timing Infrastructure - ❌ DELETED (2025-11-15)**
+- GPUTimingProfiler.ts removed - API was broken (used non-existent encoder.writeTimestamp())
+- TODO: Re-implement GPU timing using GPURenderPassEncoder.writeTimestamp() if needed
 
-**Phase 2: Benchmark Framework - ✅ COMPLETE (2025-11-11)**
-- LightingBenchmark.ts (642 lines, 100% tests passing)
-- 5 predefined scenario configurations
-- Automated performance validation
-- 33 comprehensive tests
-- Production-ready with 10 critical/major fixes applied
+**Phase 2: Benchmark Framework - ❌ DELETED (2025-11-15)**
+- LightingBenchmark.ts removed - dependent on broken GPUTimingProfiler
+- TODO: Re-implement benchmarks with correct WebGPU timing API if needed
 
 **Phase 3: Animation Components - ✅ COMPLETE (2025-11-11)**
 - FlickeringLight.ts (101 lines, auto-registered component)
@@ -782,24 +774,20 @@ interface ShadowBias {
 - DemoUI.ts retained in rendering package for future use
 - Animation systems remain: FlickeringLightSystem, PulsingLightSystem, OrbitingLightSystem
 
-**Total Implementation (Phases 1-4 Complete, Phase 5 Deleted):**
-- 2,597 lines of production code (UI retained: DemoUI.ts)
-- 1,630 lines of test code
-- 108 tests passing (100% pass rate)
-- 95%+ production readiness (Phase 5 complete, shadow config & WebGPU integration pending)
+**Total Implementation (Phases 3-4 Complete, Phases 1-2 & 5 Deleted):**
+- Animation Components: FlickeringLight, PulsingLight, OrbitingLight (ECS-integrated)
+- Debug Visualization: ShadowDebugVisualizer with 3 new modes (light volumes, tile heatmap, perf overlay)
+- Test Coverage: Animation tests + debug visualization tests passing
 
 **Performance Achieved:**
-- GPU timing: <0.1ms overhead
-- Benchmark framework: 300 frames in <5 seconds
 - Animation components: <0.1ms for 100 lights
-- All validation checks: <1ms
-- Memory overhead: <1MB
+- Debug visualization: Minimal overhead
 
 **Remaining Work:**
-- Shadow configuration (enable castsShadows flags on demo lights)
-- WebGPU rendering backend integration (connect demo to actual rendering pipeline)
+- Re-implement GPU timing infrastructure (correct WebGPU API)
+- Re-implement benchmark framework (if needed for validation)
 - Phase 6: Cross-Platform Validation (test on RTX 3060 + Intel Iris Xe)
-- Phase 7: Documentation & Polish (usage guide, best practices, benchmark interpretation)
+- Phase 7: Documentation & Polish (usage guide, best practices)
 
 ---
 
@@ -1069,7 +1057,6 @@ class FlickeringLightSystem {
   - [x] Edge case testing (empty arrays, zero division, missing parameters)
 
 **Phase 5: Demo Scene Integration**
-- ❌ **DELETED** - Removed from codebase (Epic 3.14 API incompatibility)
 - DemoUI retained for future use
   - [ ] Keyboard shortcut: F3 to cycle modes
   - [ ] Integrate with ShadowDebugVisualizer and LightVolumeRenderer
@@ -1352,6 +1339,8 @@ class FlickeringLightSystem {
 **Priority:** P1 - DEMONSTRATION
 **Dependencies:** Epic 3.14 ✅, Epic 3.15 ✅, Epic 3.16 ✅, Epic 3.17 ✅, Epic 3.18 ✅
 
+**IMPORTANT NOTE:** Phases 0-3 were completed (2025-11-12), but some demo files in `packages/renderer/` were subsequently removed or made incompatible with Epic 3.14 Modern Rendering API changes. The current demo implementation in `packages/renderer/src/demo.ts` (1,229 lines) uses a custom rendering pipeline and may not reflect the final Phases 0-3 work. Animation systems (FlickeringLightSystem, PulsingLightSystem, OrbitingLightSystem) remain functional in the rendering package.
+
 **Problem:** Epic 3.14-3.18 APIs are complete but need a comprehensive demonstration showing proper usage patterns for future development. The existing lighting demo is fundamentally broken and violates Epic 3.14 Modern Rendering API.
 
 **Solution:** Build a proper Vite-based lighting demo in `packages/renderer/` that uses ONLY Epic 3.14-3.18 public APIs, demonstrates 100+ dynamic lights at 60 FPS, and serves as a reference implementation.
@@ -1460,6 +1449,109 @@ class FlickeringLightSystem {
 
 ---
 
+### ✅ Epic 3.20: GPU Device Recovery (RENDERING-04)
+**Status:** COMPLETE (2025-11-13)
+**Priority:** P1 - RESILIENCE
+**Dependencies:** Epic 3.1 ✅, Epic 3.2 ✅
+
+**Problem:** WebGPU applications must handle device loss (driver crashes, GPU reset, power changes). Without automatic recovery, apps crash permanently requiring full page reload. Critical for production applications.
+
+**Deliverables:**
+- DeviceLossDetector (105 lines) - Monitors GPUDevice.lost promise
+- ResourceRegistry (209 lines) - Tracks all GPU resources with type-safe descriptors
+- DeviceRecoverySystem (350 lines) - Orchestrates detection + recreation
+- WebGPUBackend integration with auto-registration
+- 54 tests (DeviceLossDetector: 11, ResourceRegistry: 24, DeviceRecoverySystem: 19)
+
+**Test Coverage:**
+- 90.02% statements, 79.8% branch, 94.44% functions
+- Exceeds >80% requirement
+
+**Performance:**
+- Resource registration: <10ms for 1,000 resources
+- Device recovery: <200ms for typical scenes
+- Memory overhead: ~100-200 bytes per resource
+- Runtime impact: Negligible
+
+**Key Features:**
+- Automatic device loss detection
+- Retry logic with configurable delays
+- Progress callbacks (detecting, reinitializing, recreating, complete, failed)
+- Resource recreation in dependency order
+- Type-safe resource descriptors (Buffer, Texture, Shader, Pipeline, BindGroup)
+
+**Epic Documentation:** [EPIC_RENDERING_04_PROGRESS.md](../epics/EPIC_RENDERING_04_PROGRESS.md)
+
+---
+
+### 🚧 Epic 3.21: Code Quality & Modularization (RENDERING-05)
+**Status:** PARTIALLY COMPLETE (Task 5.2 in progress)
+**Priority:** P2 - TECHNICAL DEBT
+**Dependencies:** Epic 3.1 ✅
+
+**Problem:** Monolithic WebGPUBackend.ts (1,809 lines) violates Single Responsibility Principle, has high maintenance cost, contains dead code, and has scattered magic numbers throughout the codebase.
+
+**Goal:** Split WebGPUBackend.ts into focused modules (<400 lines each), remove dead code, consolidate hash functions, and extract magic numbers to constants.
+
+**Completed Work:**
+- WebGPUCommandEncoder.ts extracted (357 lines) - draw command execution
+- WebGPUBackend.ts reduced from 1,809 → 579 lines (68% reduction)
+
+**Remaining Work:**
+- Complete module extraction (5 more modules planned)
+- Remove dead code (setVertexAttributeDivisor no-op)
+- Consolidate hash functions into HashUtils.ts
+- Extract 50+ magic numbers to RenderingConstants.ts
+- Refactor long methods (>50 lines)
+- Update all imports and verify no circular dependencies
+
+**Success Criteria:**
+- [ ] WebGPUBackend.ts split into 6 modules (<400 lines each)
+- [x] Command encoder extraction (Task 5.2 partial)
+- [ ] All dead code removed
+- [ ] Hash functions consolidated
+- [ ] Magic numbers extracted to constants
+- [ ] Test coverage maintained (>80%)
+- [ ] No performance regression
+
+**Epic Documentation:** [EPIC_RENDERING_05_CODE_QUALITY.md](../epics/EPIC_RENDERING_05_CODE_QUALITY.md)
+
+---
+
+### 🚧 Epic 3.22: API Patterns & Performance (RENDERING-06)
+**Status:** PARTIALLY COMPLETE (Tasks 6.1-6.3, 6.5 ✅)
+**Priority:** P2 - DEVELOPER EXPERIENCE
+**Dependencies:** Epic 3.1 ✅, Epic 3.21 (partial) 🚧
+
+**Problem:** Verbose object construction, difficult testing without dependency injection, and performance bottlenecks in hot paths from string operations and repeated hash computation.
+
+**Goal:** Implement ergonomic builder patterns, add dependency injection for testability, and optimize hot paths for 20% performance improvement.
+
+**Completed Work:**
+- ✅ Task 6.1: VertexLayoutBuilder (5.3KB) - fluent API for vertex layouts
+- ✅ Task 6.2: PipelineBuilder (11KB) - fluent API for pipeline creation
+- ✅ Task 6.3: DrawCommandBuilder (15KB) - fluent API for draw commands
+- ✅ Task 6.5: Hot Path Optimization - WebGPUCommandEncoder with resource caching
+  - Per-frame resource cache (pipelines, bind groups, buffers)
+  - Hash-based lookup with collision detection
+  - Cache hit rate >95% in typical scenes
+  - ~20% performance improvement in executeDrawCommand
+
+**Remaining Work:**
+- Task 6.4: Dependency injection in RenderQueue and WebGPUBackend
+- Task 6.6: Lazy evaluation for expensive computations
+- Documentation and migration guide
+- Performance validation across multiple scenarios
+
+**Performance Achieved:**
+- Resource caching: >95% hit rate (HotPathBenchmark.test.ts)
+- String operations: Reduced via numeric hash keys
+- Draw command execution: ~20% faster with caching
+
+**Epic Documentation:** [EPIC_RENDERING_06_PATTERNS_PERF.md](../epics/EPIC_RENDERING_06_PATTERNS_PERF.md)
+
+---
+
 ## Technical Specifications
 
 ### Shader Variant Strategy
@@ -1476,12 +1568,19 @@ class FlickeringLightSystem {
 - Memory: 200KB (vs 64MB for all variants - 99.7% reduction)
 
 ### Testing Requirements
-**Total: 615+ tests across Epics 3.15-3.18**
-- Epic 3.15: 200+ tests
-- Epic 3.16: 130+ tests
-- Epic 3.17: 230+ tests
-- Epic 3.18: 55+ tests
-- Coverage target: >85% (Epics 3.15-3.17), >80% (Epic 3.18)
+**Total: 615+ tests across lighting (Epics 3.15-3.18) + 54 tests (Epic 3.20) + builder tests (Epic 3.22)**
+
+**Lighting System (Epics 3.15-3.18):**
+- Epic 3.15 (Multi-Light): 200+ tests
+- Epic 3.16 (Shadow Mapping): 130+ tests
+- Epic 3.17 (Light Culling): 230+ tests
+- Epic 3.18 (Performance & Utilities): 30+ tests (animation + debug viz; profiling tests deleted)
+
+**Infrastructure (Epics 3.20, 3.22):**
+- Epic 3.20 (Device Recovery): 54 tests (90.02% coverage)
+- Epic 3.22 (API Patterns): Builder tests + HotPathBenchmark
+
+**Coverage target:** >80% all epics, >85% for lighting epics
 
 ### Performance Budgets
 - Frame Rate: 60 FPS target / 30 FPS minimum
