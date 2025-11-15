@@ -412,6 +412,20 @@ export class WebGPUBackend implements IRendererBackend {
     this.commandEncoder.executeDrawCommand(command);
   }
 
+  beginRenderPass(
+    target: BackendFramebufferHandle | null,
+    clearColor?: [number, number, number, number],
+    clearDepth?: number,
+    clearStencil?: number,
+    label?: string
+  ): void {
+    this.renderPassMgr.beginRenderPass(target, clearColor, clearDepth, clearStencil, label);
+  }
+
+  endRenderPass(): void {
+    this.renderPassMgr.endRenderPass();
+  }
+
   clear(color?: [number, number, number, number], depth?: number, stencil?: number): void {
     this.renderPassMgr.clear(color, depth, stencil);
   }
