@@ -113,6 +113,8 @@ export interface BackendConfig {
   powerPreference?: 'default' | 'high-performance' | 'low-power';
   /** Depth buffer format (defaults to depth16unorm for 50% VRAM savings) */
   depthFormat?: 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8';
+  /** Enable WebGPU validation layers (default: true in development) */
+  enableValidation?: boolean;
 }
 
 /**
@@ -305,18 +307,6 @@ export interface IRendererBackend {
       generateMipmaps?: boolean;
     }
   ): BackendTextureHandle;
-
-  /**
-   * Update texture data
-   */
-  updateTexture(
-    handle: BackendTextureHandle,
-    data: ArrayBufferView | HTMLImageElement | HTMLCanvasElement | ImageData,
-    x?: number,
-    y?: number,
-    width?: number,
-    height?: number
-  ): void;
 
   /**
    * Delete texture

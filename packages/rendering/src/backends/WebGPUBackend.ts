@@ -5,7 +5,7 @@
  * This is a lightweight coordinator that delegates to specialized modules.
  */
 
-import { DEFAULT_VRAM_BUDGET_MB } from '../constants/RenderingConstants.js';
+import { DEFAULT_VRAM_BUDGET_MB, ENABLE_VALIDATION } from '../constants/RenderingConstants.js';
 import type {
   IRendererBackend,
   BackendConfig,
@@ -443,18 +443,6 @@ export class WebGPUBackend implements IRendererBackend {
     return this.resourceMgr.createTexture(id, width, height, config.format, dataView);
   }
 
-  updateTexture(
-    handle: BackendTextureHandle,
-    data: ArrayBufferView | HTMLImageElement | HTMLCanvasElement | ImageData,
-    x: number = 0,
-    y: number = 0,
-    width?: number,
-    height?: number
-  ): void {
-    // TODO: Implement texture updates in ResourceManager
-    console.warn('updateTexture not yet implemented in refactored backend');
-  }
-
   deleteTexture(handle: BackendTextureHandle): void {
     this.resourceMgr.destroyTexture(handle);
   }
@@ -464,10 +452,22 @@ export class WebGPUBackend implements IRendererBackend {
     colorAttachments: BackendTextureHandle[],
     depthAttachment?: BackendTextureHandle
   ): BackendFramebufferHandle {
-    // TODO: Get dimensions from first color attachment
-    const width = 800; // Placeholder
-    const height = 600; // Placeholder
-    return this.resourceMgr.createFramebuffer(id, width, height, colorAttachments, depthAttachment);
+    if (colorAttachments.length === 0) {
+      throw new Error('createFramebuffer requires at least one color attachment');
+    }
+
+    const firstAttachment = this.resourceMgr.getTexture(colorAttachments[0].id);
+    if (!firstAttachment) {
+      throw new Error(`Texture not found: ${colorAttachments[0].id}`);
+    }
+
+    return this.resourceMgr.createFramebuffer(
+      id,
+      firstAttachment.width,
+      firstAttachment.height,
+      colorAttachments,
+      depthAttachment
+    );
   }
 
   deleteFramebuffer(handle: BackendFramebufferHandle): void {
@@ -640,7 +640,7 @@ export class WebGPUBackend implements IRendererBackend {
       recoverySystem: null, // Set after creating recovery system
       reflectionParser: this.reflectionParser,
       reflectionCache: this.reflectionCache,
-      enableValidation: false, // TODO: Add debug flag to BackendConfig
+      enableValidation: this.config?.enableValidation ?? ENABLE_VALIDATION,
       depthFormat: this.selectedDepthFormat, // Inject selected depth format
     };
   }
