@@ -191,6 +191,11 @@ export {
 // Import from '@miskatonic/rendering/highlevel' for the simplified API
 export * as highlevel from './highlevel';
 
+// Epic 3.4: Retro Rendering Pipeline
+// PlayStation 2 era rendering techniques for lo-fi/demake aesthetics
+// Import from '@miskatonic/rendering/retro' for retro rendering features
+export * as retro from './retro';
+
 // Epic RENDERING-06: Builder patterns for ergonomic API
 export { VertexLayoutBuilder } from './builders/VertexLayoutBuilder';
 export { PipelineBuilder, type TopologyMode, type DepthCompare } from './builders/PipelineBuilder';
