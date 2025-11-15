@@ -144,16 +144,18 @@
 - Local-to-world transformation propagation
 
 ### ✅ Epic 3.12: Render Queue
-**Status:** COMPLETE  
-**Priority:** P0  
-**Tests:** 35 passing  
-**Performance:** <1ms sorting for 1000 objects
+**Status:** COMPLETE ➔ SUPERSEDED (deleted Nov 13, 2025)
+**Priority:** P0
+**Tests:** 35 passing (orphaned - RenderQueue.test.ts remains)
+**Performance:** <1ms sorting for 1000 objects (historical)
 
 **Deliverables:**
 - Opaque/transparent/alpha-test material sorting
 - Front-to-back optimization for opaque
 - Back-to-front sorting for transparency
 - State change minimization through grouping
+
+**Note:** RenderQueue.ts (650 lines) was deleted in Epic 3.14 commit `5b7daf0` (Nov 13, 2025). Replaced by Epic 3.14 Modern Rendering API (DrawCommand, DrawCommandBuilder, HighLevelRenderer). Test file remains but cannot run without source.
 
 ### ✅ Epic 3.13: Draw Call Batching & Instancing
 **Status:** COMPLETE
@@ -1519,7 +1521,7 @@ class FlickeringLightSystem {
 ---
 
 ### 🚧 Epic 3.22: API Patterns & Performance (RENDERING-06)
-**Status:** PARTIALLY COMPLETE (Tasks 6.1-6.3, 6.5 ✅)
+**Status:** PARTIALLY COMPLETE (Tasks 6.1-6.5 ✅, Task 6.6 📋)
 **Priority:** P2 - DEVELOPER EXPERIENCE
 **Dependencies:** Epic 3.1 ✅, Epic 3.21 (partial) 🚧
 
@@ -1531,6 +1533,10 @@ class FlickeringLightSystem {
 - ✅ Task 6.1: VertexLayoutBuilder (5.3KB) - fluent API for vertex layouts
 - ✅ Task 6.2: PipelineBuilder (11KB) - fluent API for pipeline creation
 - ✅ Task 6.3: DrawCommandBuilder (15KB) - fluent API for draw commands
+- ✅ Task 6.4: WebGPUBackend dependency injection (10 tests passing)
+  - VRAMProfiler, GPUBufferPool, WGSLReflectionParser, ShaderReflectionCache
+  - Backward-compatible constructor injection
+  - RenderQueue DI not applicable (RenderQueue deleted in Epic 3.14 commit 5b7daf0)
 - ✅ Task 6.5: Hot Path Optimization - WebGPUCommandEncoder with resource caching
   - Per-frame resource cache (pipelines, bind groups, buffers)
   - Hash-based lookup with collision detection
@@ -1538,7 +1544,6 @@ class FlickeringLightSystem {
   - ~20% performance improvement in executeDrawCommand
 
 **Remaining Work:**
-- Task 6.4: Dependency injection in RenderQueue and WebGPUBackend
 - Task 6.6: Lazy evaluation for expensive computations
 - Documentation and migration guide
 - Performance validation across multiple scenarios
