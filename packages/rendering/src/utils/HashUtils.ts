@@ -6,6 +6,8 @@
  * @packageDocumentation
  */
 
+import { FNV_PRIME, FNV_OFFSET_BASIS } from '../constants/RenderingConstants.js';
+
 /**
  * Hash utility functions for rendering engine.
  * Provides consistent hashing across all rendering systems.
@@ -19,12 +21,13 @@ export class HashUtils {
    *
    * CRITICAL: This replaces DJB2 to prevent hash collisions (see ShadowCache Epic 3.18)
    *
+   * Uses FNV-1a constants from RenderingConstants.ts to ensure consistency across codebase.
+   *
    * @param str - String to hash
    * @returns 32-bit unsigned hash value
    */
   static fnv1a(str: string): number {
-    const FNV_PRIME = 0x01000193;
-    let hash = 0x811c9dc5; // FNV offset basis (32-bit)
+    let hash = FNV_OFFSET_BASIS;
 
     for (let i = 0; i < str.length; i++) {
       hash ^= str.charCodeAt(i);

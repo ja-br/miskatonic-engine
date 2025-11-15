@@ -5,6 +5,8 @@
  * Reduces CPU/GPU overhead for lights that don't move.
  */
 
+import { FNV_PRIME, FNV_OFFSET_BASIS } from '../constants/RenderingConstants.js';
+
 /**
  * Shadow cache entry states
  */
@@ -379,14 +381,11 @@ export class ShadowCache {
     try {
       const json = JSON.stringify(data);
 
-      // FNV-1a hash parameters
-      // Using Number (53-bit precision) instead of BigInt for performance
-      let hash = 2166136261; // FNV offset basis (32-bit)
-      const FNV_PRIME = 16777619; // FNV prime (32-bit)
+      // FNV-1a hash (using constants from RenderingConstants.ts)
+      let hash = FNV_OFFSET_BASIS;
 
       for (let i = 0; i < json.length; i++) {
         hash ^= json.charCodeAt(i);
-        // Multiply and keep in 32-bit range using bitwise OR
         hash = Math.imul(hash, FNV_PRIME);
       }
 

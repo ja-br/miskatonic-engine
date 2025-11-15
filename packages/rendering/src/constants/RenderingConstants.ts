@@ -84,21 +84,33 @@ export const DEFAULT_COMPUTE_ENTRY = 'compute_main';
 /** Maximum shader source size (1MB) - security limit */
 export const MAX_SHADER_SOURCE_SIZE = 1024 * 1024;
 
-/** Maximum bind group index (WebGPU spec limit) */
-export const MAX_BIND_GROUP_INDEX = 3;
+/**
+ * Last valid bind group index (0-3 = 4 groups)
+ * Note: WebGPU spec MINIMUM is 4, devices may support more - query device.limits.maxBindGroups
+ */
+export const LAST_BIND_GROUP_INDEX = 3;
 
-/** Maximum binding index per group (WebGPU spec limit) */
-export const MAX_BINDING_INDEX = 15;
+/**
+ * Engine maximum bindings per bind group (for cache efficiency)
+ * Note: WebGPU spec MINIMUM is 640 bindings - this is an ENGINE limit, not hardware
+ */
+export const ENGINE_MAX_BINDINGS_PER_GROUP = 16;
 
 // ============================================================================
 // Performance Targets
 // ============================================================================
 
-/** Target frame time for 60 FPS (milliseconds) */
-export const TARGET_FRAME_TIME_MS = 16.67;
+/** Target frames per second */
+export const TARGET_FPS = 60;
 
-/** Critical frame time threshold (30 FPS) */
-export const CRITICAL_FRAME_TIME_MS = 33.33;
+/** Critical minimum frames per second */
+export const CRITICAL_FPS = 30;
+
+/** Target frame time for 60 FPS (milliseconds) - derived from TARGET_FPS */
+export const TARGET_FRAME_TIME_MS = 1000 / TARGET_FPS;
+
+/** Critical frame time threshold (30 FPS) - derived from CRITICAL_FPS */
+export const CRITICAL_FRAME_TIME_MS = 1000 / CRITICAL_FPS;
 
 /** Maximum draw calls per frame (performance target) */
 export const MAX_DRAW_CALLS_PER_FRAME = 1000;
@@ -218,36 +230,86 @@ export const CACHE_KEY_SEPARATOR = '_';
 // Validation & Debugging
 // ============================================================================
 
-/** Enable validation in development */
-export const ENABLE_VALIDATION = process.env.NODE_ENV !== 'production';
+/**
+ * Enable validation in development
+ * NOTE: This will be replaced at build time by bundler (Vite/Webpack DefinePlugin)
+ * Do NOT access process.env directly in renderer - use build-time replacement
+ */
+export const ENABLE_VALIDATION = true;
 
 /** Enable GPU timing queries */
 export const ENABLE_GPU_TIMING = true;
 
-/** Enable verbose logging */
-export const ENABLE_VERBOSE_LOGGING = process.env.DEBUG === 'rendering';
+/**
+ * Enable verbose logging
+ * NOTE: This will be replaced at build time by bundler (Vite/Webpack DefinePlugin)
+ * Do NOT access process.env directly in renderer - use build-time replacement
+ */
+export const ENABLE_VERBOSE_LOGGING = false;
 
 /** Maximum errors to log before silencing */
 export const MAX_ERROR_LOG_COUNT = 100;
 
 // ============================================================================
-// Resource Limits
+// Resource Limits (Engine Policy - NOT Hardware Limits)
 // ============================================================================
 
-/** Maximum number of bind groups */
-export const MAX_BIND_GROUPS = 4;
+/**
+ * Engine limit for bind groups (for compatibility and cache efficiency)
+ * Note: WebGPU spec MINIMUM is 4, actual devices may support more
+ * Query device.limits.maxBindGroups for hardware capability
+ */
+export const ENGINE_MAX_BIND_GROUPS = 4;
 
-/** Maximum bindings per bind group */
-export const MAX_BINDINGS_PER_GROUP = 16;
+/**
+ * Engine limit for vertex attributes
+ * Note: WebGPU spec MINIMUM is 16, devices may support more
+ * Query device.limits.maxVertexAttributes for hardware capability
+ */
+export const ENGINE_MAX_VERTEX_ATTRIBUTES = 16;
 
-/** Maximum vertex attributes */
-export const MAX_VERTEX_ATTRIBUTES = 16;
+/**
+ * Engine limit for vertex buffers
+ * Note: WebGPU spec MINIMUM is 8, devices may support more
+ * Query device.limits.maxVertexBuffers for hardware capability
+ */
+export const ENGINE_MAX_VERTEX_BUFFERS = 8;
 
-/** Maximum vertex buffers */
-export const MAX_VERTEX_BUFFERS = 8;
+/**
+ * Engine limit for color attachments
+ * Note: WebGPU spec MINIMUM is 8, devices may support more
+ * Query device.limits.maxColorAttachments for hardware capability
+ */
+export const ENGINE_MAX_COLOR_ATTACHMENTS = 8;
 
-/** Maximum color attachments */
-export const MAX_COLOR_ATTACHMENTS = 8;
+// ============================================================================
+// Buffer Alignment Requirements (WebGPU Spec)
+// ============================================================================
+
+/** Minimum uniform buffer offset alignment (WebGPU spec requirement) */
+export const MIN_UNIFORM_BUFFER_OFFSET_ALIGNMENT = 256;
+
+/** Minimum storage buffer offset alignment (WebGPU spec requirement) */
+export const MIN_STORAGE_BUFFER_OFFSET_ALIGNMENT = 256;
+
+/** Vertex buffer stride must be multiple of 4 bytes (required for float32) */
+export const VERTEX_BUFFER_STRIDE_ALIGNMENT = 4;
+
+// ============================================================================
+// Cleanup & Frame Management
+// ============================================================================
+
+/** Frames to wait before cleaning up unused bind groups */
+export const BIND_GROUP_CLEANUP_FRAME_THRESHOLD = 60;
+
+/** Frames to wait before cleaning up unused buffer pool entries */
+export const BUFFER_POOL_CLEANUP_FRAMES = 60;
+
+/** Shadow LOD history frame count for stable measurements */
+export const SHADOW_LOD_HISTORY_FRAMES = 60;
+
+/** Minimum frame samples needed for Shadow LOD decisions */
+export const SHADOW_LOD_MIN_SAMPLES = 30;
 
 // ============================================================================
 // Batch Sizes
