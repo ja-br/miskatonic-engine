@@ -4,7 +4,9 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "lib": ["ES2022", "DOM"],
-    "types": ["node", "vitest/globals", "@webgpu/types"]
+    "types": ["node", "vitest/globals", "@webgpu/types"],
+    "noUnusedParameters": false,
+    "noUnusedLocals": false
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]
