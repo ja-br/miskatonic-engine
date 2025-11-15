@@ -59,18 +59,16 @@ describe('Contact Hardening Shadows - Epic 3.18 Task 3.3', () => {
       expect(findBlockerBody).not.toContain('POISSON_DISK_32');
     });
 
-    it('should approximate blocker depth from blocker ratio', () => {
+    it('should use fixed blocker depth heuristic (0.6)', () => {
       const findBlockerMatch = shadowAdvancedShader.match(
         /fn findBlockerDepth\([^)]+\)[^{]*\{([\s\S]*?)^}/m
       );
       const findBlockerBody = findBlockerMatch![1];
 
-      // Should calculate blocker ratio
-      expect(findBlockerBody).toContain('blockerRatio');
-      expect(findBlockerBody).toContain('blockerCount / 16.0');
-
-      // Should approximate blocker depth
-      expect(findBlockerBody).toContain('receiverDepth * 0.5');
+      // FIXED (Code-Critic Issue #1): Use fixed 60% heuristic instead of ratio-based
+      // Should use fixed assumption (blockers at 60% of receiver depth)
+      expect(findBlockerBody).toContain('receiverDepth * 0.6');
+      expect(findBlockerBody).toContain('FIXED HEURISTIC APPROXIMATION');
     });
 
     it('should use comparison sampler (not separate depth sampler)', () => {
@@ -99,9 +97,9 @@ describe('Contact Hardening Shadows - Epic 3.18 Task 3.3', () => {
       expect(contactHardeningBody).toContain('calculatePenumbraSize');
       expect(contactHardeningBody).toContain('penumbraSize');
 
-      // Should use variable filter radius based on penumbra
-      expect(contactHardeningBody).toContain('filterRadius');
-      expect(contactHardeningBody).toContain('max(penumbraSize');
+      // FIXED (Code-Critic Issue #4): Uses clampedRadius instead of filterRadius
+      expect(contactHardeningBody).toContain('clampedRadius');
+      expect(contactHardeningBody).toContain('max(uvFilterRadius');
     });
 
     it('should use variable-sized PCF based on penumbra', () => {
@@ -117,7 +115,7 @@ describe('Contact Hardening Shadows - Epic 3.18 Task 3.3', () => {
 
       // Variable PCF should use penumbra-based filter radius
       expect(contactHardeningBody).toContain('uvFilterRadius');
-      expect(contactHardeningBody).toContain('POISSON_DISK_16[i] * uvFilterRadius');
+      expect(contactHardeningBody).toContain('POISSON_DISK_16[i] * clampedRadius');
     });
   });
 
@@ -214,7 +212,7 @@ describe('Contact Hardening Shadows - Epic 3.18 Task 3.3', () => {
       const contactHardeningBody = contactHardeningMatch![1];
 
       // Should have minimum filter radius (1 texel)
-      expect(contactHardeningBody).toMatch(/max\([^,]+,\s*1\.0\)/);
+      expect(contactHardeningBody).toContain('max(uvFilterRadius');
     });
   });
 
@@ -252,12 +250,12 @@ describe('Contact Hardening Shadows - Epic 3.18 Task 3.3', () => {
       expect(shadowAdvancedShader).not.toContain('binarySearch');
       expect(shadowAdvancedShader).not.toContain('depthReconstruction');
 
-      // Should use simple approximation
+      // Should use simple approximation (fixed heuristic: 60% of receiver depth)
       const findBlockerMatch = shadowAdvancedShader.match(
         /fn findBlockerDepth\([^)]+\)[^{]*\{([\s\S]*?)^}/m
       );
       const findBlockerBody = findBlockerMatch![1];
-      expect(findBlockerBody).toContain('receiverDepth * 0.5');
+      expect(findBlockerBody).toContain('receiverDepth * 0.6');
     });
   });
 });
