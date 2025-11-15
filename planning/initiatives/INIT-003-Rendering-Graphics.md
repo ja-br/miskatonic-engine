@@ -131,18 +131,18 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
 **Priority:** P2
 **Dependencies:** Epic 3.17 ✅
 **Estimated Effort:** 1-2 weeks
-**Status:** 🔄 IN PROGRESS (2/4 tasks complete)
+**Status:** 🔄 IN PROGRESS (3/4 tasks complete - 75%)
 
 #### Completed
 - ✅ **Task 3.1:** PCF Filtering - 4x4 Poisson disk sampling
 - ✅ **Task 3.2:** Cascade Blending - Smooth transitions between cascades
+- ✅ **Task 3.3:** Contact Hardening
+  - Variable penumbra based on blocker distance (PCSS-lite)
+  - Retro-appropriate shadow softness (16+16 samples)
+  - Fixed 3 critical bugs from code review (blocker depth, missing param, double division)
+  - 19 tests passing (ContactHardeningShadows.test.ts)
 
 #### In Progress
-- [ ] **Task 3.3:** Contact Hardening
-  - Variable penumbra based on blocker distance
-  - PCSS-lite (simplified percentage-closer soft shadows)
-  - Retro-appropriate shadow softness
-
 - [ ] **Task 3.4:** Quality Metrics & Benchmarks
   - Shadow aliasing measurement (cascades, filtering)
   - Performance impact vs quality tradeoffs
@@ -168,6 +168,8 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
 - [ ] Edge case handling (large objects, extreme angles)
 - [ ] Final performance tuning
 - [ ] Production-ready shadow system
+- [ ] **Deferred from Task 3.3:** Pass atlas resolution as uniform (Issue #2)
+- [ ] **Deferred from Task 3.3:** Add numerical validation tests (Issue #7)
 
 **Acceptance Criteria:**
 - No visible shadow artifacts in common scenarios
