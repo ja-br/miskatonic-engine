@@ -238,6 +238,11 @@ export class WebGPUBackend implements IRendererBackend {
 
     this.gpuBufferPool.nextFrame();
     this.resetStats();
+
+    // CRITICAL FIX (code-critic): Auto-clear cache to prevent stale GPU resource references
+    // This prevents GPU crashes when resources are destroyed between frames
+    this.commandEncoder.clearCache();
+
     this.ctx.commandEncoder = this.ctx.device.createCommandEncoder();
   }
 

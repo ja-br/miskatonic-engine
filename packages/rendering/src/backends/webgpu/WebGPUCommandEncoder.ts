@@ -14,11 +14,15 @@ import type { RenderStats } from '../../types.js';
  * Epic RENDERING-06 Task 6.5: Resource cache for hot path optimization
  * Uses numeric cache keys derived from string IDs to avoid string operations in hot path.
  * Cache is cleared each frame to prevent stale references.
+ *
+ * CRITICAL FIX (code-critic): Store both hash AND original ID to detect collisions.
+ * Hash collisions with djb2 are rare but possible (~0.5% with 200 resources).
+ * When collision occurs, we verify the ID matches before returning cached value.
  */
 interface ResourceCache {
-  pipelines: Map<number, { pipeline: GPURenderPipeline | GPUComputePipeline; type: string }>;
-  bindGroups: Map<number, GPUBindGroup>;
-  buffers: Map<number, WebGPUBuffer & { type: string }>;
+  pipelines: Map<number, { id: string; pipeline: GPURenderPipeline | GPUComputePipeline; type: string }>;
+  bindGroups: Map<number, { id: string; bindGroup: GPUBindGroup }>;
+  buffers: Map<number, { id: string; buffer: WebGPUBuffer & { type: string } }>;
   hits: number;
   misses: number;
 }
@@ -204,6 +208,7 @@ export class WebGPUCommandEncoder {
 
   /**
    * Execute compute dispatch
+   * CRITICAL FIX (code-critic): Use cached lookups for consistency with render path
    */
   private executeComputeDispatch(command: DrawCommand): void {
     if (!this.ctx.device || !this.ctx.commandEncoder) return;
@@ -211,7 +216,8 @@ export class WebGPUCommandEncoder {
     const geom = command.geometry;
     if (!isComputeGeometry(geom)) return;
 
-    const pipelineData = this.getPipeline(command.pipeline.id);
+    // CRITICAL FIX: Use getCachedPipeline instead of getPipeline
+    const pipelineData = this.getCachedPipeline(command.pipeline.id);
     if (!pipelineData) {
       throw new Error(`Pipeline ${command.pipeline.id} not found`);
     }
@@ -225,9 +231,9 @@ export class WebGPUCommandEncoder {
 
     computePass.setPipeline(pipelineData.pipeline as GPUComputePipeline);
 
-    // Set bind groups
+    // CRITICAL FIX: Use getCachedBindGroup instead of getBindGroup
     for (const [groupIndex, bindGroupHandle] of command.bindGroups) {
-      const bindGroup = this.getBindGroup(bindGroupHandle.id);
+      const bindGroup = this.getCachedBindGroup(bindGroupHandle.id);
       if (!bindGroup) {
         throw new Error(`Bind group ${bindGroupHandle.id} not found`);
       }
@@ -256,63 +262,69 @@ export class WebGPUCommandEncoder {
   }
 
   /**
-   * Get pipeline with caching. Achieves >95% cache hit rate in typical scenes.
+   * Get pipeline with caching. Verifies ID on cache hit to detect hash collisions.
+   * CRITICAL FIX (code-critic): Added ID verification to prevent wrong resource on collision.
    */
   private getCachedPipeline(id: string): { pipeline: GPURenderPipeline | GPUComputePipeline; type: string } | undefined {
     const key = this.hashStringToNumber(id);
-    let pipeline = this.cache.pipelines.get(key);
+    const cached = this.cache.pipelines.get(key);
 
-    if (pipeline) {
+    // Verify ID matches to detect hash collisions
+    if (cached && cached.id === id) {
       this.cache.hits++;
-      return pipeline;
+      return { pipeline: cached.pipeline, type: cached.type };
     }
 
-    // Cache miss - fetch and cache
-    pipeline = this.getPipeline(id);
+    // Cache miss (or collision) - fetch and cache
+    const pipeline = this.getPipeline(id);
     if (pipeline) {
-      this.cache.pipelines.set(key, pipeline);
+      this.cache.pipelines.set(key, { id, pipeline: pipeline.pipeline, type: pipeline.type });
     }
     this.cache.misses++;
     return pipeline;
   }
 
   /**
-   * Get bind group with caching. Achieves >95% cache hit rate in typical scenes.
+   * Get bind group with caching. Verifies ID on cache hit to detect hash collisions.
+   * CRITICAL FIX (code-critic): Added ID verification to prevent wrong resource on collision.
    */
   private getCachedBindGroup(id: string): GPUBindGroup | undefined {
     const key = this.hashStringToNumber(id);
-    let bindGroup = this.cache.bindGroups.get(key);
+    const cached = this.cache.bindGroups.get(key);
 
-    if (bindGroup) {
+    // Verify ID matches to detect hash collisions
+    if (cached && cached.id === id) {
       this.cache.hits++;
-      return bindGroup;
+      return cached.bindGroup;
     }
 
-    // Cache miss - fetch and cache
-    bindGroup = this.getBindGroup(id);
+    // Cache miss (or collision) - fetch and cache
+    const bindGroup = this.getBindGroup(id);
     if (bindGroup) {
-      this.cache.bindGroups.set(key, bindGroup);
+      this.cache.bindGroups.set(key, { id, bindGroup });
     }
     this.cache.misses++;
     return bindGroup;
   }
 
   /**
-   * Get buffer with caching. Achieves >95% cache hit rate in typical scenes.
+   * Get buffer with caching. Verifies ID on cache hit to detect hash collisions.
+   * CRITICAL FIX (code-critic): Added ID verification to prevent wrong resource on collision.
    */
   private getCachedBuffer(id: string): (WebGPUBuffer & { type: string }) | undefined {
     const key = this.hashStringToNumber(id);
-    let buffer = this.cache.buffers.get(key);
+    const cached = this.cache.buffers.get(key);
 
-    if (buffer) {
+    // Verify ID matches to detect hash collisions
+    if (cached && cached.id === id) {
       this.cache.hits++;
-      return buffer;
+      return cached.buffer;
     }
 
-    // Cache miss - fetch and cache
-    buffer = this.getBuffer(id);
+    // Cache miss (or collision) - fetch and cache
+    const buffer = this.getBuffer(id);
     if (buffer) {
-      this.cache.buffers.set(key, buffer);
+      this.cache.buffers.set(key, { id, buffer });
     }
     this.cache.misses++;
     return buffer;
