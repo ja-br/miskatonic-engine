@@ -1098,6 +1098,13 @@ export class Demo {
       // Estimate GPU execution time (frame time - CPU time)
       const gpuExec = Math.max(0, avgFrameTime - totalCpu);
 
+      // Get instance buffer pool statistics
+      const poolStats = this.instanceBufferManager.getPoolStats();
+      const resourcePoolStats = poolStats.reduce((acc, bucket) => ({
+        poolSize: acc.poolSize + bucket.count,
+        used: acc.used + bucket.count // All pooled buffers are actively used
+      }), { poolSize: 0, used: 0 });
+
       this.updateStats(
         fps,
         avgFrameTime,
@@ -1112,7 +1119,7 @@ export class Demo {
         bufferCount,
         textureCount,
         cpuTiming,
-        undefined, // resourcePoolStats removed (was tracking obsolete per-object uniform buffer pool)
+        resourcePoolStats, // Instance buffer pool stats from InstanceBufferManager
         gpuExec
       );
       this.frameCount = 0;
