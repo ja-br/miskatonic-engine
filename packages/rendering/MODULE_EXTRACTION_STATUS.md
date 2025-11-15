@@ -1,8 +1,8 @@
 # Epic RENDERING-05 Task 5.3: Module Extraction Status
 
-## Current Status: IN PROGRESS
+## Current Status: MODULES COMPLETE - REFACTORING PENDING
 
-WebGPUBackend.ts: **1784 lines** (unchanged, needs refactoring)
+WebGPUBackend.ts: **1784 lines** (needs refactoring to coordinator)
 
 ## Completed Modules
 
@@ -36,59 +36,64 @@ WebGPUBackend.ts: **1784 lines** (unchanged, needs refactoring)
 - WebGPUContext (device, preferredFormat)
 - getShader callback to access shader modules
 
-### 3. WebGPUCommandEncoder.ts ⚠️ STUB (28 lines)
-**Status:** Stub implementation - needs extraction
-**Needs from WebGPUBackend.ts lines 567-756:**
-- executeDrawCommand() - main draw dispatch
-- executeIndexedDraw()
-- executeNonIndexedDraw()
-- executeIndirectDraw()
-- executeComputeDispatch()
+### 3. WebGPUCommandEncoder.ts ✅ COMPLETE (212 lines)
+**Status:** Full implementation extracted
+**Responsibilities:**
+- executeDrawCommand() - main draw dispatch (lines 584-756 extracted)
+- executeIndexedDraw() - indexed geometry rendering
+- executeNonIndexedDraw() - non-indexed geometry rendering
+- executeIndirectDraw() - indirect draw calls with index/non-index variants
+- executeComputeDispatch() - compute shader dispatch
+- Vertex buffer slot validation (device limits checking)
+- Stats tracking (draw calls, vertices, triangles)
 
 **Dependencies:**
-- WebGPUContext (currentRenderPass, currentCommandEncoder, currentComputePass)
-- WebGPUPipelineManager (for pipeline lookup)
+- WebGPUContext (currentPass, device)
 - Resource getters (getBuffer, getBindGroup, getPipeline)
-- Stats tracking
+- RenderStats
 
-### 4. WebGPUModernAPI.ts ⚠️ STUB (90 lines)
-**Status:** Stub implementation - needs extraction
-**Needs from WebGPUBackend.ts lines 1318-1699:**
-- createBindGroupLayout() (lines 1318-1342)
-- createBindGroup() (lines 1354-1403)
-- createRenderPipeline() (lines 1415-1517)
-- createComputePipeline() (lines 1522-1576)
-- convertVisibilityFlags() (lines 1665-1681)
-- convertBindingType() (lines 1686-1699)
+### 4. WebGPUModernAPI.ts ✅ COMPLETE (347 lines)
+**Status:** Full implementation extracted
+**Responsibilities:**
+- createBindGroupLayout() - Epic 3.14 modern API (lines 1318-1342 extracted)
+- createBindGroup() - resource binding management (lines 1354-1403 extracted)
+- createRenderPipeline() - full render pipeline creation (lines 1415-1517 extracted)
+- createComputePipeline() - compute pipeline creation (lines 1522-1576 extracted)
+- convertVisibilityFlags() - shader stage conversion (lines 1665-1681 extracted)
+- convertBindingType() - binding type conversion (lines 1686-1699 extracted)
+- Detailed error context for pipeline failures
 
 **Dependencies:**
 - WebGPUContext (device)
-- WebGPUResourceManager (getShader, getBuffer, getTexture)
-- ModuleConfig (bindGroupPool)
+- Resource getters (getShader, getBuffer, getTexture)
+- ModuleConfig (bindGroupPool - unused)
 
-### 5. WebGPURenderPassManager.ts ⚠️ STUB (70 lines)
-**Status:** Stub implementation - needs extraction
-**Needs from WebGPUBackend.ts lines 448-782:**
-- beginRenderPass() (lines 448-594)
-- endRenderPass() (lines 727-756)
-- clear() (lines 758-765)
-- resize() (lines 767-782)
-- Depth texture management
+### 5. WebGPURenderPassManager.ts ✅ COMPLETE (152 lines)
+**Status:** Full implementation extracted
+**Responsibilities:**
+- beginRenderPass() - render pass setup with color/depth attachments (lines 560-582 extracted)
+- endRenderPass() - render pass cleanup
+- clear() - no-op (WebGPU clears in render pass descriptors)
+- resize() - canvas resize + depth texture recreation (lines 767-782 extracted)
+- initializeDepthTexture() - depth buffer creation
+- dispose() - resource cleanup
+- VRAM tracking for depth texture lifecycle
 
 **Dependencies:**
-- WebGPUContext (device, context, commandEncoder, canvas)
-- WebGPUResourceManager (for depth texture creation)
+- WebGPUContext (device, context, commandEncoder, canvas, currentPass)
+- VRAMProfiler (for depth texture tracking)
 - getFramebuffer callback
 
 ## Next Steps
 
 ### Immediate (Task 5.3 completion)
-1. ✅ Extract WebGPUResourceManager - DONE
-2. ✅ Extract WebGPUPipelineManager - DONE
-3. ⏸️ Complete WebGPUCommandEncoder stub - extract draw execution code
-4. ⏸️ Complete WebGPUModernAPI stub - extract bind group/pipeline code
-5. ⏸️ Complete WebGPURenderPassManager stub - extract render pass code
-6. ⏸️ Refactor WebGPUBackend.ts as coordinator (1784 → ~300 lines)
+1. ✅ Extract WebGPUResourceManager - DONE (280 lines)
+2. ✅ Extract WebGPUPipelineManager - DONE (200 lines)
+3. ✅ Extract WebGPUCommandEncoder - DONE (212 lines)
+4. ✅ Extract WebGPUModernAPI - DONE (347 lines)
+5. ✅ Extract WebGPURenderPassManager - DONE (152 lines)
+6. ✅ Fix code-critic critical issues - DONE (5/5 blocking issues resolved)
+7. ⏸️ Refactor WebGPUBackend.ts as coordinator (1784 → ~300 lines)
 
 ### Refactored WebGPUBackend.ts Structure (Target)
 ```typescript
@@ -114,24 +119,33 @@ export class WebGPUBackend implements IRendererBackend {
 - Task 5.5: Create migration guide
 
 ## Success Metrics
-- ✅ WebGPUResourceManager: 280 lines (extracted)
-- ✅ WebGPUPipelineManager: 200 lines (extracted)
-- ⏸️ WebGPUCommandEncoder: ~300 lines (target)
-- ⏸️ WebGPUModernAPI: ~200 lines (target)
-- ⏸️ WebGPURenderPassManager: ~250 lines (target)
+- ✅ WebGPUResourceManager: 280 lines (extracted) + critical fixes
+- ✅ WebGPUPipelineManager: 200 lines (extracted) + type safety fix
+- ✅ WebGPUCommandEncoder: 212 lines (extracted) + standardized errors
+- ✅ WebGPUModernAPI: 347 lines (extracted) + standardized errors
+- ✅ WebGPURenderPassManager: 152 lines (extracted) + VRAM tracking
 - ⏸️ WebGPUBackend: ~300 lines (coordinator) - currently 1784 lines
 - ✅ TypeScript strict mode compliance
 - ✅ All modules compile successfully
 - ⏸️ All tests pass
 - ⏸️ No breaking changes to public API
 
+## Code Critic Fixes Applied
+1. ✅ **Type Safety** - Added bindGroupLayout to WebGPUShader, removed `as any` casts
+2. ✅ **Memory Leak** - VRAM tracking for depth texture lifecycle (resize/init/dispose)
+3. ✅ **API Violation** - Local calculateBucketSize() instead of private findBucket() access
+4. ✅ **Error Messages** - WebGPUErrors constants, standardized across all modules
+5. ✅ **Resource Leak** - Fixed buffer pool double-release in dispose()
+
 ## Files Created
-- `packages/rendering/src/backends/webgpu/WebGPUTypes.ts` (120 lines)
-- `packages/rendering/src/backends/webgpu/WebGPUResourceManager.ts` (280 lines)
-- `packages/rendering/src/backends/webgpu/WebGPUPipelineManager.ts` (200 lines)
-- `packages/rendering/src/backends/webgpu/WebGPUCommandEncoder.ts` (28 lines stub)
-- `packages/rendering/src/backends/webgpu/WebGPUModernAPI.ts` (90 lines stub)
-- `packages/rendering/src/backends/webgpu/WebGPURenderPassManager.ts` (70 lines stub)
+- `packages/rendering/src/backends/webgpu/WebGPUTypes.ts` (136 lines) - Shared types + WebGPUErrors
+- `packages/rendering/src/backends/webgpu/WebGPUResourceManager.ts` (303 lines) - Resource lifecycle
+- `packages/rendering/src/backends/webgpu/WebGPUPipelineManager.ts` (200 lines) - Pipeline caching
+- `packages/rendering/src/backends/webgpu/WebGPUCommandEncoder.ts` (212 lines) - Draw execution
+- `packages/rendering/src/backends/webgpu/WebGPUModernAPI.ts` (347 lines) - Epic 3.14 API
+- `packages/rendering/src/backends/webgpu/WebGPURenderPassManager.ts` (152 lines) - Render passes
+
+**Total: 1,350 lines extracted** (WebGPUBackend.ts still 1784 lines)
 
 ## Modified Files
-- `packages/rendering/tsconfig.json` - Added noUnusedParameters: false for stubs
+- `packages/rendering/tsconfig.json` - Added noUnusedParameters: false, noUnusedLocals: false
