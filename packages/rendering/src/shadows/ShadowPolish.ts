@@ -232,12 +232,37 @@ export class ShadowPolish {
    * Update configuration
    */
   updateConfig(partial: Partial<ShadowPolishConfig>): void {
+    // Deep merge nested objects
+    const newBias = partial.bias ? { ...this.config.bias, ...partial.bias } : this.config.bias;
+    const newLightLeak = partial.lightLeak ? { ...this.config.lightLeak, ...partial.lightLeak } : this.config.lightLeak;
+    const newEdgeCase = partial.edgeCase ? { ...this.config.edgeCase, ...partial.edgeCase } : this.config.edgeCase;
+
+    // CRITICAL: Validate constraints
+    if (newBias.minBias > newBias.maxBias) {
+      throw new Error(`minBias (${newBias.minBias}) cannot exceed maxBias (${newBias.maxBias})`);
+    }
+    if (newBias.constantBias < 0 || newBias.slopeBias < 0 || newBias.normalBias < 0 || newBias.minBias < 0 || newBias.maxBias < 0) {
+      throw new Error('Bias values cannot be negative');
+    }
+    if (newLightLeak.maxDiscontinuity < 0) {
+      throw new Error('maxDiscontinuity cannot be negative');
+    }
+    if (newLightLeak.receiverPlaneOffset < 0) {
+      throw new Error('receiverPlaneOffset cannot be negative');
+    }
+    if (newEdgeCase.largeObjectThreshold <= 0) {
+      throw new Error('largeObjectThreshold must be positive');
+    }
+    if (newEdgeCase.extremeAngleThreshold <= 0 || newEdgeCase.extremeAngleThreshold > Math.PI) {
+      throw new Error('extremeAngleThreshold must be in (0, π]');
+    }
+
     this.config = {
       ...this.config,
       ...partial,
-      bias: { ...this.config.bias, ...partial.bias },
-      lightLeak: { ...this.config.lightLeak, ...partial.lightLeak },
-      edgeCase: { ...this.config.edgeCase, ...partial.edgeCase },
+      bias: newBias,
+      lightLeak: newLightLeak,
+      edgeCase: newEdgeCase,
     };
 
     // Mark as custom if modified
@@ -258,10 +283,22 @@ export class ShadowPolish {
    * @returns Shadow bias value
    */
   calculateBias(normal: Float32Array | number[], lightDir: Float32Array | number[], distance: number): number {
+    // CRITICAL: Validate inputs
+    if (normal.length < 3 || lightDir.length < 3) {
+      throw new Error('normal and lightDir must be 3D vectors');
+    }
+    if (distance < 0) {
+      throw new Error('distance must be non-negative');
+    }
+    if (!Number.isFinite(distance)) {
+      throw new Error('distance must be finite');
+    }
+
     const { bias, edgeCase } = this.config;
 
     // Calculate surface angle relative to light
-    const cosTheta = Math.max(0, this.dot(normal, lightDir));
+    // CRITICAL: Clamp cosTheta to [0, 1] to prevent Math.acos(>1.0) = NaN
+    const cosTheta = Math.max(0, Math.min(1, this.dot(normal, lightDir)));
     const angle = Math.acos(cosTheta);
 
     // Base bias: constant + slope-based
@@ -325,10 +362,20 @@ export class ShadowPolish {
 
     // Check depth discontinuity
     const receiverToLight = this.subtract(lightPos, receiverWorldPos);
-    const occluderToLight = this.subtract(lightPos, occluderWorldPos);
-
     const receiverDist = this.length(receiverToLight);
+
+    // CRITICAL: Check for zero-length vector (light at receiver position)
+    if (receiverDist < 1e-6) {
+      return false; // Light at receiver position - invalid shadow
+    }
+
+    const occluderToLight = this.subtract(lightPos, occluderWorldPos);
     const occluderDist = this.length(occluderToLight);
+
+    // CRITICAL: Check for zero-length vector (light at occluder position)
+    if (occluderDist < 1e-6) {
+      return false; // Light at occluder position - no shadow cast
+    }
 
     const discontinuity = Math.abs(receiverDist - occluderDist);
 
@@ -347,7 +394,7 @@ export class ShadowPolish {
     const lightDir = this.normalize(receiverToLight);
     const facing = this.dot(normal, lightDir);
 
-    if (facing < 0.0) {
+    if (facing <= 0.0) {
       // Surface facing away from light - should not receive shadows
       return false;
     }
@@ -412,7 +459,10 @@ export class ShadowPolish {
 
   private normalize(v: Float32Array | number[]): number[] {
     const len = this.length(v);
-    if (len === 0) return [0, 0, 0];
+    // CRITICAL: Use epsilon comparison for zero-length check
+    if (len < 1e-6) {
+      throw new Error('Cannot normalize zero-length vector');
+    }
     return [v[0] / len, v[1] / len, v[2] / len];
   }
 
@@ -452,6 +502,9 @@ export function autoTuneShadowBias(
   config.bias.constantBias *= sceneScale;
   config.bias.slopeBias *= sceneScale;
   config.bias.normalBias *= sceneScale;
+  // CRITICAL: Scale min/max bias too to maintain valid constraints
+  config.bias.minBias *= sceneScale;
+  config.bias.maxBias *= sceneScale;
 
   // Adjust for large objects
   if (hasLargeObjects) {

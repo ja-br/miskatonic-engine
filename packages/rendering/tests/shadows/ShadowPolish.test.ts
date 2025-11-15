@@ -348,6 +348,94 @@ describe('ShadowPolish', () => {
     });
   });
 
+  describe('Edge Cases and Validation', () => {
+    beforeEach(() => {
+      shadowPolish = new ShadowPolish(ShadowQualityProfile.Medium);
+    });
+
+    it('should reject negative distance in calculateBias', () => {
+      expect(() => shadowPolish.calculateBias([0,1,0], [0,1,0], -100)).toThrow('distance must be non-negative');
+    });
+
+    it('should reject infinite distance in calculateBias', () => {
+      expect(() => shadowPolish.calculateBias([0,1,0], [0,1,0], Infinity)).toThrow('distance must be finite');
+    });
+
+    it('should reject short vectors in calculateBias', () => {
+      expect(() => shadowPolish.calculateBias([0,1], [0,1,0], 10)).toThrow('3D vectors');
+    });
+
+    it('should handle zero-length vectors in validateShadow (light at receiver)', () => {
+      const receiverPos = [0, 0, 0];
+      const occluderPos = [0, 5, 0];
+      const lightPos = [0, 0, 0]; // Same as receiver!
+      const normal = [0, 1, 0];
+
+      const isValid = shadowPolish.validateShadow(receiverPos, occluderPos, lightPos, normal);
+      expect(isValid).toBe(false);
+    });
+
+    it('should handle zero-length vectors in validateShadow (light at occluder)', () => {
+      const receiverPos = [0, 0, 0];
+      const occluderPos = [0, 5, 0];
+      const lightPos = [0, 5, 0]; // Same as occluder!
+      const normal = [0, 1, 0];
+
+      const isValid = shadowPolish.validateShadow(receiverPos, occluderPos, lightPos, normal);
+      expect(isValid).toBe(false);
+    });
+
+    it('should reject minBias > maxBias in updateConfig', () => {
+      expect(() => {
+        shadowPolish.updateConfig({
+          bias: {
+            ...shadowPolish.getConfig().bias,
+            minBias: 0.1,
+            maxBias: 0.01,
+          },
+        });
+      }).toThrow('minBias');
+    });
+
+    it('should reject negative bias values in updateConfig', () => {
+      expect(() => {
+        shadowPolish.updateConfig({
+          bias: {
+            ...shadowPolish.getConfig().bias,
+            constantBias: -0.01,
+          },
+        });
+      }).toThrow('negative');
+    });
+
+    it('should reject invalid extreme angle threshold in updateConfig', () => {
+      expect(() => {
+        shadowPolish.updateConfig({
+          edgeCase: {
+            ...shadowPolish.getConfig().edgeCase,
+            extremeAngleThreshold: Math.PI + 0.1,
+          },
+        });
+      }).toThrow('extremeAngleThreshold');
+    });
+
+    it('should not mutate presets when auto-tuning', () => {
+      const originalBias = { ...SHADOW_QUALITY_PRESETS[ShadowQualityProfile.Medium].bias };
+      autoTuneShadowBias(500, 200, true, true);
+      expect(SHADOW_QUALITY_PRESETS[ShadowQualityProfile.Medium].bias).toEqual(originalBias);
+    });
+
+    it('should maintain valid constraints in small scenes', () => {
+      const config = autoTuneShadowBias(1, 50, false, false);
+
+      // sceneScale = 1/100 = 0.01
+      // All bias values should be scaled down
+      expect(config.bias.minBias).toBeLessThan(config.bias.maxBias);
+      expect(config.bias.constantBias).toBeGreaterThanOrEqual(config.bias.minBias);
+      expect(config.bias.constantBias).toBeLessThanOrEqual(config.bias.maxBias);
+    });
+  });
+
   describe('Auto-Tuning', () => {
     it('should auto-tune for small scene', () => {
       const config = autoTuneShadowBias(50, 20, false, false);
