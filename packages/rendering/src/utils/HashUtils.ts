@@ -137,15 +137,21 @@ export class HashUtils {
    * Hash arbitrary data structure
    * Converts to JSON and hashes the string representation
    *
-   * CRITICAL: Throws error for unstringifiable data (circular refs, Symbols, Functions)
+   * CRITICAL: Throws TypeError for unstringifiable data (circular refs, undefined at root)
    * This prevents creating a collision bucket where all failed hashes map to same value.
    *
+   * Note: JSON.stringify omits Symbol and Function properties (not an error).
+   * Only circular references and root-level undefined throw TypeError.
+   *
    * @param data - Data to hash (must be JSON-serializable)
-   * @returns Hash value as base-36 string
-   * @throws Error if data cannot be stringified
+   * @returns 32-bit unsigned hash value
+   * @throws TypeError if data contains circular references or is root-level undefined
    */
-  static hashData(data: unknown): string {
-    const json = JSON.stringify(data); // Let it throw for unstringifiable data
-    return this.fnv1a(json).toString(36);
+  static hashData(data: unknown): number {
+    const json = JSON.stringify(data); // Throws TypeError for circular refs and undefined
+    if (json === undefined) {
+      throw new TypeError('Cannot hash undefined value');
+    }
+    return this.fnv1a(json);
   }
 }

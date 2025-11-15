@@ -360,8 +360,8 @@ describe('HashUtils', () => {
     it('should hash simple object', () => {
       const data = { x: 10, y: 20 };
       const hash = HashUtils.hashData(data);
-      expect(hash).toBeTruthy();
-      expect(typeof hash).toBe('string');
+      expect(hash).toBeGreaterThan(0);
+      expect(typeof hash).toBe('number');
     });
 
     it('should hash array', () => {
@@ -395,11 +395,11 @@ describe('HashUtils', () => {
       expect(hash1).not.toBe(hash2);
     });
 
-    it('should throw for circular references', () => {
+    it('should throw TypeError for circular references', () => {
       const data: any = { a: 1 };
       data.self = data; // Circular reference
 
-      expect(() => HashUtils.hashData(data)).toThrow();
+      expect(() => HashUtils.hashData(data)).toThrow(TypeError);
     });
 
     it('should handle data with Symbol (Symbol is omitted in JSON)', () => {
@@ -423,16 +423,17 @@ describe('HashUtils', () => {
       expect(hash).toBeTruthy();
     });
 
-    it('should throw for undefined (JSON.stringify returns undefined)', () => {
+    it('should throw TypeError for undefined (JSON.stringify returns undefined)', () => {
       // JSON.stringify(undefined) returns undefined (not a string)
-      // This should throw when passed to fnv1a
-      expect(() => HashUtils.hashData(undefined)).toThrow();
+      // This should throw TypeError
+      expect(() => HashUtils.hashData(undefined)).toThrow(TypeError);
     });
 
-    it('should return base-36 encoded string', () => {
+    it('should return unsigned 32-bit integer', () => {
       const hash = HashUtils.hashData({ test: 'data' });
-      // Base-36 uses 0-9 and a-z
-      expect(/^[0-9a-z]+$/.test(hash)).toBe(true);
+      expect(Number.isInteger(hash)).toBe(true);
+      expect(hash).toBeGreaterThanOrEqual(0);
+      expect(hash).toBeLessThanOrEqual(0xFFFFFFFF);
     });
   });
 

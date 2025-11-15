@@ -251,6 +251,34 @@ export const ENABLE_VERBOSE_LOGGING = false;
 export const MAX_ERROR_LOG_COUNT = 100;
 
 // ============================================================================
+// WebGPU Spec Minimums (Hardware Limits - Query device.limits for Actual Values)
+// ============================================================================
+
+/**
+ * WebGPU spec minimum for maxComputeWorkgroupSizeX
+ * Actual device limit may be higher - query device.limits.maxComputeWorkgroupSizeX
+ */
+export const WEBGPU_MIN_WORKGROUP_SIZE_X = 256;
+
+/**
+ * WebGPU spec minimum for maxComputeWorkgroupSizeY
+ * Actual device limit may be higher - query device.limits.maxComputeWorkgroupSizeY
+ */
+export const WEBGPU_MIN_WORKGROUP_SIZE_Y = 256;
+
+/**
+ * WebGPU spec minimum for maxComputeWorkgroupSizeZ
+ * Actual device limit may be higher - query device.limits.maxComputeWorkgroupSizeZ
+ */
+export const WEBGPU_MIN_WORKGROUP_SIZE_Z = 64;
+
+/**
+ * WebGPU spec minimum for maxComputeInvocationsPerWorkgroup
+ * Actual device limit may be higher - query device.limits.maxComputeInvocationsPerWorkgroup
+ */
+export const WEBGPU_MIN_INVOCATIONS_PER_WORKGROUP = 256;
+
+// ============================================================================
 // Resource Limits (Engine Policy - NOT Hardware Limits)
 // ============================================================================
 
