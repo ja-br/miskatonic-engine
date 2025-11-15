@@ -111,7 +111,16 @@ export class WebGPUBackend implements IRendererBackend {
         return false;
       }
 
-      this.initializeTimestampQueries();
+      try {
+        this.initializeTimestampQueries();
+      } catch (error) {
+        console.warn('[WebGPUBackend] Failed to initialize timestamp queries:', error);
+        this.hasTimestampQuery = false; // Prevent usage of uninitialized resources
+      }
+
+      if (!this.ctx.canvas) {
+        throw new Error('Canvas not available during initialization');
+      }
 
       const moduleConfig = this.createModuleConfig();
       this.initializeModules(moduleConfig);
@@ -121,7 +130,7 @@ export class WebGPUBackend implements IRendererBackend {
 
       return true;
     } catch (error) {
-      console.error('Failed to initialize WebGPU:', error);
+      console.error('[WebGPUBackend] Failed to initialize WebGPU:', error);
       return false;
     }
   }
@@ -159,6 +168,16 @@ export class WebGPUBackend implements IRendererBackend {
     // Destroy resources
     this.renderPassMgr.dispose();
     this.resourceMgr.dispose();
+
+    // Cancel all pending timestamp reads before destroying buffers
+    for (const buffer of this.pendingTimestampReads) {
+      try {
+        buffer.unmap();
+      } catch (e) {
+        // Buffer may not be mapped, that's ok
+      }
+    }
+    this.pendingTimestampReads.clear();
 
     if (this.timestampQuerySet) this.timestampQuerySet.destroy();
     if (this.timestampBuffer) this.timestampBuffer.destroy();
@@ -238,13 +257,21 @@ export class WebGPUBackend implements IRendererBackend {
    * Resolve timestamp queries and submit command buffer
    */
   private resolveAndSubmitWithTimestamps(): void {
-    if (!this.ctx.device || !this.ctx.commandEncoder) return;
+    if (!this.ctx.device || !this.ctx.commandEncoder || !this.timestampQuerySet || !this.timestampBuffer) {
+      // Fallback to simple submit if resources not available
+      if (this.ctx.device && this.ctx.commandEncoder) {
+        const commandBuffer = this.ctx.commandEncoder.finish();
+        this.ctx.device.queue.submit([commandBuffer]);
+        this.ctx.commandEncoder = null;
+      }
+      return;
+    }
 
     this.ctx.commandEncoder.resolveQuerySet(
-      this.timestampQuerySet!,
+      this.timestampQuerySet,
       0,
       2,
-      this.timestampBuffer!,
+      this.timestampBuffer,
       0
     );
 
@@ -252,7 +279,7 @@ export class WebGPUBackend implements IRendererBackend {
 
     if (targetBuffer) {
       this.ctx.commandEncoder.copyBufferToBuffer(
-        this.timestampBuffer!,
+        this.timestampBuffer,
         0,
         targetBuffer,
         0,
@@ -609,17 +636,18 @@ export class WebGPUBackend implements IRendererBackend {
 
   /**
    * Initialize all WebGPU rendering modules
+   *
+   * IMPORTANT: Order matters - modernAPI must be created before commandEncoder
+   * because commandEncoder depends on modernAPI callbacks.
    */
   private initializeModules(moduleConfig: ModuleConfig): void {
+    // Step 1: Resource management (no dependencies)
     this.resourceMgr = new WebGPUResourceManager(this.ctx, moduleConfig);
+
+    // Step 2: Pipeline management (depends on resourceMgr)
     this.pipelineMgr = new WebGPUPipelineManager(this.ctx, (id) => this.resourceMgr.getShader(id));
-    this.commandEncoder = new WebGPUCommandEncoder(
-      this.ctx,
-      (id) => this.resourceMgr.getBuffer(id),
-      (id) => this.modernAPI?.getBindGroup(id),
-      (id) => this.modernAPI?.getPipeline(id),
-      this.stats
-    );
+
+    // Step 3: Modern API (depends on resourceMgr) - MUST come before commandEncoder
     this.modernAPI = new WebGPUModernAPI(
       this.ctx,
       (id) => this.resourceMgr.getShader(id),
@@ -627,6 +655,17 @@ export class WebGPUBackend implements IRendererBackend {
       (id) => this.resourceMgr.getTexture(id),
       moduleConfig
     );
+
+    // Step 4: Command encoder (depends on resourceMgr AND modernAPI)
+    this.commandEncoder = new WebGPUCommandEncoder(
+      this.ctx,
+      (id) => this.resourceMgr.getBuffer(id),
+      (id) => this.modernAPI.getBindGroup(id), // No longer using optional chaining - modernAPI is guaranteed initialized
+      (id) => this.modernAPI.getPipeline(id),  // No longer using optional chaining - modernAPI is guaranteed initialized
+      this.stats
+    );
+
+    // Step 5: Render pass management (depends on resourceMgr, vramProfiler)
     this.renderPassMgr = new WebGPURenderPassManager(
       this.ctx,
       (id) => this.resourceMgr.getFramebuffer(id),
