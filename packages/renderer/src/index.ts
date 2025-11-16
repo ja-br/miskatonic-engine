@@ -65,6 +65,21 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // Epic 3.4: Wire up retro mode toggle
+    const retroBtn = document.getElementById('retro-btn');
+    if (retroBtn) {
+      retroBtn.addEventListener('click', () => {
+        demo.toggleRetroMode();
+        const enabled = demo.isRetroModeEnabled();
+        retroBtn.textContent = `RETRO MODE: ${enabled ? 'ON' : 'OFF'}`;
+        if (enabled) {
+          retroBtn.style.background = '#f0a';
+        } else {
+          retroBtn.style.background = '';
+        }
+      });
+    }
+
     // Make demo available for debugging
     if (process.env.NODE_ENV === 'development') {
       window.__MISKATONIC_DEBUG__ = {

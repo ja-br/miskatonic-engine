@@ -816,19 +816,9 @@ export class RetroPostProcessor {
    * Create render pipelines and bind group layouts
    */
   private async createPipelines(): Promise<void> {
-    // Load shader source
-    const shaderPath = '/Users/bud/Code/miskatonic/packages/rendering/src/shaders/retro-post-process.wgsl';
-    let shaderCode: string;
-
-    try {
-      // In Node.js environment (for tests)
-      const fs = await import('fs');
-      shaderCode = fs.readFileSync(shaderPath, 'utf-8');
-    } catch {
-      // In browser environment, shader loading will be handled differently
-      // For now, this is a placeholder
-      throw new Error('Shader loading not implemented for browser environment yet');
-    }
+    // Load shader source using Vite's ?raw import
+    const shaderModule = await import('../shaders/retro-post-process.wgsl?raw');
+    const shaderCode = shaderModule.default;
 
     const shaderSource: ShaderSource = {
       vertex: shaderCode,

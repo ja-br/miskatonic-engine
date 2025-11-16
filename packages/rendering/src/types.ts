@@ -30,7 +30,17 @@ export type ShaderType = 'vertex' | 'fragment';
 /**
  * Texture formats
  */
-export type TextureFormat = 'rgb' | 'rgba' | 'depth' | 'depth_stencil';
+export type TextureFormat =
+  | 'rgb'
+  | 'rgba'
+  | 'depth'
+  | 'depth_stencil'
+  | 'rgba8unorm'
+  | 'bgra8unorm'
+  | 'rgba16float'
+  | 'rgba32float'
+  | 'depth24plus'
+  | 'r8unorm';
 
 /**
  * Texture filtering modes

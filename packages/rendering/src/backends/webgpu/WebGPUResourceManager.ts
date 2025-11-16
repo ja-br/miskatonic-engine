@@ -158,7 +158,8 @@ export class WebGPUResourceManager {
     if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
 
     const gpuFormat = this.getWebGPUTextureFormat(format);
-    const textureSize = width * height * 4;
+    const bytesPerPixel = this.getBytesPerPixel(gpuFormat);
+    const textureSize = width * height * bytesPerPixel;
 
     if (!this.config.vramProfiler.allocate(id, VRAMCategory.TEXTURES, textureSize)) {
       throw new Error(`VRAM budget exceeded: cannot allocate ${textureSize} bytes for texture ${id}`);
@@ -172,10 +173,14 @@ export class WebGPUResourceManager {
     });
 
     if (data) {
+      // WebGPU requires bytesPerRow to be a multiple of 256
+      const unalignedBytesPerRow = width * bytesPerPixel;
+      const bytesPerRow = Math.ceil(unalignedBytesPerRow / 256) * 256;
+
       this.ctx.device.queue.writeTexture(
         { texture },
         data,
-        { bytesPerRow: width * 4 },
+        { bytesPerRow },
         { width, height }
       );
     }
@@ -289,8 +294,30 @@ export class WebGPUResourceManager {
       rgba16float: 'rgba16float',
       rgba32float: 'rgba32float',
       depth24plus: 'depth24plus',
+      r8unorm: 'r8unorm',
     };
     return formatMap[format] || 'rgba8unorm';
+  }
+
+  /**
+   * Get bytes per pixel for a texture format
+   */
+  private getBytesPerPixel(format: GPUTextureFormat): number {
+    switch (format) {
+      case 'r8unorm':
+        return 1;
+      case 'rgba8unorm':
+      case 'bgra8unorm':
+        return 4;
+      case 'rgba16float':
+        return 8;
+      case 'rgba32float':
+        return 16;
+      case 'depth24plus':
+        return 4;
+      default:
+        return 4;
+    }
   }
 
   /**

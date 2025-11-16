@@ -22,7 +22,16 @@ import {
   type BackendBindGroupHandle,
   type BackendBindGroupLayoutHandle,
   type BackendPipelineHandle,
+  type BackendTextureHandle,
 } from '../../rendering/src';
+import {
+  RetroPostProcessor,
+  RetroLODSystem,
+  DEFAULT_RETRO_POST_CONFIG,
+  DEFAULT_LOD_DISTANCES,
+  type RetroPostProcessConfig,
+  type LODGroupConfig,
+} from '../../rendering/src/retro';
 import {
   PhysicsWorld,
   RapierPhysicsEngine,
@@ -126,6 +135,12 @@ export class Demo {
   // P1.2: Cache physics rotations to avoid fetching twice per frame
   private rotationCache: Map<EntityId, { x: number; y: number; z: number; w: number }> = new Map();
 
+  // Epic 3.4: Retro Rendering Systems
+  private retroPostProcessor: RetroPostProcessor | null = null;
+  private retroLODSystem: RetroLODSystem | null = null;
+  private sceneTexture: BackendTextureHandle | null = null; // Intermediate texture for post-processing
+  private retroModeEnabled = false; // Toggle for retro rendering
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
 
@@ -173,6 +188,9 @@ export class Demo {
 
       // CRITICAL: Sync backend depth buffer with current canvas size
       this.backend.resize(this.canvas.width, this.canvas.height);
+
+      // Epic 3.4: Initialize retro rendering systems
+      await this.initializeRetroSystems();
 
       // Create ECS camera entity
       this.cameraEntity = this.world.createEntity();
@@ -441,6 +459,104 @@ export class Demo {
       'static_draw'
     );
     this.sphereIndexCount = sphereData.indices.length;
+  }
+
+  /**
+   * Initialize retro rendering systems (Epic 3.4)
+   */
+  private async initializeRetroSystems(): Promise<void> {
+    if (!this.backend) return;
+
+    console.log('Initializing retro rendering systems...');
+
+    // Create intermediate scene texture for post-processing
+    this.sceneTexture = this.backend.createTexture(
+      'retro-scene-texture',
+      this.canvas.width,
+      this.canvas.height,
+      null,
+      {
+        format: 'rgba8unorm',
+        minFilter: 'linear',
+        magFilter: 'linear',
+        wrapS: 'clamp_to_edge',
+        wrapT: 'clamp_to_edge',
+        generateMipmaps: false,
+      }
+    );
+
+    // Initialize RetroPostProcessor with PS2-era effects
+    const retroConfig: RetroPostProcessConfig = {
+      ...DEFAULT_RETRO_POST_CONFIG,
+      bloom: {
+        enabled: true,
+        intensity: 0.6,
+        threshold: 0.5,
+        downscaleFactor: 4,
+      },
+      toneMappingMode: 'reinhard', // Classic PS2-era tone mapping
+      dithering: {
+        enabled: true,
+        strength: 0.5,
+      },
+      filmGrain: {
+        enabled: true,
+        intensity: 0.15,
+      },
+    };
+
+    this.retroPostProcessor = new RetroPostProcessor(this.backend, retroConfig);
+    await this.retroPostProcessor.initialize(this.canvas.width, this.canvas.height);
+
+    // Initialize RetroLODSystem with mesh groups
+    this.retroLODSystem = new RetroLODSystem(this.backend);
+
+    // Register cube LOD group (for D6 dice)
+    const cubeLODConfig: LODGroupConfig = {
+      id: 'cube',
+      levels: [
+        {
+          distance: DEFAULT_LOD_DISTANCES[0], // 0m - high detail
+          meshData: { vertexCount: this.cubeIndexCount / 3, triangleCount: this.cubeIndexCount / 3 },
+        },
+        {
+          distance: DEFAULT_LOD_DISTANCES[1], // 20m - medium detail
+          meshData: { vertexCount: 24, triangleCount: 8 }, // Simplified cube
+        },
+        {
+          distance: DEFAULT_LOD_DISTANCES[2], // 50m - low detail
+          meshData: { vertexCount: 8, triangleCount: 4 }, // Very simple cube
+        },
+      ],
+      crossfadeDuration: 0.3,
+    };
+    this.retroLODSystem.addLODGroup(cubeLODConfig);
+
+    // Register sphere LOD group (for D4, D8, D10, D12, D20)
+    const sphereLODConfig: LODGroupConfig = {
+      id: 'sphere',
+      levels: [
+        {
+          distance: DEFAULT_LOD_DISTANCES[0], // 0m - high detail (16x12)
+          meshData: { vertexCount: this.sphereIndexCount / 3, triangleCount: this.sphereIndexCount / 3 },
+        },
+        {
+          distance: DEFAULT_LOD_DISTANCES[1], // 20m - medium detail (8x6)
+          meshData: { vertexCount: 48, triangleCount: 32 },
+        },
+        {
+          distance: DEFAULT_LOD_DISTANCES[2], // 50m - low detail (4x3)
+          meshData: { vertexCount: 12, triangleCount: 8 },
+        },
+      ],
+      crossfadeDuration: 0.3,
+    };
+    this.retroLODSystem.addLODGroup(sphereLODConfig);
+
+    console.log('Retro rendering systems initialized successfully');
+    console.log('- Post-processor: Bloom, Tone Mapping, Dithering, Film Grain');
+    console.log(`- LOD System: 2 groups (cube, sphere) with 3 LOD levels each`);
+    console.log(`- LOD distances: ${DEFAULT_LOD_DISTANCES.join('m, ')}m`);
   }
 
 
@@ -908,8 +1024,14 @@ export class Demo {
     // Epic 3.14: Begin frame
     this.backend.beginFrame();
 
+    // Epic 3.4: Conditional rendering based on retro mode
+    // If retro mode enabled: render to scene texture → apply post-processing → present
+    // If retro mode disabled: render directly to screen
+    const renderTarget = (this.retroModeEnabled && this.sceneTexture) ? this.sceneTexture : null;
+    const passName = this.retroModeEnabled ? 'Retro Scene Pass' : 'Main Render Pass';
+
     // Begin render pass with clear color
-    this.backend.beginRenderPass(null, [0.05, 0.05, 0.08, 1.0], 1.0, 0, 'Main Render Pass');
+    this.backend.beginRenderPass(renderTarget, [0.05, 0.05, 0.08, 1.0], 1.0, 0, passName);
 
     // Helper function to get die color based on number of sides
     const getDieColor = (sides: number): [number, number, number] => {
@@ -1012,6 +1134,15 @@ export class Demo {
     const tDiceLoopEnd = performance.now();
     const t4 = tDiceLoopEnd; // For timing compatibility
     const t5 = tDiceLoopEnd;
+
+    // Epic 3.4: Apply retro post-processing if enabled
+    if (this.retroModeEnabled && this.retroPostProcessor && this.sceneTexture) {
+      // End scene render pass
+      // (Current WebGPU backend doesn't have explicit endRenderPass, handled in endFrame)
+
+      // Apply post-processing from scene texture to screen
+      this.retroPostProcessor.apply(this.sceneTexture, null); // null = render to screen
+    }
 
     // Epic 3.14: End frame
     const t6 = performance.now();
@@ -1536,6 +1667,32 @@ export class Demo {
 
     // Update display
     this.updateDiceCountDisplay();
+  }
+
+  /**
+   * Epic 3.4: Toggle retro rendering mode
+   */
+  public toggleRetroMode(): void {
+    this.retroModeEnabled = !this.retroModeEnabled;
+    console.log(`[RETRO] Mode ${this.retroModeEnabled ? 'ENABLED' : 'DISABLED'}`);
+    console.log(`[RETRO] ${this.retroModeEnabled ? 'Applying' : 'Disabled'} PS2-era post-processing effects`);
+  }
+
+  /**
+   * Epic 3.4: Get current retro mode state
+   */
+  public isRetroModeEnabled(): boolean {
+    return this.retroModeEnabled;
+  }
+
+  /**
+   * Epic 3.4: Update retro post-processing config
+   */
+  public updateRetroConfig(config: Partial<RetroPostProcessConfig>): void {
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.updateConfig(config);
+      console.log('[RETRO] Config updated:', config);
+    }
   }
 
   private updateDiceCountDisplay(): void {
