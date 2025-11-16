@@ -12,6 +12,7 @@ import type {
   BackendBufferHandle,
   BackendTextureHandle,
   BackendFramebufferHandle,
+  BackendSamplerHandle,
   BackendBindGroupLayoutHandle,
   BackendBindGroupHandle,
   BackendPipelineHandle,
@@ -100,8 +101,16 @@ export function createMockBackend(): IRendererBackend {
       return createMockHandle('bindGroupLayout');
     },
 
+    deleteBindGroupLayout(handle: BackendBindGroupLayoutHandle): void {
+      // No-op
+    },
+
     createBindGroup(layout: BackendBindGroupLayoutHandle, resources: BindGroupResources): BackendBindGroupHandle {
       return createMockHandle('bindGroup');
+    },
+
+    deleteBindGroup(handle: BackendBindGroupHandle): void {
+      // No-op
     },
 
     createRenderPipeline(descriptor: RenderPipelineDescriptor): BackendPipelineHandle {
@@ -110,6 +119,10 @@ export function createMockBackend(): IRendererBackend {
 
     createComputePipeline(descriptor: ComputePipelineDescriptor): BackendPipelineHandle {
       return createMockHandle('computePipeline');
+    },
+
+    deletePipeline(handle: BackendPipelineHandle): void {
+      // No-op
     },
 
     beginFrame(): void {
@@ -147,6 +160,28 @@ export function createMockBackend(): IRendererBackend {
     },
 
     deleteFramebuffer(handle: BackendFramebufferHandle): void {
+      // No-op
+    },
+
+    createSampler(id: string, config: any): BackendSamplerHandle {
+      return createMockHandle('sampler');
+    },
+
+    deleteSampler(handle: BackendSamplerHandle): void {
+      // No-op
+    },
+
+    beginRenderPass(
+      target: BackendFramebufferHandle | null,
+      clearColor?: [number, number, number, number],
+      clearDepth?: number,
+      clearStencil?: number,
+      label?: string
+    ): void {
+      // No-op
+    },
+
+    endRenderPass(): void {
       // No-op
     },
 
