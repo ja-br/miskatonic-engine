@@ -109,6 +109,19 @@ export class WebGPUModernAPI {
         };
       }
 
+      // Check for BackendTextureHandle directly
+      if ('__brand' in resource && resource.__brand === 'BackendTexture') {
+        const textureHandle = resource as BackendTextureHandle;
+        const textureData = this.getTexture(textureHandle.id);
+        if (!textureData) {
+          throw new Error(`Texture ${textureHandle.id} not found`);
+        }
+        return {
+          binding: binding.binding,
+          resource: textureData.view,
+        };
+      }
+
       // Check for texture (or combined texture+sampler for backward compat)
       if ('texture' in resource) {
         const textureBinding = resource as { texture: BackendTextureHandle; sampler?: any };
