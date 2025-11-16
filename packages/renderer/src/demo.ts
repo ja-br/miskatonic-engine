@@ -501,7 +501,7 @@ export class Demo {
       this.canvas.height,
       null,
       {
-        format: 'rgba8unorm',
+        format: 'bgra8unorm',
         minFilter: 'linear',
         magFilter: 'linear',
         wrapS: 'clamp_to_edge',
@@ -519,12 +519,16 @@ export class Demo {
         threshold: 0.5,
         downscaleFactor: 4,
       },
-      toneMappingMode: 'reinhard', // Classic PS2-era tone mapping
-      dithering: {
+      toneMapping: {
+        enabled: true,
+        mode: 'reinhard',
+        exposure: 1.0,
+      },
+      dither: {
         enabled: true,
         strength: 0.5,
       },
-      filmGrain: {
+      grain: {
         enabled: true,
         intensity: 0.15,
       },
@@ -541,22 +545,22 @@ export class Demo {
       id: 'cube',
       levels: [
         {
-          minDistance: 0,
-          maxDistance: DEFAULT_LOD_DISTANCES[0], // 0-20m - high detail
-          vertexCount: this.cubeIndexCount / 3,
+          minDistance: DEFAULT_LOD_DISTANCES.close.min,
+          maxDistance: DEFAULT_LOD_DISTANCES.close.max, // 0-30m - high detail
+          vertexCount: 36, // Full detail cube (6 faces * 2 triangles * 3 vertices)
         },
         {
-          minDistance: DEFAULT_LOD_DISTANCES[0],
-          maxDistance: DEFAULT_LOD_DISTANCES[1], // 20-50m - medium detail
+          minDistance: DEFAULT_LOD_DISTANCES.medium.min,
+          maxDistance: DEFAULT_LOD_DISTANCES.medium.max, // 30-100m - medium detail
           vertexCount: 24, // Simplified cube
         },
         {
-          minDistance: DEFAULT_LOD_DISTANCES[1],
-          maxDistance: Infinity, // 50m+ - low detail
+          minDistance: DEFAULT_LOD_DISTANCES.far.min,
+          maxDistance: DEFAULT_LOD_DISTANCES.far.max, // 100-200m - low detail
           vertexCount: 8, // Very simple cube
         },
       ],
-      crossfadeDistance: 0.3,
+      crossfadeDistance: DEFAULT_LOD_DISTANCES.crossfade,
     };
     this.retroLODSystem.registerGroup(cubeLODConfig);
 
@@ -565,29 +569,29 @@ export class Demo {
       id: 'sphere',
       levels: [
         {
-          minDistance: 0,
-          maxDistance: DEFAULT_LOD_DISTANCES[0], // 0-20m - high detail (16x12)
-          vertexCount: this.sphereIndexCount / 3,
+          minDistance: DEFAULT_LOD_DISTANCES.close.min,
+          maxDistance: DEFAULT_LOD_DISTANCES.close.max, // 0-30m - high detail (16x12)
+          vertexCount: 192, // 16 segments * 12 rings
         },
         {
-          minDistance: DEFAULT_LOD_DISTANCES[0],
-          maxDistance: DEFAULT_LOD_DISTANCES[1], // 20-50m - medium detail (8x6)
+          minDistance: DEFAULT_LOD_DISTANCES.medium.min,
+          maxDistance: DEFAULT_LOD_DISTANCES.medium.max, // 30-100m - medium detail (8x6)
           vertexCount: 48,
         },
         {
-          minDistance: DEFAULT_LOD_DISTANCES[1],
-          maxDistance: Infinity, // 50m+ - low detail (4x3)
+          minDistance: DEFAULT_LOD_DISTANCES.far.min,
+          maxDistance: DEFAULT_LOD_DISTANCES.far.max, // 100-200m - low detail (4x3)
           vertexCount: 12,
         },
       ],
-      crossfadeDistance: 0.3,
+      crossfadeDistance: DEFAULT_LOD_DISTANCES.crossfade,
     };
     this.retroLODSystem.registerGroup(sphereLODConfig);
 
     console.log('Retro rendering systems initialized successfully');
     console.log('- Post-processor: Bloom, Tone Mapping, Dithering, Film Grain');
     console.log(`- LOD System: 2 groups (cube, sphere) with 3 LOD levels each`);
-    console.log(`- LOD distances: ${DEFAULT_LOD_DISTANCES.join('m, ')}m`);
+    console.log(`- LOD distances: close(0-${DEFAULT_LOD_DISTANCES.close.max}m), medium(${DEFAULT_LOD_DISTANCES.medium.min}-${DEFAULT_LOD_DISTANCES.medium.max}m), far(${DEFAULT_LOD_DISTANCES.far.min}-${DEFAULT_LOD_DISTANCES.far.max}m)`);
   }
 
 
@@ -1735,6 +1739,11 @@ export class Demo {
    * Epic 3.4: Toggle retro rendering mode
    */
   public toggleRetroMode(): void {
+    if (!this.retroPostProcessor || !this.retroLODSystem) {
+      console.warn('[RETRO] Cannot toggle retro mode - systems not initialized');
+      return;
+    }
+
     this.retroModeEnabled = !this.retroModeEnabled;
     console.log(`[RETRO] Mode ${this.retroModeEnabled ? 'ENABLED' : 'DISABLED'}`);
     console.log(`[RETRO] ${this.retroModeEnabled ? 'Applying' : 'Disabled'} PS2-era post-processing effects`);
