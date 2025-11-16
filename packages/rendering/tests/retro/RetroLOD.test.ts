@@ -23,6 +23,10 @@ describe('RetroLODSystem', () => {
     lodSystem = new RetroLODSystem(backend);
   });
 
+  afterEach(() => {
+    lodSystem.dispose();
+  });
+
   describe('Initialization', () => {
     it('should initialize successfully', () => {
       expect(() => lodSystem.initialize()).not.toThrow();
@@ -484,6 +488,53 @@ describe('RetroLODSystem', () => {
 
       // With inclusive bounds on both ends, distance 50 matches LOD 0's [0, 50]
       // Implementation returns first match
+      expect(selection.primaryLOD).toBe(0);
+    });
+
+    it('should handle distance at zero (minimum boundary)', () => {
+      const group: LODGroupConfig = {
+        id: 'zero_dist',
+        levels: [
+          { minDistance: 0, maxDistance: 50, vertexCount: 1000 },
+        ],
+        crossfadeDistance: 10,
+      };
+
+      lodSystem.registerGroup(group);
+
+      const selection = lodSystem.selectLOD('zero_dist', 0);
+      expect(selection.primaryLOD).toBe(0);
+    });
+
+    it('should handle very large distances (culling)', () => {
+      const group: LODGroupConfig = {
+        id: 'far',
+        levels: [
+          { minDistance: 0, maxDistance: 100, vertexCount: 1000 },
+        ],
+        crossfadeDistance: 10,
+      };
+
+      lodSystem.registerGroup(group);
+
+      // Beyond furthest LOD should be culled
+      const selection = lodSystem.selectLOD('far', 1000);
+      expect(selection.primaryLOD).toBe(-1);
+    });
+
+    it('should handle negative distances', () => {
+      const group: LODGroupConfig = {
+        id: 'negative',
+        levels: [
+          { minDistance: 0, maxDistance: 100, vertexCount: 1000 },
+        ],
+        crossfadeDistance: 10,
+      };
+
+      lodSystem.registerGroup(group);
+
+      // Negative distance should select LOD 0 (before closest LOD)
+      const selection = lodSystem.selectLOD('negative', -10);
       expect(selection.primaryLOD).toBe(0);
     });
   });
