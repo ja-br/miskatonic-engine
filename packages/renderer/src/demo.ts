@@ -468,50 +468,6 @@ export class Demo {
    */
 
   /**
-   * Create depth texture using WebGPU device directly
-   * backend.createTexture() is designed for color textures only - depth textures
-   * require different GPU usage flags and VRAM tracking.
-   *
-   * Based on WebGPURenderPassManager.ts pattern (lines 189-193)
-   */
-  private createDepthTexture(width: number, height: number, id: string): BackendTextureHandle {
-    // Access WebGPU device directly (demo code, acceptable cast)
-    const ctx = (this.backend as any).ctx;
-    if (!ctx || !ctx.device) {
-      throw new Error('WebGPU device not initialized');
-    }
-
-    const depthFormat = this.backend.getDepthFormat();
-
-    // Create depth texture with correct GPU usage flags
-    const gpuTexture = ctx.device.createTexture({
-      size: { width, height },
-      format: depthFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT, // Only need render attachment
-      label: `Texture: ${id}`
-    });
-
-    // Track VRAM manually with correct byte calculation
-    const bytesPerPixel = depthFormat === 'depth16unorm' ? 2 : 4;
-    const vramSize = width * height * bytesPerPixel;
-    this.backend.getVRAMProfiler().allocate(id, 'textures', vramSize);
-
-    // Store in resource manager for proper lifecycle
-    const resourceManager = (this.backend as any).resourceManager;
-    if (resourceManager) {
-      const textureView = gpuTexture.createView();
-      resourceManager.textures.set(id, {
-        texture: gpuTexture,
-        view: textureView,
-        size: vramSize
-      });
-    }
-
-    // Return handle
-    return { __brand: 'BackendTexture', id } as BackendTextureHandle;
-  }
-
-  /**
    * Dispose retro rendering systems and free GPU resources
    */
   private disposeRetroSystems(): void {
@@ -568,12 +524,20 @@ export class Demo {
       }
     );
 
-    // Create depth texture for scene rendering using WebGPU device directly
-    // (backend.createTexture is for color textures only)
-    this.sceneDepthTexture = this.createDepthTexture(
+    // Create depth texture for scene rendering
+    this.sceneDepthTexture = this.backend.createTexture(
+      'retro-scene-depth',
       this.canvas.width,
       this.canvas.height,
-      'retro-scene-depth'
+      null,
+      {
+        format: this.backend.getDepthFormat() as any, // Cast needed until TextureFormat is updated
+        minFilter: 'nearest',
+        magFilter: 'nearest',
+        wrapS: 'clamp_to_edge',
+        wrapT: 'clamp_to_edge',
+        generateMipmaps: false,
+      }
     );
 
     // Create framebuffer WITH depth attachment for scene rendering
@@ -955,11 +919,20 @@ export class Demo {
         }
       );
 
-      // Recreate depth texture with new size using correct API
-      this.sceneDepthTexture = this.createDepthTexture(
+      // Recreate depth texture with new size
+      this.sceneDepthTexture = this.backend.createTexture(
+        'retro-scene-depth',
         this.canvas.width,
         this.canvas.height,
-        'retro-scene-depth'
+        null,
+        {
+          format: this.backend.getDepthFormat() as any, // Cast needed until TextureFormat is updated
+          minFilter: 'nearest',
+          magFilter: 'nearest',
+          wrapS: 'clamp_to_edge',
+          wrapT: 'clamp_to_edge',
+          generateMipmaps: false,
+        }
       );
 
       // Recreate framebuffer wrapping new textures

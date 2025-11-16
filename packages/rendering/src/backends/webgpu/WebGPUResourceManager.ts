@@ -318,16 +318,18 @@ export class WebGPUResourceManager {
     return this.samplers.get(id);
   }
 
-  private getWebGPUTextureFormat(format: TextureFormat): GPUTextureFormat {
+  private getWebGPUTextureFormat(format: TextureFormat | GPUTextureFormat): GPUTextureFormat {
     const formatMap: Record<string, GPUTextureFormat> = {
       rgba8unorm: 'rgba8unorm',
       bgra8unorm: 'bgra8unorm',
       rgba16float: 'rgba16float',
       rgba32float: 'rgba32float',
+      depth16unorm: 'depth16unorm',  // Add support for depth16unorm
       depth24plus: 'depth24plus',
+      'depth24plus-stencil8': 'depth24plus-stencil8',  // Add support for depth24plus-stencil8
       r8unorm: 'r8unorm',
     };
-    return formatMap[format] || 'rgba8unorm';
+    return formatMap[format] || format as GPUTextureFormat || 'rgba8unorm';
   }
 
   /**
