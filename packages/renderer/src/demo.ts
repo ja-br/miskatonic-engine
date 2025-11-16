@@ -141,7 +141,6 @@ export class Demo {
   private sceneTexture: BackendTextureHandle | null = null; // Intermediate texture for post-processing
   private sceneDepthTexture: BackendTextureHandle | null = null; // Depth texture for scene rendering
   private sceneFramebuffer: BackendFramebufferHandle | null = null; // Framebuffer wrapping sceneTexture
-  private retroModeEnabled = false; // Toggle for retro rendering
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -468,43 +467,10 @@ export class Demo {
    */
 
   /**
-   * Dispose retro rendering systems and free GPU resources
+   * Initialize retro rendering systems
    */
-  private disposeRetroSystems(): void {
-    // CRITICAL: Delete framebuffer before textures to avoid use-after-free
-    if (this.sceneFramebuffer && this.backend) {
-      this.backend.deleteFramebuffer(this.sceneFramebuffer);
-      this.sceneFramebuffer = null;
-    }
-
-    if (this.sceneTexture && this.backend) {
-      this.backend.deleteTexture(this.sceneTexture);
-      this.sceneTexture = null;
-    }
-
-    if (this.sceneDepthTexture && this.backend) {
-      this.backend.deleteTexture(this.sceneDepthTexture);
-      this.sceneDepthTexture = null;
-    }
-
-    if (this.retroPostProcessor) {
-      this.retroPostProcessor.dispose();
-      this.retroPostProcessor = null;
-    }
-
-    if (this.retroLODSystem) {
-      this.retroLODSystem.dispose();
-      this.retroLODSystem = null;
-    }
-
-    console.log('Retro rendering systems disposed');
-  }
-
   private async initializeRetroSystems(): Promise<void> {
     if (!this.backend) return;
-
-    // Dispose old systems if they exist (idempotent initialization)
-    this.disposeRetroSystems();
 
     console.log('Initializing retro rendering systems...');
 
@@ -862,11 +828,9 @@ export class Demo {
           this.backend.resize(this.canvas.width, this.canvas.height);
         }
 
-        // Re-initialize retro rendering systems (idempotent if already initialized)
-        if (this.retroModeEnabled) {
-          console.log('Re-initializing retro rendering systems after context restore...');
-          await this.initializeRetroSystems();
-        }
+        // Re-initialize retro rendering systems after context restore
+        console.log('Re-initializing retro rendering systems after context restore...');
+        await this.initializeRetroSystems();
 
         // Restart render loop
         this.start();
@@ -1161,11 +1125,9 @@ export class Demo {
     // Epic 3.14: Begin frame
     this.backend.beginFrame();
 
-    // Epic 3.4: Conditional rendering based on retro mode
-    // If retro mode enabled: render to scene framebuffer → apply post-processing → present
-    // If retro mode disabled: render directly to screen
-    const renderTarget = (this.retroModeEnabled && this.sceneFramebuffer) ? this.sceneFramebuffer : null;
-    const passName = this.retroModeEnabled ? 'Retro Scene Pass' : 'Main Render Pass';
+    // Always render to scene framebuffer for post-processing
+    const renderTarget = this.sceneFramebuffer;
+    const passName = 'Retro Scene Pass';
 
     // Begin render pass with clear color
     this.backend.beginRenderPass(renderTarget, [0.05, 0.05, 0.08, 1.0], 1.0, 0, passName);
@@ -1272,8 +1234,8 @@ export class Demo {
     const t4 = tDiceLoopEnd; // For timing compatibility
     const t5 = tDiceLoopEnd;
 
-    // Epic 3.4: Apply retro post-processing if enabled
-    if (this.retroModeEnabled && this.retroPostProcessor && this.sceneTexture) {
+    // Always apply retro post-processing
+    if (this.retroPostProcessor && this.sceneTexture) {
       // End scene render pass before post-processing
       this.backend.endRenderPass();
 
@@ -1806,26 +1768,6 @@ export class Demo {
     this.updateDiceCountDisplay();
   }
 
-  /**
-   * Epic 3.4: Toggle retro rendering mode
-   */
-  public toggleRetroMode(): void {
-    if (!this.retroPostProcessor || !this.retroLODSystem) {
-      console.warn('[RETRO] Cannot toggle retro mode - systems not initialized');
-      return;
-    }
-
-    this.retroModeEnabled = !this.retroModeEnabled;
-    console.log(`[RETRO] Mode ${this.retroModeEnabled ? 'ENABLED' : 'DISABLED'}`);
-    console.log(`[RETRO] ${this.retroModeEnabled ? 'Applying' : 'Disabled'} PS2-era post-processing effects`);
-  }
-
-  /**
-   * Epic 3.4: Get current retro mode state
-   */
-  public isRetroModeEnabled(): boolean {
-    return this.retroModeEnabled;
-  }
 
   /**
    * Epic 3.4: Update retro post-processing config
