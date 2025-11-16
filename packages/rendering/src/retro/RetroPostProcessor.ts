@@ -817,8 +817,23 @@ export class RetroPostProcessor {
    */
   private async createPipelines(): Promise<void> {
     // Load shader source using Vite's ?raw import
-    const shaderModule = await import('../shaders/retro-post-process.wgsl?raw');
-    const shaderCode = shaderModule.default;
+    let shaderCode: string;
+    try {
+      const shaderModule = await import('../shaders/retro-post-process.wgsl?raw');
+
+      if (!shaderModule?.default || typeof shaderModule.default !== 'string') {
+        throw new Error('Invalid shader module: expected non-empty string from Vite ?raw import');
+      }
+
+      shaderCode = shaderModule.default;
+
+      if (shaderCode.length === 0) {
+        throw new Error('Shader source is empty after loading');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to load retro post-process shader: ${message}`);
+    }
 
     const shaderSource: ShaderSource = {
       vertex: shaderCode,

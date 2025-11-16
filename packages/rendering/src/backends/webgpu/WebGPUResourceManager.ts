@@ -301,22 +301,131 @@ export class WebGPUResourceManager {
 
   /**
    * Get bytes per pixel for a texture format
+   * Comprehensive coverage of all WebGPU texture formats
+   *
+   * @throws Error if format is not supported or requires special handling
    */
   private getBytesPerPixel(format: GPUTextureFormat): number {
     switch (format) {
+      // 8-bit formats (1 byte per pixel)
       case 'r8unorm':
+      case 'r8snorm':
+      case 'r8uint':
+      case 'r8sint':
         return 1;
+
+      // 16-bit formats (2 bytes per pixel)
+      case 'r16uint':
+      case 'r16sint':
+      case 'r16float':
+      case 'rg8unorm':
+      case 'rg8snorm':
+      case 'rg8uint':
+      case 'rg8sint':
+        return 2;
+
+      // 32-bit formats (4 bytes per pixel)
+      case 'r32uint':
+      case 'r32sint':
+      case 'r32float':
+      case 'rg16uint':
+      case 'rg16sint':
+      case 'rg16float':
       case 'rgba8unorm':
+      case 'rgba8unorm-srgb':
+      case 'rgba8snorm':
+      case 'rgba8uint':
+      case 'rgba8sint':
       case 'bgra8unorm':
+      case 'bgra8unorm-srgb':
+      case 'rgb9e5ufloat':
+      case 'rgb10a2unorm':
+      case 'rg11b10ufloat':
+      case 'depth32float':
+      case 'depth24plus':
+      case 'depth24plus-stencil8':
         return 4;
+
+      // 64-bit formats (8 bytes per pixel)
+      case 'rg32uint':
+      case 'rg32sint':
+      case 'rg32float':
+      case 'rgba16uint':
+      case 'rgba16sint':
       case 'rgba16float':
         return 8;
+
+      // 128-bit formats (16 bytes per pixel)
+      case 'rgba32uint':
+      case 'rgba32sint':
       case 'rgba32float':
         return 16;
-      case 'depth24plus':
-        return 4;
+
+      // Special depth/stencil formats
+      case 'stencil8':
+        return 1;
+      case 'depth16unorm':
+        return 2;
+      case 'depth32float-stencil8':
+        return 5; // 4 bytes depth + 1 byte stencil
+
+      // Compressed formats - throw error, require special handling
+      case 'bc1-rgba-unorm':
+      case 'bc1-rgba-unorm-srgb':
+      case 'bc2-rgba-unorm':
+      case 'bc2-rgba-unorm-srgb':
+      case 'bc3-rgba-unorm':
+      case 'bc3-rgba-unorm-srgb':
+      case 'bc4-r-unorm':
+      case 'bc4-r-snorm':
+      case 'bc5-rg-unorm':
+      case 'bc5-rg-snorm':
+      case 'bc6h-rgb-ufloat':
+      case 'bc6h-rgb-float':
+      case 'bc7-rgba-unorm':
+      case 'bc7-rgba-unorm-srgb':
+      case 'etc2-rgb8unorm':
+      case 'etc2-rgb8unorm-srgb':
+      case 'etc2-rgb8a1unorm':
+      case 'etc2-rgb8a1unorm-srgb':
+      case 'etc2-rgba8unorm':
+      case 'etc2-rgba8unorm-srgb':
+      case 'eac-r11unorm':
+      case 'eac-r11snorm':
+      case 'eac-rg11unorm':
+      case 'eac-rg11snorm':
+      case 'astc-4x4-unorm':
+      case 'astc-4x4-unorm-srgb':
+      case 'astc-5x4-unorm':
+      case 'astc-5x4-unorm-srgb':
+      case 'astc-5x5-unorm':
+      case 'astc-5x5-unorm-srgb':
+      case 'astc-6x5-unorm':
+      case 'astc-6x5-unorm-srgb':
+      case 'astc-6x6-unorm':
+      case 'astc-6x6-unorm-srgb':
+      case 'astc-8x5-unorm':
+      case 'astc-8x5-unorm-srgb':
+      case 'astc-8x6-unorm':
+      case 'astc-8x6-unorm-srgb':
+      case 'astc-8x8-unorm':
+      case 'astc-8x8-unorm-srgb':
+      case 'astc-10x5-unorm':
+      case 'astc-10x5-unorm-srgb':
+      case 'astc-10x6-unorm':
+      case 'astc-10x6-unorm-srgb':
+      case 'astc-10x8-unorm':
+      case 'astc-10x8-unorm-srgb':
+      case 'astc-10x10-unorm':
+      case 'astc-10x10-unorm-srgb':
+      case 'astc-12x10-unorm':
+      case 'astc-12x10-unorm-srgb':
+      case 'astc-12x12-unorm':
+      case 'astc-12x12-unorm-srgb':
+        throw new Error(`Compressed texture format '${format}' requires block-based size calculation. Use getBlockSize() instead.`);
+
       default:
-        return 4;
+        throw new Error(`Unsupported texture format: ${format}. Add format to getBytesPerPixel() if needed.`);
     }
   }
 

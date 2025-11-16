@@ -464,8 +464,33 @@ export class Demo {
   /**
    * Initialize retro rendering systems (Epic 3.4)
    */
+  /**
+   * Dispose retro rendering systems and free GPU resources
+   */
+  private disposeRetroSystems(): void {
+    if (this.sceneTexture && this.backend) {
+      this.backend.deleteTexture(this.sceneTexture);
+      this.sceneTexture = null;
+    }
+
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.dispose();
+      this.retroPostProcessor = null;
+    }
+
+    if (this.retroLODSystem) {
+      this.retroLODSystem.dispose();
+      this.retroLODSystem = null;
+    }
+
+    console.log('Retro rendering systems disposed');
+  }
+
   private async initializeRetroSystems(): Promise<void> {
     if (!this.backend) return;
+
+    // Dispose old systems if they exist (idempotent initialization)
+    this.disposeRetroSystems();
 
     console.log('Initializing retro rendering systems...');
 
@@ -790,6 +815,12 @@ export class Demo {
           this.backend.resize(this.canvas.width, this.canvas.height);
         }
 
+        // Re-initialize retro rendering systems (if they were active)
+        if (this.retroModeEnabled || this.sceneTexture || this.retroPostProcessor || this.retroLODSystem) {
+          console.log('Re-initializing retro rendering systems after context restore...');
+          await this.initializeRetroSystems();
+        }
+
         // Restart render loop
         this.start();
         console.log('Renderer successfully restored after context loss');
@@ -809,6 +840,31 @@ export class Demo {
     // Notify backend to resize depth buffer to match canvas
     if (this.backend) {
       this.backend.resize(this.canvas.width, this.canvas.height);
+    }
+
+    // Recreate scene texture to match new canvas size (if retro systems are initialized)
+    if (this.sceneTexture && this.backend) {
+      console.log(`Recreating scene texture for new canvas size: ${this.canvas.width}x${this.canvas.height}`);
+      this.backend.deleteTexture(this.sceneTexture);
+      this.sceneTexture = this.backend.createTexture(
+        'retro-scene-texture',
+        this.canvas.width,
+        this.canvas.height,
+        null,
+        {
+          format: 'rgba8unorm',
+          minFilter: 'linear',
+          magFilter: 'linear',
+          wrapS: 'clamp_to_edge',
+          wrapT: 'clamp_to_edge',
+          generateMipmaps: false,
+        }
+      );
+
+      // Resize retro post-processor to match new canvas size
+      if (this.retroPostProcessor) {
+        this.retroPostProcessor.resize(this.canvas.width, this.canvas.height);
+      }
     }
   }
 
