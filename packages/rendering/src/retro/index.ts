@@ -12,6 +12,14 @@ export {
   DEFAULT_RETRO_POST_CONFIG,
 } from './RetroPostProcessor';
 
+// Post-processing Integration (Epic 3.4 Phase 2)
+export {
+  addRetroPostProcessPass,
+  applyRetroPostProcess,
+  resizeRetroPostProcessor,
+  type RetroPostProcessPassConfig,
+} from './RetroPostProcessIntegration';
+
 // Lighting
 export {
   RetroLighting,

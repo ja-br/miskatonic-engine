@@ -117,8 +117,13 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
   - Added `beginRenderPass`/`endRenderPass` to IRendererBackend
   - Updated `BindGroupResources` to support separate texture/sampler bindings
   - All 3 post-processing passes (bloom extract, blur, composite) now functional
+- ✅ Integration with main rendering pipeline - **COMPLETE**
+  - Created `RetroPostProcessIntegration.ts` with helper functions
+  - `addRetroPostProcessPass()` - Adds retro post to RenderPassManager
+  - `applyRetroPostProcess()` - Low-level direct application
+  - `resizeRetroPostProcessor()` - Viewport resize handling
+  - 13 integration tests passing, validates multi-pass pipelines
 - Implement shader loading in `RetroMaterial.createShaderAndPipeline()` - **DEFERRED**
-- Integration with main rendering pipeline - **TODO**
 - Performance validation (60 FPS target) - **TODO**
 - Additional tests for LOD and Material systems - **TODO**
 
