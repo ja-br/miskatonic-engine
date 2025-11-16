@@ -123,9 +123,16 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
   - `applyRetroPostProcess()` - Low-level direct application
   - `resizeRetroPostProcessor()` - Viewport resize handling
   - 13 integration tests passing, validates multi-pass pipelines
+- ✅ Additional tests for LOD and Material systems - **COMPLETE**
+  - Created `RetroLOD.test.ts` with 39 tests (initialization, registration, selection, crossfade, statistics, bias calculation, edge cases)
+  - Created `RetroMaterial.test.ts` with 38 tests (initialization, config, texture loading, filtering, uniform buffer, disposal, utility functions)
+  - All 139 retro tests passing across 5 test files
+  - RetroLOD: 334 lines now covered (was 0 tests)
+  - RetroMaterial: 456 lines now covered (was 0 tests)
 - Implement shader loading in `RetroMaterial.createShaderAndPipeline()` - **DEFERRED**
+  - Requires build-time shader bundling system (separate epic)
+  - Current approach (fs.readFileSync with hardcoded paths) won't work in production
 - Performance validation (60 FPS target) - **TODO**
-- Additional tests for LOD and Material systems - **TODO**
 
 **Acceptance Criteria (Phase 1):**
 - Retro aesthetic matches PS2-era references (defaults validated)
