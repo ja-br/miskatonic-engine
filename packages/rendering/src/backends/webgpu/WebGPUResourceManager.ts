@@ -173,9 +173,40 @@ export class WebGPUResourceManager {
     });
 
     if (data) {
-      // WebGPU requires bytesPerRow to be a multiple of 256
-      const unalignedBytesPerRow = width * bytesPerPixel;
-      const bytesPerRow = Math.ceil(unalignedBytesPerRow / 256) * 256;
+      // Validate dimensions
+      if (width <= 0 || height <= 0) {
+        throw new Error(
+          `Invalid texture dimensions: ${width}x${height} (must be positive integers). ` +
+          `Texture: '${id}'`
+        );
+      }
+
+      // Validate format compatibility
+      if (this.isCompressedFormat(gpuFormat)) {
+        throw new Error(
+          `Cannot upload data to compressed texture format '${format}'. ` +
+          `Compressed textures must be uploaded via copyBufferToTexture() with proper block alignment. ` +
+          `Use uncompressed formats (r8unorm, rgba8unorm, etc.) for direct uploads. ` +
+          `Texture: '${id}'`
+        );
+      }
+
+      // Calculate upload parameters
+      // NOTE: queue.writeTexture() does NOT require 256-byte alignment for bytesPerRow.
+      // The 256-byte alignment requirement ONLY applies to copyBufferToTexture().
+      // See: https://www.w3.org/TR/webgpu/#dom-gpuimagedatalayout-bytesperrow
+      const bytesPerRow = width * bytesPerPixel;
+      const expectedDataSize = bytesPerRow * height;
+
+      // Validate data buffer size
+      if (data.byteLength < expectedDataSize) {
+        throw new Error(
+          `Texture data buffer too small: expected ${expectedDataSize} bytes ` +
+          `for ${width}x${height} ${format} texture, got ${data.byteLength} bytes. ` +
+          `Each row requires ${bytesPerRow} bytes (${width} pixels × ${bytesPerPixel} bytes/pixel). ` +
+          `Texture: '${id}'`
+        );
+      }
 
       this.ctx.device.queue.writeTexture(
         { texture },
@@ -427,6 +458,19 @@ export class WebGPUResourceManager {
       default:
         throw new Error(`Unsupported texture format: ${format}. Add format to getBytesPerPixel() if needed.`);
     }
+  }
+
+  /**
+   * Check if a texture format is compressed (block-based)
+   * Compressed formats require special handling and cannot be used with queue.writeTexture()
+   */
+  private isCompressedFormat(format: GPUTextureFormat): boolean {
+    return (
+      format.startsWith('bc') ||
+      format.startsWith('etc2') ||
+      format.startsWith('eac-') ||
+      format.startsWith('astc-')
+    );
   }
 
   /**

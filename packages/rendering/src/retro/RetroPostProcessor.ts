@@ -22,6 +22,7 @@ import { RenderPass, RenderPassManager } from '../RenderPass';
 import type { ShaderSource } from '../types';
 import { RenderCommandType } from '../types';
 import type { DrawCommand } from '../commands/DrawCommand';
+import { RETRO_POST_PROCESS_SHADER } from '../shaders/retroPostProcessShaderSource';
 
 /**
  * Retro post-processing configuration
@@ -817,28 +818,17 @@ export class RetroPostProcessor {
    * Create render pipelines and bind group layouts
    */
   private async createPipelines(): Promise<void> {
-    // Load shader source using Vite's ?raw import
-    let shaderCode: string;
-    try {
-      const shaderModule = await import('../shaders/retro-post-process.wgsl?raw');
-
-      if (!shaderModule?.default || typeof shaderModule.default !== 'string') {
-        throw new Error('Invalid shader module: expected non-empty string from Vite ?raw import');
-      }
-
-      shaderCode = shaderModule.default;
-
-      if (shaderCode.length === 0) {
-        throw new Error('Shader source is empty after loading');
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to load retro post-process shader: ${message}`);
+    // Validate shader constant (defensive check, should never fail)
+    if (!RETRO_POST_PROCESS_SHADER || RETRO_POST_PROCESS_SHADER.length === 0) {
+      throw new Error(
+        'Failed to load retro post-process shader: shader source constant is empty. ' +
+        'This indicates a critical build issue - contact the engine team.'
+      );
     }
 
     const shaderSource: ShaderSource = {
-      vertex: shaderCode,
-      fragment: shaderCode,
+      vertex: RETRO_POST_PROCESS_SHADER,
+      fragment: RETRO_POST_PROCESS_SHADER,
     };
 
     // Create shader modules (one per entry point due to WebGPU limitations)
