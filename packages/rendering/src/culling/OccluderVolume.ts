@@ -187,17 +187,28 @@ export class OccluderVolumeManager {
     sphere: BoundingSphere,
     box: BoundingBox
   ): OcclusionResult {
-    // Convert sphere to AABB (conservative bounding box)
-    const sphereBox = new BoundingBox(
-      sphere.x - sphere.radius,
-      sphere.y - sphere.radius,
-      sphere.z - sphere.radius,
-      sphere.x + sphere.radius,
-      sphere.y + sphere.radius,
-      sphere.z + sphere.radius
-    );
+    // Inline containment check to avoid allocating BoundingBox in hot path
+    // Check if sphere's AABB is fully contained within occluder box
+    const sphereMinX = sphere.x - sphere.radius;
+    const sphereMaxX = sphere.x + sphere.radius;
+    const sphereMinY = sphere.y - sphere.radius;
+    const sphereMaxY = sphere.y + sphere.radius;
+    const sphereMinZ = sphere.z - sphere.radius;
+    const sphereMaxZ = sphere.z + sphere.radius;
 
-    return this.testBoxAgainstBox(sphereBox, box);
+    const fullyContained =
+      sphereMinX >= box.minX &&
+      sphereMaxX <= box.maxX &&
+      sphereMinY >= box.minY &&
+      sphereMaxY <= box.maxY &&
+      sphereMinZ >= box.minZ &&
+      sphereMaxZ <= box.maxZ;
+
+    if (fullyContained) {
+      return OcclusionResult.OCCLUDED;
+    }
+
+    return OcclusionResult.VISIBLE;
   }
 
   /**

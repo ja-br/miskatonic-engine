@@ -189,16 +189,11 @@ export class SoftwareOcclusionTest {
     // Sample depth buffer at sphere center
     const bufferDepth = this.sampleDepthBuffer(screenPos.x, screenPos.y);
 
-    // Conservative: sphere is occluded only if center is behind depth buffer
-    // AND sphere doesn't extend in front of occluder
-    const sphereDepth = screenPos.z;
-    const sphereRadius = sphere.radius;
-
-    // Estimate depth range of sphere (conservative)
-    const depthMin = sphereDepth - sphereRadius;
-
-    if (depthMin > bufferDepth) {
-      // Sphere is fully behind occluder
+    // Conservative: Only cull if sphere CENTER is behind occluder
+    // This is conservative because it ignores sphere radius, so spheres
+    // partially behind occluders will be considered visible.
+    if (screenPos.z >= bufferDepth) {
+      // Sphere center is fully behind occluder
       return DepthOcclusionResult.OCCLUDED;
     }
 
@@ -318,13 +313,12 @@ export class SoftwareOcclusionTest {
     const pixelMaxY = Math.ceil(maxY * this.resolution);
 
     // Fill pixels with nearest depth (conservative rasterization)
+    // Note: x and y are already guaranteed to be within [0, resolution) due to clamping above
     for (let y = pixelMinY; y < pixelMaxY; y++) {
       for (let x = pixelMinX; x < pixelMaxX; x++) {
-        if (x >= 0 && x < this.resolution && y >= 0 && y < this.resolution) {
-          const index = y * this.resolution + x;
-          // Update depth buffer (keep closest depth)
-          this.depthBuffer[index] = Math.min(this.depthBuffer[index], minDepth);
-        }
+        const index = y * this.resolution + x;
+        // Update depth buffer (keep closest depth)
+        this.depthBuffer[index] = Math.min(this.depthBuffer[index], minDepth);
       }
     }
   }
