@@ -14,6 +14,7 @@ import type {
   BackendBufferHandle,
   BackendTextureHandle,
   BackendFramebufferHandle,
+  BackendSamplerHandle,
   BackendBindGroupLayoutHandle,
   BackendBindGroupHandle,
   BackendPipelineHandle,
@@ -432,6 +433,22 @@ export class WebGPUBackend implements IRendererBackend {
 
   deleteFramebuffer(handle: BackendFramebufferHandle): void {
     this.resourceMgr.destroyFramebuffer(handle);
+  }
+
+  createSampler(
+    id: string,
+    config: {
+      minFilter?: 'nearest' | 'linear';
+      magFilter?: 'nearest' | 'linear';
+      wrapS?: 'repeat' | 'clamp' | 'mirror';
+      wrapT?: 'repeat' | 'clamp' | 'mirror';
+    }
+  ): BackendSamplerHandle {
+    return this.resourceMgr.createSampler(id, config);
+  }
+
+  deleteSampler(handle: BackendSamplerHandle): void {
+    this.resourceMgr.destroySampler(handle);
   }
 
   // Modern API - Delegate to ModernAPI

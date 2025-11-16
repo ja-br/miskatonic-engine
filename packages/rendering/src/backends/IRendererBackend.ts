@@ -76,6 +76,14 @@ export interface BackendPipelineHandle {
 }
 
 /**
+ * Epic 3.4 Phase 2: Sampler handle for texture sampling configuration
+ */
+export interface BackendSamplerHandle {
+  readonly __brand: 'BackendSampler';
+  readonly id: string;
+}
+
+/**
  * Backend capability flags
  */
 export interface BackendCapabilities {
@@ -159,7 +167,7 @@ export interface ComputePipelineDescriptor {
 export interface BindGroupResources {
   bindings: Array<{
     binding: number;
-    resource: BackendBufferHandle | { texture: BackendTextureHandle; sampler?: any };
+    resource: BackendBufferHandle | { texture: BackendTextureHandle; sampler?: BackendSamplerHandle };
   }>;
 }
 
@@ -326,6 +334,24 @@ export interface IRendererBackend {
    * Delete framebuffer
    */
   deleteFramebuffer(handle: BackendFramebufferHandle): void;
+
+  /**
+   * Create sampler for texture sampling configuration (Epic 3.4 Phase 2)
+   */
+  createSampler(
+    id: string,
+    config: {
+      minFilter?: 'nearest' | 'linear';
+      magFilter?: 'nearest' | 'linear';
+      wrapS?: 'repeat' | 'clamp' | 'mirror';
+      wrapT?: 'repeat' | 'clamp' | 'mirror';
+    }
+  ): BackendSamplerHandle;
+
+  /**
+   * Delete sampler
+   */
+  deleteSampler(handle: BackendSamplerHandle): void;
 
   // Epic 3.14: Modern Rendering API Methods
 

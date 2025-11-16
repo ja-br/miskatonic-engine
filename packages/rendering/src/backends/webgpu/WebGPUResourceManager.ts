@@ -8,6 +8,7 @@ import type {
   BackendBufferHandle,
   BackendTextureHandle,
   BackendFramebufferHandle,
+  BackendSamplerHandle,
 } from '../IRendererBackend.js';
 import type { ShaderSource, BufferUsage, TextureFormat } from '../../types.js';
 import type { WebGPUContext, ModuleConfig, WebGPUShader, WebGPUBuffer, WebGPUTexture, WebGPUFramebuffer } from './WebGPUTypes.js';
@@ -239,14 +240,26 @@ export class WebGPUResourceManager {
     this.framebuffers.delete(handle.id);
   }
 
-  createSampler(config: { minFilter?: string; magFilter?: string; wrapS?: string; wrapT?: string }): GPUSampler {
+  createSampler(
+    id: string,
+    config: { minFilter?: string; magFilter?: string; wrapS?: string; wrapT?: string }
+  ): BackendSamplerHandle {
     if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
-    return this.ctx.device.createSampler({
+
+    const sampler = this.ctx.device.createSampler({
       minFilter: config.minFilter === 'linear' ? 'linear' : 'nearest',
       magFilter: config.magFilter === 'linear' ? 'linear' : 'nearest',
       addressModeU: config.wrapS === 'repeat' ? 'repeat' : 'clamp-to-edge',
       addressModeV: config.wrapT === 'repeat' ? 'repeat' : 'clamp-to-edge',
+      label: `Sampler: ${id}`,
     });
+
+    this.samplers.set(id, sampler);
+    return { __brand: 'BackendSampler', id } as BackendSamplerHandle;
+  }
+
+  destroySampler(handle: BackendSamplerHandle): void {
+    this.samplers.delete(handle.id);
   }
 
   getShader(id: string): WebGPUShader | undefined {
@@ -263,6 +276,10 @@ export class WebGPUResourceManager {
 
   getFramebuffer(id: string): WebGPUFramebuffer | undefined {
     return this.framebuffers.get(id);
+  }
+
+  getSampler(id: string): GPUSampler | undefined {
+    return this.samplers.get(id);
   }
 
   private getWebGPUTextureFormat(format: TextureFormat): GPUTextureFormat {
