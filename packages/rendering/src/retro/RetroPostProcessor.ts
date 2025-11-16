@@ -326,8 +326,9 @@ export class RetroPostProcessor {
       });
 
       // Begin render pass for composite (render to screen)
+      // Note: Always render to screen (null), not to outputTexture (which is BackendTextureHandle, not BackendFramebufferHandle)
       this.backend.beginRenderPass(
-        outputTexture ? outputTexture : null, // null = render to screen
+        null, // null = render to screen
         [0, 0, 0, 1],
         1.0,
         0,
@@ -543,7 +544,7 @@ export class RetroPostProcessor {
         bloomHeight,
         null,
         {
-          format: 'rgba8unorm',
+          format: 'bgra8unorm',
           minFilter: 'linear', // Bilinear upsample
           magFilter: 'linear',
           wrapS: 'clamp_to_edge',
@@ -840,10 +841,8 @@ export class RetroPostProcessor {
       fragment: RETRO_POST_PROCESS_SHADER,
     };
 
-    // Create shader modules (one per entry point due to WebGPU limitations)
-    const bloomExtractShader = this.backend.createShader('retro_bloom_extract', shaderSource);
-    const bloomBlurShader = this.backend.createShader('retro_bloom_blur', shaderSource);
-    const compositeShader = this.backend.createShader('retro_composite', shaderSource);
+    // Create single shader module (contains all entry points)
+    const postProcessShader = this.backend.createShader('retro_post_process', shaderSource);
 
     // Create bind group layouts
     // Group 0: Textures and samplers (6 bindings)
@@ -868,7 +867,7 @@ export class RetroPostProcessor {
     // Create render pipelines (fullscreen quad - no vertex buffers needed)
     this.bloomExtractPipeline = this.backend.createRenderPipeline({
       label: 'Retro Bloom Extract',
-      shader: bloomExtractShader,
+      shader: postProcessShader,
       vertexLayouts: [], // Empty - vertices generated in shader with @builtin(vertex_index)
       bindGroupLayouts: [this.textureBindGroupLayout, this.paramsBindGroupLayout],
       pipelineState: {
@@ -889,11 +888,13 @@ export class RetroPostProcessor {
         },
       },
       colorFormat: 'bgra8unorm',
+      vertexEntryPoint: 'vs_main',
+      fragmentEntryPoint: 'fs_bloom_extract',
     });
 
     this.bloomBlurPipeline = this.backend.createRenderPipeline({
       label: 'Retro Bloom Blur',
-      shader: bloomBlurShader,
+      shader: postProcessShader,
       vertexLayouts: [],
       bindGroupLayouts: [this.textureBindGroupLayout, this.paramsBindGroupLayout],
       pipelineState: {
@@ -914,11 +915,13 @@ export class RetroPostProcessor {
         },
       },
       colorFormat: 'bgra8unorm',
+      vertexEntryPoint: 'vs_main',
+      fragmentEntryPoint: 'fs_bloom_blur',
     });
 
     this.compositePipeline = this.backend.createRenderPipeline({
       label: 'Retro Composite',
-      shader: compositeShader,
+      shader: postProcessShader,
       vertexLayouts: [],
       bindGroupLayouts: [this.textureBindGroupLayout, this.paramsBindGroupLayout],
       pipelineState: {
@@ -939,11 +942,11 @@ export class RetroPostProcessor {
         },
       },
       colorFormat: 'bgra8unorm',
+      vertexEntryPoint: 'vs_main',
+      fragmentEntryPoint: 'fs_composite',
     });
 
-    // Cleanup temporary shader handles (pipelines retain compiled shader modules)
-    this.backend.deleteShader(bloomExtractShader);
-    this.backend.deleteShader(bloomBlurShader);
-    this.backend.deleteShader(compositeShader);
+    // Cleanup temporary shader handle (pipelines retain compiled shader modules)
+    this.backend.deleteShader(postProcessShader);
   }
 }

@@ -210,12 +210,12 @@ export class WebGPUModernAPI {
         layout: pipelineLayout,
         vertex: {
           module: shader.module,
-          entryPoint: 'vs_main',
+          entryPoint: descriptor.vertexEntryPoint || 'vs_main',
           buffers: gpuVertexLayouts,
         },
         fragment: {
           module: shader.module,
-          entryPoint: 'fs_main',
+          entryPoint: descriptor.fragmentEntryPoint || 'fs_main',
           targets: [{
             format: descriptor.colorFormat,
             blend: descriptor.pipelineState.blend?.enabled ? {

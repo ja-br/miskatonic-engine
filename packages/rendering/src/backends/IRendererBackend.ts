@@ -149,6 +149,10 @@ export interface RenderPipelineDescriptor {
   pipelineState: PipelineStateDescriptor;
   colorFormat: 'bgra8unorm' | 'rgba8unorm';
   depthFormat?: 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8';
+  /** Vertex shader entry point (defaults to 'vs_main') */
+  vertexEntryPoint?: string;
+  /** Fragment shader entry point (defaults to 'fs_main') */
+  fragmentEntryPoint?: string;
 }
 
 /**

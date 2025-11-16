@@ -139,6 +139,7 @@ export class Demo {
   private retroPostProcessor: RetroPostProcessor | null = null;
   private retroLODSystem: RetroLODSystem | null = null;
   private sceneTexture: BackendTextureHandle | null = null; // Intermediate texture for post-processing
+  private sceneFramebuffer: BackendFramebufferHandle | null = null; // Framebuffer wrapping sceneTexture
   private retroModeEnabled = false; // Toggle for retro rendering
 
   constructor(canvas: HTMLCanvasElement) {
@@ -510,6 +511,13 @@ export class Demo {
       }
     );
 
+    // Create framebuffer wrapping scene texture (required for beginRenderPass)
+    this.sceneFramebuffer = this.backend.createFramebuffer(
+      'retro-scene-framebuffer',
+      [this.sceneTexture],
+      undefined // No depth attachment for post-processing
+    );
+
     // Initialize RetroPostProcessor with PS2-era effects
     const retroConfig: RetroPostProcessConfig = {
       ...DEFAULT_RETRO_POST_CONFIG,
@@ -852,23 +860,38 @@ export class Demo {
       this.backend.resize(this.canvas.width, this.canvas.height);
     }
 
-    // Recreate scene texture to match new canvas size (if retro systems are initialized)
+    // Recreate scene texture and framebuffer to match new canvas size (if retro systems are initialized)
     if (this.sceneTexture && this.backend) {
       console.log(`Recreating scene texture for new canvas size: ${this.canvas.width}x${this.canvas.height}`);
+
+      // Delete old framebuffer first, then texture
+      if (this.sceneFramebuffer) {
+        this.backend.deleteFramebuffer(this.sceneFramebuffer);
+        this.sceneFramebuffer = null;
+      }
       this.backend.deleteTexture(this.sceneTexture);
+
+      // Recreate texture with new size
       this.sceneTexture = this.backend.createTexture(
         'retro-scene-texture',
         this.canvas.width,
         this.canvas.height,
         null,
         {
-          format: 'rgba8unorm',
+          format: 'bgra8unorm',
           minFilter: 'linear',
           magFilter: 'linear',
           wrapS: 'clamp_to_edge',
           wrapT: 'clamp_to_edge',
           generateMipmaps: false,
         }
+      );
+
+      // Recreate framebuffer wrapping new texture
+      this.sceneFramebuffer = this.backend.createFramebuffer(
+        'retro-scene-framebuffer',
+        [this.sceneTexture],
+        undefined
       );
 
       // Resize retro post-processor to match new canvas size
@@ -1091,9 +1114,9 @@ export class Demo {
     this.backend.beginFrame();
 
     // Epic 3.4: Conditional rendering based on retro mode
-    // If retro mode enabled: render to scene texture → apply post-processing → present
+    // If retro mode enabled: render to scene framebuffer → apply post-processing → present
     // If retro mode disabled: render directly to screen
-    const renderTarget = (this.retroModeEnabled && this.sceneTexture) ? this.sceneTexture : null;
+    const renderTarget = (this.retroModeEnabled && this.sceneFramebuffer) ? this.sceneFramebuffer : null;
     const passName = this.retroModeEnabled ? 'Retro Scene Pass' : 'Main Render Pass';
 
     // Begin render pass with clear color
