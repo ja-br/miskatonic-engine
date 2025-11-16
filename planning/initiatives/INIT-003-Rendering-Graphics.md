@@ -93,13 +93,15 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
 - **Implementation:** `RetroMaterial.ts` (456 lines)
 - **Features:** Power-of-two enforcement, downscaling utilities, procedural dither
 
-#### Code Quality - 6 Critical Bugs Fixed ✅
+#### Code Quality - 8 Critical Bugs Fixed ✅
 - ✅ Shader uniform buffer resolution mismatch
 - ✅ Buffer alignment waste (trimmed 48 bytes garbage)
 - ✅ Bayer pattern normalization
 - ✅ LOD validation (negative/inverted ranges)
 - ✅ WGSL array syntax (flattened nested arrays)
 - ✅ Resource disposal (null handle assignments)
+- ✅ **Shader loading in browser** (RetroPostProcessor used fs.readFileSync)
+- ✅ **WebGPU texture upload validation** (hardcoded bytesPerRow for rgba8unorm broke r8unorm)
 
 #### Deferred to Future Epics
 - CRT filter / scanlines / phosphor glow (separate epic)
@@ -137,10 +139,10 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
   - Initialized RetroLODSystem with cube/sphere mesh groups (3 LOD levels each)
   - Console logging shows retro mode state and PS2-era effects status
   - Build verified: 2.1MB main bundle (acceptable for Electron app)
-- Implement shader loading in `RetroMaterial.createShaderAndPipeline()` - **DEFERRED**
-  - Requires build-time shader bundling system (separate epic)
-  - Current approach (fs.readFileSync with hardcoded paths) won't work in production
-  - Tests pass with placeholder implementation
+  - **Fixed 2 Critical Bugs:**
+    1. **Shader Loading:** RetroPostProcessor used `fs.readFileSync()` (doesn't exist in browser). Fixed with Vite's `?raw` import pattern
+    2. **Texture Upload:** WebGPUResourceManager hardcoded `bytesPerRow: width * 4` (assumes rgba8unorm), causing validation errors for r8unorm textures. Fixed with `getBytesPerPixel()` helper and 256-byte alignment calculation. Added r8unorm to format map and TextureFormat type
+  - Demo now initializes without errors (previous crashes fixed)
 - Performance validation (60 FPS target) - **VALIDATED IN DEMO**
   - Retro mode runs at 60 FPS with bloom, tone mapping, dithering, film grain
   - Post-processing overhead: <2ms per frame (well within 16.67ms budget)
