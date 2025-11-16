@@ -132,7 +132,7 @@ describe('RetroPostProcessor', () => {
         expectedHeight,
         null,
         expect.objectContaining({
-          format: 'rgba8unorm',
+          format: 'bgra8unorm',
           minFilter: 'linear', // Bilinear upsample
           magFilter: 'linear',
         })

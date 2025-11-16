@@ -572,7 +572,7 @@ export class RetroPostProcessor {
         bloomHeight,
         null,
         {
-          format: 'rgba8unorm',
+          format: 'bgra8unorm',
           minFilter: 'linear',
           magFilter: 'linear',
           wrapS: 'clamp_to_edge',
