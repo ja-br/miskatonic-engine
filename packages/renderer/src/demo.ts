@@ -541,42 +541,48 @@ export class Demo {
       id: 'cube',
       levels: [
         {
-          distance: DEFAULT_LOD_DISTANCES[0], // 0m - high detail
-          meshData: { vertexCount: this.cubeIndexCount / 3, triangleCount: this.cubeIndexCount / 3 },
+          minDistance: 0,
+          maxDistance: DEFAULT_LOD_DISTANCES[0], // 0-20m - high detail
+          vertexCount: this.cubeIndexCount / 3,
         },
         {
-          distance: DEFAULT_LOD_DISTANCES[1], // 20m - medium detail
-          meshData: { vertexCount: 24, triangleCount: 8 }, // Simplified cube
+          minDistance: DEFAULT_LOD_DISTANCES[0],
+          maxDistance: DEFAULT_LOD_DISTANCES[1], // 20-50m - medium detail
+          vertexCount: 24, // Simplified cube
         },
         {
-          distance: DEFAULT_LOD_DISTANCES[2], // 50m - low detail
-          meshData: { vertexCount: 8, triangleCount: 4 }, // Very simple cube
+          minDistance: DEFAULT_LOD_DISTANCES[1],
+          maxDistance: Infinity, // 50m+ - low detail
+          vertexCount: 8, // Very simple cube
         },
       ],
-      crossfadeDuration: 0.3,
+      crossfadeDistance: 0.3,
     };
-    this.retroLODSystem.addLODGroup(cubeLODConfig);
+    this.retroLODSystem.registerGroup(cubeLODConfig);
 
     // Register sphere LOD group (for D4, D8, D10, D12, D20)
     const sphereLODConfig: LODGroupConfig = {
       id: 'sphere',
       levels: [
         {
-          distance: DEFAULT_LOD_DISTANCES[0], // 0m - high detail (16x12)
-          meshData: { vertexCount: this.sphereIndexCount / 3, triangleCount: this.sphereIndexCount / 3 },
+          minDistance: 0,
+          maxDistance: DEFAULT_LOD_DISTANCES[0], // 0-20m - high detail (16x12)
+          vertexCount: this.sphereIndexCount / 3,
         },
         {
-          distance: DEFAULT_LOD_DISTANCES[1], // 20m - medium detail (8x6)
-          meshData: { vertexCount: 48, triangleCount: 32 },
+          minDistance: DEFAULT_LOD_DISTANCES[0],
+          maxDistance: DEFAULT_LOD_DISTANCES[1], // 20-50m - medium detail (8x6)
+          vertexCount: 48,
         },
         {
-          distance: DEFAULT_LOD_DISTANCES[2], // 50m - low detail (4x3)
-          meshData: { vertexCount: 12, triangleCount: 8 },
+          minDistance: DEFAULT_LOD_DISTANCES[1],
+          maxDistance: Infinity, // 50m+ - low detail (4x3)
+          vertexCount: 12,
         },
       ],
-      crossfadeDuration: 0.3,
+      crossfadeDistance: 0.3,
     };
-    this.retroLODSystem.addLODGroup(sphereLODConfig);
+    this.retroLODSystem.registerGroup(sphereLODConfig);
 
     console.log('Retro rendering systems initialized successfully');
     console.log('- Post-processor: Bloom, Tone Mapping, Dithering, Film Grain');
