@@ -58,23 +58,57 @@ export class WebGPURenderPassManager {
       throw new Error(WebGPUErrors.CONTEXT_NOT_INITIALIZED);
     }
 
-    const colorAttachment: GPURenderPassColorAttachment = {
-      view: this.ctx.context.getCurrentTexture().createView(),
-      clearValue: clearColor
-        ? { r: clearColor[0], g: clearColor[1], b: clearColor[2], a: clearColor[3] }
-        : { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
-      loadOp: 'clear' as const,
-      storeOp: 'store' as const,
-    };
+    // Handle custom framebuffer or screen rendering
+    let colorAttachment: GPURenderPassColorAttachment;
+    let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
 
-    const depthAttachment: GPURenderPassDepthStencilAttachment | undefined = this.depthTexture
-      ? {
-          view: this.depthTexture.createView(),
-          depthClearValue: clearDepth ?? 1.0,
-          depthLoadOp: 'clear' as const,
-          depthStoreOp: 'store' as const,
-        }
-      : undefined;
+    if (target) {
+      // Use custom framebuffer
+      const framebuffer = this.getFramebuffer(target.id);
+      if (!framebuffer) {
+        throw new Error(`Framebuffer ${target.id} not found`);
+      }
+      if (framebuffer.colorAttachments.length === 0) {
+        throw new Error(`Framebuffer ${target.id} has no color attachments`);
+      }
+
+      colorAttachment = {
+        view: framebuffer.colorAttachments[0],
+        clearValue: clearColor
+          ? { r: clearColor[0], g: clearColor[1], b: clearColor[2], a: clearColor[3] }
+          : { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
+        loadOp: 'clear' as const,
+        storeOp: 'store' as const,
+      };
+
+      depthAttachment = framebuffer.depthStencilAttachment
+        ? {
+            view: framebuffer.depthStencilAttachment,
+            depthClearValue: clearDepth ?? 1.0,
+            depthLoadOp: 'clear' as const,
+            depthStoreOp: 'store' as const,
+          }
+        : undefined;
+    } else {
+      // Use screen rendering
+      colorAttachment = {
+        view: this.ctx.context.getCurrentTexture().createView(),
+        clearValue: clearColor
+          ? { r: clearColor[0], g: clearColor[1], b: clearColor[2], a: clearColor[3] }
+          : { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
+        loadOp: 'clear' as const,
+        storeOp: 'store' as const,
+      };
+
+      depthAttachment = this.depthTexture
+        ? {
+            view: this.depthTexture.createView(),
+            depthClearValue: clearDepth ?? 1.0,
+            depthLoadOp: 'clear' as const,
+            depthStoreOp: 'store' as const,
+          }
+        : undefined;
+    }
 
     this.ctx.currentPass = this.ctx.commandEncoder.beginRenderPass({
       label: label || 'Render Pass',

@@ -325,9 +325,15 @@ export class RetroPostProcessor {
         ],
       });
 
-      // NOTE: Composite pass would need a framebuffer for outputTexture
-      // For now, assume backend is already in a render pass targeting outputTexture
-      // This will be handled properly in integration phase
+      // Begin render pass for composite (render to screen)
+      this.backend.beginRenderPass(
+        outputTexture ? outputTexture : null, // null = render to screen
+        [0, 0, 0, 1],
+        1.0,
+        0,
+        'Retro Composite Pass'
+      );
+
       const command: DrawCommand = {
         pipeline: this.compositePipeline,
         bindGroups: new Map([[0, compositeBindGroup], [1, paramsBindGroup]]),
@@ -340,6 +346,9 @@ export class RetroPostProcessor {
       };
 
       this.backend.executeDrawCommand(command);
+
+      // End composite render pass
+      this.backend.endRenderPass();
 
       this.backend.deleteBindGroup(compositeBindGroup);
       this.backend.deleteBindGroup(paramsBindGroup);

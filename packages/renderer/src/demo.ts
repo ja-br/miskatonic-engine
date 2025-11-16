@@ -1203,8 +1203,8 @@ export class Demo {
 
     // Epic 3.4: Apply retro post-processing if enabled
     if (this.retroModeEnabled && this.retroPostProcessor && this.sceneTexture) {
-      // End scene render pass
-      // (Current WebGPU backend doesn't have explicit endRenderPass, handled in endFrame)
+      // End scene render pass before post-processing
+      this.backend.endRenderPass();
 
       // Apply post-processing from scene texture to screen
       this.retroPostProcessor.apply(this.sceneTexture, null); // null = render to screen
