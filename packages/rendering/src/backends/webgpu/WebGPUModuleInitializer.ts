@@ -101,6 +101,7 @@ export function initializeModules(
     (id) => resourceMgr.getShader(id),
     (id) => resourceMgr.getBuffer(id),
     (id) => resourceMgr.getTexture(id),
+    (id) => resourceMgr.getSampler(id),
     configWithBindGroupPool
   );
 

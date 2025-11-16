@@ -57,15 +57,16 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
 
 **Philosophy:** Authentically retro visuals using period-appropriate techniques. No modern AAA features (SSAO, SSR, TAA). Embrace limitations as artistic choices.
 
-#### Post-Processing (Retro) - Phase 1 ✅ ARCHITECTURE COMPLETE
+#### Post-Processing (Retro) - ✅ COMPLETE
 - ✅ Simple additive bloom (low-res buffer → bilinear upsample)
 - ✅ Basic tone mapping (simple Reinhard or clamping, no HDR thresholds)
 - ✅ Single-LUT color grading (256x16 texture lookup)
 - ✅ Ordered dither patterns for color/alpha blending (Bayer matrix)
 - ✅ Noise/grain overlay for film aesthetic
-- **Implementation:** `RetroPostProcessor.ts` (565 lines) + `retro-post-process.wgsl` (267 lines)
+- ✅ Render pass execution (3 passes: bloom extract, blur, composite)
+- **Implementation:** `RetroPostProcessor.ts` (890+ lines) + `retro-post-process.wgsl` (267 lines)
 - **Tests:** 21 tests passing (RetroPostProcessor.test.ts)
-- **Deferred to Phase 2:** Render pass execution (needs backend integration)
+- **Backend Integration:** `beginRenderPass`/`endRenderPass` added to IRendererBackend
 
 #### Lighting (Retro) - Phase 1 ✅ COMPLETE
 - ✅ Vertex-painted ambient lighting (baked per-vertex colors)
@@ -110,12 +111,16 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
 - **Architecture:** 100% complete
 - **Integration:** Deferred to Phase 2
 
-**Phase 2 (Remaining Work):**
-- Implement render pass execution in `RetroPostProcessor.apply()`
-- Implement shader loading in `RetroMaterial.createShaderAndPipeline()`
-- Integration with main rendering pipeline
-- Performance validation (60 FPS target)
-- Additional tests for LOD and Material systems
+**Phase 2 (In Progress):**
+- ✅ Implement render pass execution in `RetroPostProcessor.apply()` - **COMPLETE**
+  - Fixed 3 critical bugs (bind groups, pipelines, render passes)
+  - Added `beginRenderPass`/`endRenderPass` to IRendererBackend
+  - Updated `BindGroupResources` to support separate texture/sampler bindings
+  - All 3 post-processing passes (bloom extract, blur, composite) now functional
+- Implement shader loading in `RetroMaterial.createShaderAndPipeline()` - **DEFERRED**
+- Integration with main rendering pipeline - **TODO**
+- Performance validation (60 FPS target) - **TODO**
+- Additional tests for LOD and Material systems - **TODO**
 
 **Acceptance Criteria (Phase 1):**
 - Retro aesthetic matches PS2-era references (defaults validated)

@@ -28,6 +28,7 @@ export class WebGPUModernAPI {
     private getShader: (id: string) => WebGPUShader | undefined,
     private getBuffer: (id: string) => WebGPUBuffer | undefined,
     private getTexture: (id: string) => WebGPUTexture | undefined,
+    private getSampler: (id: string) => GPUSampler | undefined,
     private _config: ModuleConfig
   ) {}
 
@@ -80,8 +81,11 @@ export class WebGPUModernAPI {
 
     // Convert resources to WebGPU bind group entries
     const entries: GPUBindGroupEntry[] = resources.bindings.map(binding => {
-      if ('__brand' in binding.resource && binding.resource.__brand === 'BackendBuffer') {
-        const bufferHandle = binding.resource as BackendBufferHandle;
+      const resource = binding.resource;
+
+      // Check for buffer
+      if ('__brand' in resource && resource.__brand === 'BackendBuffer') {
+        const bufferHandle = resource as BackendBufferHandle;
         const bufferData = this.getBuffer(bufferHandle.id);
         if (!bufferData) {
           throw new Error(`Buffer ${bufferHandle.id} not found`);
@@ -90,9 +94,24 @@ export class WebGPUModernAPI {
           binding: binding.binding,
           resource: { buffer: bufferData.buffer },
         };
-      } else {
-        // Texture binding
-        const textureBinding = binding.resource as { texture: BackendTextureHandle; sampler?: any };
+      }
+
+      // Check for sampler
+      if ('__brand' in resource && resource.__brand === 'BackendSampler') {
+        const samplerHandle = resource as import('../IRendererBackend').BackendSamplerHandle;
+        const sampler = this.getSampler(samplerHandle.id);
+        if (!sampler) {
+          throw new Error(`Sampler ${samplerHandle.id} not found`);
+        }
+        return {
+          binding: binding.binding,
+          resource: sampler,
+        };
+      }
+
+      // Check for texture (or combined texture+sampler for backward compat)
+      if ('texture' in resource) {
+        const textureBinding = resource as { texture: BackendTextureHandle; sampler?: any };
         const textureData = this.getTexture(textureBinding.texture.id);
         if (!textureData) {
           throw new Error(`Texture ${textureBinding.texture.id} not found`);
@@ -102,6 +121,8 @@ export class WebGPUModernAPI {
           resource: textureData.view,
         };
       }
+
+      throw new Error(`Unknown resource type for binding ${binding.binding}`);
     });
 
     const bindGroup = this.ctx.device.createBindGroup({

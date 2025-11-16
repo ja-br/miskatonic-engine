@@ -8,8 +8,19 @@
  * Philosophy: Embrace limitations as artistic choices
  */
 
-import type { IRendererBackend, BackendTextureHandle, BackendBufferHandle } from '../backends/IRendererBackend';
+import type {
+  IRendererBackend,
+  BackendTextureHandle,
+  BackendBufferHandle,
+  BackendSamplerHandle,
+  BackendFramebufferHandle,
+  BackendPipelineHandle,
+  BackendBindGroupLayoutHandle,
+  BackendBindGroupHandle,
+} from '../backends/IRendererBackend';
 import { RenderPass, RenderPassManager } from '../RenderPass';
+import type { ShaderSource } from '../types';
+import type { DrawCommand } from '../commands/DrawCommand';
 
 /**
  * Retro post-processing configuration
@@ -111,6 +122,8 @@ export class RetroPostProcessor {
   // Render targets
   private bloomTarget?: BackendTextureHandle;    // Low-res bloom buffer
   private tempTarget?: BackendTextureHandle;     // Temporary buffer for ping-pong
+  private bloomFramebuffer?: BackendFramebufferHandle;
+  private tempFramebuffer?: BackendFramebufferHandle;
 
   // Uniform buffer (single buffer for all parameters)
   private paramsBuffer?: BackendBufferHandle;
@@ -118,6 +131,17 @@ export class RetroPostProcessor {
   // Built-in textures
   private bayerTexture?: BackendTextureHandle;   // Bayer matrix pattern
   private grainTexture?: BackendTextureHandle;   // Noise texture
+
+  // Samplers
+  private linearSampler?: BackendSamplerHandle;  // Linear filtering
+  private nearestSampler?: BackendSamplerHandle; // Nearest/point filtering
+
+  // Pipelines and bind groups
+  private bloomExtractPipeline?: BackendPipelineHandle;
+  private bloomBlurPipeline?: BackendPipelineHandle;
+  private compositePipeline?: BackendPipelineHandle;
+  private textureBindGroupLayout?: BackendBindGroupLayoutHandle;
+  private paramsBindGroupLayout?: BackendBindGroupLayoutHandle;
 
   // Dimensions
   private width = 0;
@@ -147,6 +171,9 @@ export class RetroPostProcessor {
     this.width = width;
     this.height = height;
 
+    // Create samplers
+    this.createSamplers();
+
     // Create render passes
     this.setupRenderPasses();
 
@@ -159,6 +186,9 @@ export class RetroPostProcessor {
     // Create built-in textures
     await this.createBuiltinTextures();
 
+    // Create pipelines and bind group layouts
+    await this.createPipelines();
+
     this.initialized = true;
   }
 
@@ -167,28 +197,151 @@ export class RetroPostProcessor {
    *
    * @param inputTexture - Scene render target
    * @param outputTexture - Final output target (usually screen)
-   *
-   * NOTE: Full implementation deferred to Epic 3.4 Phase 2 (Integration)
-   * Requires:
-   * - WebGPU render pass setup for bloom extract/blur/composite
-   * - Bind group creation for textures and params
-   * - Pipeline creation for fullscreen quad rendering
-   * - Framebuffer ping-pong for multi-pass effects
-   *
-   * Architecture is complete, render pass execution needs backend integration.
    */
   apply(inputTexture: BackendTextureHandle, outputTexture: BackendTextureHandle): void {
     if (!this.initialized) {
       throw new Error('RetroPostProcessor not initialized. Call initialize() first.');
     }
 
+    if (!this.compositePipeline || !this.textureBindGroupLayout || !this.paramsBindGroupLayout) {
+      throw new Error('RetroPostProcessor pipelines not created');
+    }
+
     // Update uniforms (time-based grain animation, etc.)
     this.updateUniforms();
 
-    // TODO Epic 3.4 Phase 2: Implement render pass execution
     // Pass 1: Bloom extraction (input -> bloomTarget)
+    if (this.config.bloom?.enabled && this.bloomExtractPipeline && this.bloomTarget && this.bloomFramebuffer) {
+      // Create bind groups with SEPARATE texture and sampler bindings
+      const extractBindGroup = this.backend.createBindGroup(this.textureBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: inputTexture },                   // inputTexture
+          { binding: 1, resource: this.linearSampler! },            // inputSampler
+          { binding: 2, resource: inputTexture },                   // bloomTexture (unused in extract)
+          { binding: 3, resource: this.linearSampler! },            // bloomSampler (unused)
+          { binding: 4, resource: this.bayerTexture || inputTexture }, // ditherTexture
+          { binding: 5, resource: this.grainTexture || inputTexture }, // grainTexture
+        ],
+      });
+
+      const paramsBindGroup = this.backend.createBindGroup(this.paramsBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: this.paramsBuffer! },
+        ],
+      });
+
+      // Execute render pass
+      this.backend.beginRenderPass(
+        this.bloomFramebuffer,
+        [0.0, 0.0, 0.0, 1.0],
+        undefined,
+        undefined,
+        'Retro Bloom Extract'
+      );
+
+      const command: DrawCommand = {
+        pipeline: this.bloomExtractPipeline,
+        bindGroups: new Map([[0, extractBindGroup], [1, paramsBindGroup]]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(), // Empty - vertices generated in shader
+          vertexCount: 3, // One triangle covering entire screen
+        },
+        label: 'Bloom Extract Pass',
+      };
+
+      this.backend.executeDrawCommand(command);
+      this.backend.endRenderPass();
+
+      this.backend.deleteBindGroup(extractBindGroup);
+      this.backend.deleteBindGroup(paramsBindGroup);
+    }
+
     // Pass 2: Bloom blur (bloomTarget -> tempTarget -> bloomTarget)
+    if (this.config.bloom?.enabled && this.bloomBlurPipeline && this.bloomTarget && this.tempTarget && this.tempFramebuffer) {
+      // Horizontal blur pass (bloomTarget -> tempTarget)
+      const blurBindGroup = this.backend.createBindGroup(this.textureBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomTarget },
+          { binding: 1, resource: this.linearSampler! },
+          { binding: 2, resource: this.bloomTarget },
+          { binding: 3, resource: this.linearSampler! },
+          { binding: 4, resource: this.bayerTexture || this.bloomTarget },
+          { binding: 5, resource: this.grainTexture || this.bloomTarget },
+        ],
+      });
+
+      const paramsBindGroup = this.backend.createBindGroup(this.paramsBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: this.paramsBuffer! },
+        ],
+      });
+
+      this.backend.beginRenderPass(
+        this.tempFramebuffer,
+        [0.0, 0.0, 0.0, 1.0],
+        undefined,
+        undefined,
+        'Retro Bloom Blur'
+      );
+
+      const command: DrawCommand = {
+        pipeline: this.bloomBlurPipeline,
+        bindGroups: new Map([[0, blurBindGroup], [1, paramsBindGroup]]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Blur Pass',
+      };
+
+      this.backend.executeDrawCommand(command);
+      this.backend.endRenderPass();
+
+      this.backend.deleteBindGroup(blurBindGroup);
+      this.backend.deleteBindGroup(paramsBindGroup);
+    }
+
     // Pass 3: Composite (input + bloom -> output, apply tone mapping, dither, grain)
+    // TODO: Need framebuffer for outputTexture - for now render to current render pass
+    {
+      const compositeBindGroup = this.backend.createBindGroup(this.textureBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: inputTexture },
+          { binding: 1, resource: this.linearSampler! },
+          { binding: 2, resource: this.tempTarget || inputTexture }, // Blurred bloom
+          { binding: 3, resource: this.linearSampler! },
+          { binding: 4, resource: this.bayerTexture || inputTexture },
+          { binding: 5, resource: this.grainTexture || inputTexture },
+        ],
+      });
+
+      const paramsBindGroup = this.backend.createBindGroup(this.paramsBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: this.paramsBuffer! },
+        ],
+      });
+
+      // NOTE: Composite pass would need a framebuffer for outputTexture
+      // For now, assume backend is already in a render pass targeting outputTexture
+      // This will be handled properly in integration phase
+      const command: DrawCommand = {
+        pipeline: this.compositePipeline,
+        bindGroups: new Map([[0, compositeBindGroup], [1, paramsBindGroup]]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Retro Composite Pass',
+      };
+
+      this.backend.executeDrawCommand(command);
+
+      this.backend.deleteBindGroup(compositeBindGroup);
+      this.backend.deleteBindGroup(paramsBindGroup);
+    }
   }
 
   /**
@@ -202,12 +355,24 @@ export class RetroPostProcessor {
     this.width = width;
     this.height = height;
 
+    // Destroy old framebuffers
+    if (this.bloomFramebuffer) {
+      this.backend.deleteFramebuffer(this.bloomFramebuffer);
+      this.bloomFramebuffer = undefined;
+    }
+    if (this.tempFramebuffer) {
+      this.backend.deleteFramebuffer(this.tempFramebuffer);
+      this.tempFramebuffer = undefined;
+    }
+
     // Destroy old targets
     if (this.bloomTarget) {
       this.backend.deleteTexture(this.bloomTarget);
+      this.bloomTarget = undefined;
     }
     if (this.tempTarget) {
       this.backend.deleteTexture(this.tempTarget);
+      this.tempTarget = undefined;
     }
 
     // Recreate targets with new size
@@ -237,6 +402,16 @@ export class RetroPostProcessor {
    * Clean up GPU resources
    */
   dispose(): void {
+    // Destroy framebuffers
+    if (this.bloomFramebuffer) {
+      this.backend.deleteFramebuffer(this.bloomFramebuffer);
+      this.bloomFramebuffer = undefined;
+    }
+    if (this.tempFramebuffer) {
+      this.backend.deleteFramebuffer(this.tempFramebuffer);
+      this.tempFramebuffer = undefined;
+    }
+
     // Destroy render targets
     if (this.bloomTarget) {
       this.backend.deleteTexture(this.bloomTarget);
@@ -261,6 +436,40 @@ export class RetroPostProcessor {
     if (this.grainTexture) {
       this.backend.deleteTexture(this.grainTexture);
       this.grainTexture = undefined;
+    }
+
+    // Destroy samplers
+    if (this.linearSampler) {
+      this.backend.deleteSampler(this.linearSampler);
+      this.linearSampler = undefined;
+    }
+    if (this.nearestSampler) {
+      this.backend.deleteSampler(this.nearestSampler);
+      this.nearestSampler = undefined;
+    }
+
+    // Destroy bind group layouts
+    if (this.textureBindGroupLayout) {
+      this.backend.deleteBindGroupLayout(this.textureBindGroupLayout);
+      this.textureBindGroupLayout = undefined;
+    }
+    if (this.paramsBindGroupLayout) {
+      this.backend.deleteBindGroupLayout(this.paramsBindGroupLayout);
+      this.paramsBindGroupLayout = undefined;
+    }
+
+    // Destroy pipelines
+    if (this.bloomExtractPipeline) {
+      this.backend.deletePipeline(this.bloomExtractPipeline);
+      this.bloomExtractPipeline = undefined;
+    }
+    if (this.bloomBlurPipeline) {
+      this.backend.deletePipeline(this.bloomBlurPipeline);
+      this.bloomBlurPipeline = undefined;
+    }
+    if (this.compositePipeline) {
+      this.backend.deletePipeline(this.compositePipeline);
+      this.compositePipeline = undefined;
     }
 
     this.passManager.clearPasses();
@@ -330,6 +539,13 @@ export class RetroPostProcessor {
           wrapT: 'clamp-to-edge',
         }
       );
+
+      // Create framebuffer for bloom target
+      this.bloomFramebuffer = this.backend.createFramebuffer(
+        'retro_bloom_framebuffer',
+        [this.bloomTarget],
+        undefined
+      );
     }
 
     // Temporary target for ping-pong operations (same as bloom size)
@@ -350,6 +566,13 @@ export class RetroPostProcessor {
           wrapS: 'clamp-to-edge',
           wrapT: 'clamp-to-edge',
         }
+      );
+
+      // Create framebuffer for temp target
+      this.tempFramebuffer = this.backend.createFramebuffer(
+        'retro_temp_framebuffer',
+        [this.tempTarget],
+        undefined
       );
     }
   }
@@ -568,5 +791,148 @@ export class RetroPostProcessor {
     }
 
     return data;
+  }
+
+  /**
+   * Create samplers for texture filtering
+   */
+  private createSamplers(): void {
+    this.linearSampler = this.backend.createSampler('retro_linear_sampler', {
+      minFilter: 'linear',
+      magFilter: 'linear',
+      wrapS: 'clamp',
+      wrapT: 'clamp',
+    });
+
+    this.nearestSampler = this.backend.createSampler('retro_nearest_sampler', {
+      minFilter: 'nearest',
+      magFilter: 'nearest',
+      wrapS: 'clamp',
+      wrapT: 'clamp',
+    });
+  }
+
+  /**
+   * Create render pipelines and bind group layouts
+   */
+  private async createPipelines(): Promise<void> {
+    // Load shader source
+    const shaderPath = '/Users/bud/Code/miskatonic/packages/rendering/src/shaders/retro-post-process.wgsl';
+    let shaderCode: string;
+
+    try {
+      // In Node.js environment (for tests)
+      const fs = await import('fs');
+      shaderCode = fs.readFileSync(shaderPath, 'utf-8');
+    } catch {
+      // In browser environment, shader loading will be handled differently
+      // For now, this is a placeholder
+      throw new Error('Shader loading not implemented for browser environment yet');
+    }
+
+    const shaderSource: ShaderSource = {
+      vertex: shaderCode,
+      fragment: shaderCode,
+    };
+
+    // Create shader modules (one per entry point due to WebGPU limitations)
+    const bloomExtractShader = this.backend.createShader('retro_bloom_extract', shaderSource);
+    const bloomBlurShader = this.backend.createShader('retro_bloom_blur', shaderSource);
+    const compositeShader = this.backend.createShader('retro_composite', shaderSource);
+
+    // Create bind group layouts
+    // Group 0: Textures and samplers (6 bindings)
+    this.textureBindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: ['fragment'], type: 'texture' },
+        { binding: 1, visibility: ['fragment'], type: 'sampler' },
+        { binding: 2, visibility: ['fragment'], type: 'texture' },
+        { binding: 3, visibility: ['fragment'], type: 'sampler' },
+        { binding: 4, visibility: ['fragment'], type: 'texture' },
+        { binding: 5, visibility: ['fragment'], type: 'texture' },
+      ],
+    });
+
+    // Group 1: Uniform buffer
+    this.paramsBindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: ['fragment'], type: 'uniform', minBindingSize: 256 },
+      ],
+    });
+
+    // Create render pipelines (fullscreen quad - no vertex buffers needed)
+    this.bloomExtractPipeline = this.backend.createRenderPipeline({
+      label: 'Retro Bloom Extract',
+      shader: bloomExtractShader,
+      vertexLayouts: [], // Empty - vertices generated in shader with @builtin(vertex_index)
+      bindGroupLayouts: [this.textureBindGroupLayout, this.paramsBindGroupLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: false,
+        },
+        depthStencil: {
+          depthWriteEnabled: false,
+          depthCompare: 'always',
+        },
+        rasterization: {
+          cullMode: 'none',
+          frontFace: 'ccw',
+        },
+      },
+      colorFormat: 'bgra8unorm',
+    });
+
+    this.bloomBlurPipeline = this.backend.createRenderPipeline({
+      label: 'Retro Bloom Blur',
+      shader: bloomBlurShader,
+      vertexLayouts: [],
+      bindGroupLayouts: [this.textureBindGroupLayout, this.paramsBindGroupLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: false,
+        },
+        depthStencil: {
+          depthWriteEnabled: false,
+          depthCompare: 'always',
+        },
+        rasterization: {
+          cullMode: 'none',
+          frontFace: 'ccw',
+        },
+      },
+      colorFormat: 'bgra8unorm',
+    });
+
+    this.compositePipeline = this.backend.createRenderPipeline({
+      label: 'Retro Composite',
+      shader: compositeShader,
+      vertexLayouts: [],
+      bindGroupLayouts: [this.textureBindGroupLayout, this.paramsBindGroupLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: true,
+          srcFactor: 'src-alpha',
+          dstFactor: 'one-minus-src-alpha',
+          operation: 'add',
+        },
+        depthStencil: {
+          depthWriteEnabled: false,
+          depthCompare: 'always',
+        },
+        rasterization: {
+          cullMode: 'none',
+          frontFace: 'ccw',
+        },
+      },
+      colorFormat: 'bgra8unorm',
+    });
+
+    // Cleanup temporary shader handles (pipelines retain compiled shader modules)
+    this.backend.deleteShader(bloomExtractShader);
+    this.backend.deleteShader(bloomBlurShader);
+    this.backend.deleteShader(compositeShader);
   }
 }

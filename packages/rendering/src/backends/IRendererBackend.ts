@@ -167,7 +167,7 @@ export interface ComputePipelineDescriptor {
 export interface BindGroupResources {
   bindings: Array<{
     binding: number;
-    resource: BackendBufferHandle | { texture: BackendTextureHandle; sampler?: BackendSamplerHandle };
+    resource: BackendBufferHandle | BackendTextureHandle | BackendSamplerHandle | { texture: BackendTextureHandle; sampler?: BackendSamplerHandle };
   }>;
 }
 
@@ -222,6 +222,27 @@ export interface IRendererBackend {
    * Uses explicit bind groups and pipelines
    */
   executeDrawCommand(command: DrawCommand): void;
+
+  /**
+   * Begin render pass targeting a framebuffer
+   * @param target - Framebuffer to render to (null for swapchain)
+   * @param clearColor - Optional clear color
+   * @param clearDepth - Optional clear depth
+   * @param clearStencil - Optional clear stencil
+   * @param label - Optional debug label
+   */
+  beginRenderPass(
+    target: BackendFramebufferHandle | null,
+    clearColor?: [number, number, number, number],
+    clearDepth?: number,
+    clearStencil?: number,
+    label?: string
+  ): void;
+
+  /**
+   * End current render pass
+   */
+  endRenderPass(): void;
 
   /**
    * Clear framebuffer
