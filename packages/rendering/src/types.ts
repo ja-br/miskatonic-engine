@@ -39,7 +39,9 @@ export type TextureFormat =
   | 'bgra8unorm'
   | 'rgba16float'
   | 'rgba32float'
+  | 'depth16unorm'
   | 'depth24plus'
+  | 'depth24plus-stencil8'
   | 'r8unorm';
 
 /**
