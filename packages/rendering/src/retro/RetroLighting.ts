@@ -337,8 +337,8 @@ export function createGradientLightmap(
       format: 'r8unorm',
       minFilter: 'linear',
       magFilter: 'linear',
-      wrapS: 'clamp-to-edge',
-      wrapT: 'clamp-to-edge',
+      wrapS: 'clamp_to_edge',
+      wrapT: 'clamp_to_edge',
     }
   );
 }

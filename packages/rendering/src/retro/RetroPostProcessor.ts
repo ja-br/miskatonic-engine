@@ -20,6 +20,7 @@ import type {
 } from '../backends/IRendererBackend';
 import { RenderPass, RenderPassManager } from '../RenderPass';
 import type { ShaderSource } from '../types';
+import { RenderCommandType } from '../types';
 import type { DrawCommand } from '../commands/DrawCommand';
 
 /**
@@ -482,11 +483,11 @@ export class RetroPostProcessor {
 
   private mergeConfig(partial?: Partial<RetroPostProcessConfig>): RetroPostProcessConfig {
     return {
-      bloom: { ...DEFAULT_RETRO_POST_CONFIG.bloom, ...partial?.bloom },
-      toneMapping: { ...DEFAULT_RETRO_POST_CONFIG.toneMapping, ...partial?.toneMapping },
-      colorGrading: { ...DEFAULT_RETRO_POST_CONFIG.colorGrading, ...partial?.colorGrading },
-      dither: { ...DEFAULT_RETRO_POST_CONFIG.dither, ...partial?.dither },
-      grain: { ...DEFAULT_RETRO_POST_CONFIG.grain, ...partial?.grain },
+      bloom: { ...DEFAULT_RETRO_POST_CONFIG.bloom, ...partial?.bloom } as NonNullable<RetroPostProcessConfig['bloom']>,
+      toneMapping: { ...DEFAULT_RETRO_POST_CONFIG.toneMapping, ...partial?.toneMapping } as NonNullable<RetroPostProcessConfig['toneMapping']>,
+      colorGrading: { ...DEFAULT_RETRO_POST_CONFIG.colorGrading, ...partial?.colorGrading } as NonNullable<RetroPostProcessConfig['colorGrading']>,
+      dither: { ...DEFAULT_RETRO_POST_CONFIG.dither, ...partial?.dither } as NonNullable<RetroPostProcessConfig['dither']>,
+      grain: { ...DEFAULT_RETRO_POST_CONFIG.grain, ...partial?.grain } as NonNullable<RetroPostProcessConfig['grain']>,
     };
   }
 
@@ -496,7 +497,7 @@ export class RetroPostProcessor {
       const bloomExtract = new RenderPass({
         name: 'bloom_extract',
         target: 'bloom_buffer',
-        clear: { color: [0, 0, 0, 1] },
+        clear: { type: RenderCommandType.CLEAR, color: [0, 0, 0, 1] },
       });
       this.passManager.addPass(bloomExtract);
 
@@ -513,7 +514,7 @@ export class RetroPostProcessor {
     const composite = new RenderPass({
       name: 'retro_composite',
       target: 'screen',
-      clear: { color: [0, 0, 0, 1] },
+      clear: { type: RenderCommandType.CLEAR, color: [0, 0, 0, 1] },
       dependencies: this.config.bloom?.enabled ? ['bloom_blur'] : [],
     });
     this.passManager.addPass(composite);
@@ -535,8 +536,8 @@ export class RetroPostProcessor {
           format: 'rgba8unorm',
           minFilter: 'linear', // Bilinear upsample
           magFilter: 'linear',
-          wrapS: 'clamp-to-edge',
-          wrapT: 'clamp-to-edge',
+          wrapS: 'clamp_to_edge',
+          wrapT: 'clamp_to_edge',
         }
       );
 
@@ -563,8 +564,8 @@ export class RetroPostProcessor {
           format: 'rgba8unorm',
           minFilter: 'linear',
           magFilter: 'linear',
-          wrapS: 'clamp-to-edge',
-          wrapT: 'clamp-to-edge',
+          wrapS: 'clamp_to_edge',
+          wrapT: 'clamp_to_edge',
         }
       );
 
@@ -875,6 +876,9 @@ export class RetroPostProcessor {
         topology: 'triangle-list',
         blend: {
           enabled: false,
+          srcFactor: 'one',
+          dstFactor: 'zero',
+          operation: 'add',
         },
         depthStencil: {
           depthWriteEnabled: false,
@@ -897,6 +901,9 @@ export class RetroPostProcessor {
         topology: 'triangle-list',
         blend: {
           enabled: false,
+          srcFactor: 'one',
+          dstFactor: 'zero',
+          operation: 'add',
         },
         depthStencil: {
           depthWriteEnabled: false,
