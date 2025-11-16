@@ -149,6 +149,14 @@ export class WebGPURenderPassManager {
     const bytesPerPixel = this.getDepthFormatBytes();
     const size = width * height * bytesPerPixel;
     const depthCategory = VRAMCategory.TEXTURES;
+
+    // VRAM optimization logging
+    console.log(`[WebGPURenderPassManager] Creating depth texture:`);
+    console.log(`  Resolution: ${width}x${height}`);
+    console.log(`  Format: ${this.depthFormat}`);
+    console.log(`  Bytes/pixel: ${bytesPerPixel}`);
+    console.log(`  Total VRAM: ${(size / 1024 / 1024).toFixed(2)} MB`);
+
     this.vramProfiler.allocate('depth-texture', depthCategory, size);
     this.depthTextureSize = size;
 

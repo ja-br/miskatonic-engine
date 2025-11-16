@@ -98,7 +98,7 @@ export class WebGPUBackend implements IRendererBackend {
   private adapter: GPUAdapter | null = null;
   private config: BackendConfig | null = null;
   private stats: RenderStats = this.createEmptyStats();
-  private selectedDepthFormat: GPUTextureFormat = 'depth16unorm'; // Default to optimized format
+  private selectedDepthFormat: GPUTextureFormat = 'depth24plus'; // Default to standard format for compatibility
 
   // GPU timestamp profiling for measuring actual GPU execution time
   private timestampProfiler: WebGPUTimestampProfiler | null = null;

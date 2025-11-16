@@ -13,6 +13,8 @@ import {
   InstanceBuffer,
   InstanceBufferManager,
   globalInstanceBufferPool,
+  RetroLightingSystem,
+  type RetroLight,
   type DrawCommand,
   type IRendererBackend,
   type BackendShaderHandle,
@@ -41,7 +43,12 @@ export class Demo {
   private static readonly UNIFORM_FLOATS = 64; // 256 bytes / 4 bytes per float
   private static readonly INSTANCE_FLOATS_PER_DIE = 20; // mat4 (16 floats) + vec4 color (4 floats) = 80 bytes
   private static readonly MIN_INSTANCE_BUFFER_CAPACITY = 64; // Matches pool bucket size (power of 2)
-  private static readonly INSTANCE_BUFFER_COUNT = 3; // Triple-buffering to prevent GPU race conditions
+  private static readonly INSTANCE_BUFFER_COUNT = 2; // Double-buffering (WebGPU copies command buffers on submit)
+
+  // Epic 3.4: Retro rendering shader constants
+  private static readonly VERTEX_STRIDE = 32; // 8 floats: position (3) + normal (3) + uv (2) = 32 bytes
+  private static readonly INSTANCE_STRIDE = 80; // 20 floats: mat4 transform (16) + vec4 color (4) = 80 bytes
+  private static readonly CAMERA_UNIFORM_FLOATS = 20; // mat4 viewProj (16) + vec3 position (3) + padding (1) = 80 bytes
 
   private canvas: HTMLCanvasElement;
   private backend: IRendererBackend | null = null;
@@ -63,31 +70,30 @@ export class Demo {
   private orbitController: OrbitCameraController | null = null;
 
   // Epic 3.14: Resource handles (no RenderQueue)
-  private cubeShader!: BackendShaderHandle;
-  private sphereShader!: BackendShaderHandle;
   private cubeShaderInstanced!: BackendShaderHandle;
   private sphereShaderInstanced!: BackendShaderHandle;
   private bindGroupLayout!: BackendBindGroupLayoutHandle;
-  private sharedUniformBuffer!: BackendBufferHandle; // Shared uniform buffer for view/projection
-  private sharedBindGroup!: BackendBindGroupHandle; // Bind group using shared uniform buffer
-  private cubePipeline!: BackendPipelineHandle;
-  private spherePipeline!: BackendPipelineHandle;
+  private sharedUniformBuffer!: BackendBufferHandle; // Shared uniform buffer for camera (viewProj + position)
+  private sharedBindGroup!: BackendBindGroupHandle; // Camera bind group (@group(0))
   private cubePipelineInstanced!: BackendPipelineHandle;
   private spherePipelineInstanced!: BackendPipelineHandle;
 
-  // GPU instancing infrastructure (triple-buffered to prevent race conditions)
+  // Epic 3.4: Retro Rendering System
+  private retroLighting!: RetroLightingSystem;
+  private lightBindGroupLayout!: BackendBindGroupLayoutHandle;
+  private lightBindGroup!: BackendBindGroupHandle;
+
+  // GPU instancing infrastructure (double-buffered)
   private instanceBufferManager!: InstanceBufferManager;
   // Pre-allocated persistent buffers (never deleted, only resized when needed)
-  // Start with 128 capacity to minimize initial VRAM usage, will auto-resize as needed
+  // Start with 64 capacity to minimize initial VRAM usage, will auto-resize as needed
   private cubeInstanceBuffers: InstanceBuffer[] = [
-    new InstanceBuffer(128),
-    new InstanceBuffer(128),
-    new InstanceBuffer(128),
+    new InstanceBuffer(64),
+    new InstanceBuffer(64),
   ];
   private sphereInstanceBuffers: InstanceBuffer[] = [
-    new InstanceBuffer(128),
-    new InstanceBuffer(128),
-    new InstanceBuffer(128),
+    new InstanceBuffer(64),
+    new InstanceBuffer(64),
   ];
   private instanceBufferFrameIndex: number = 0;
 
@@ -162,12 +168,47 @@ export class Demo {
         antialias: true,
         alpha: false,
         depth: true,
+        depthFormat: 'depth16unorm', // VRAM optimization: 2 bytes/pixel vs depth24plus (4 bytes/pixel) = 50% savings
         powerPreference: 'high-performance',
       });
       console.log(`Using backend: ${this.backend.name}`);
 
+      // VRAM optimization: Log canvas resolution and expected depth buffer size
+      const depthBytesPerPixel = this.backend.getDepthFormat() === 'depth16unorm' ? 2 : 4;
+      const expectedDepthMB = (this.canvas.width * this.canvas.height * depthBytesPerPixel / 1024 / 1024).toFixed(2);
+      console.log(`Canvas resolution: ${this.canvas.width}x${this.canvas.height} (DPR: ${window.devicePixelRatio})`);
+      console.log(`Depth format: ${this.backend.getDepthFormat()}`);
+      console.log(`Expected depth buffer: ${expectedDepthMB} MB`);
+
       // Initialize instance buffer manager for GPU instancing
       this.instanceBufferManager = new InstanceBufferManager(this.backend);
+
+      // Epic 3.4: Initialize retro rendering systems
+      this.retroLighting = new RetroLightingSystem(this.backend, {
+        maxLights: 4,
+        enableVertexColors: true,
+        enableLightmaps: false,
+        enableFog: false,
+      });
+
+      // Setup simple directional light for retro vertex lighting
+      const retroLights: RetroLight[] = [
+        {
+          type: 'directional',
+          position: [0, 10, 0],
+          color: [1.0, 0.95, 0.9], // Warm white
+          intensity: 1.2,
+          direction: [0.5, -1.0, 0.5], // Diagonal from top
+        },
+        {
+          type: 'point',
+          position: [-10, 5, -10],
+          color: [0.8, 0.9, 1.0], // Cool fill light
+          intensity: 0.6,
+          range: 50.0,
+        },
+      ];
+      this.retroLighting.setLights(retroLights);
 
       // CRITICAL: Sync backend depth buffer with current canvas size
       this.backend.resize(this.canvas.width, this.canvas.height);
@@ -215,22 +256,11 @@ export class Demo {
   private async createShaders(): Promise<void> {
     if (!this.backend) return;
 
-    // Epic 3.14: Load WGSL shaders and create pipelines
-    console.log('Loading WGSL shaders for WebGPU backend');
-    const wgslSource = await import('./shaders/basic-lighting.wgsl?raw').then(m => m.default);
-    const wgslSourceInstanced = await import('./shaders/basic-lighting_instanced.wgsl?raw').then(m => m.default);
+    // Epic 3.4: Load retro rendering WGSL shader (simple-lambert-instanced)
+    console.log('Loading retro WGSL shader for WebGPU backend');
+    const wgslSourceInstanced = await import('../../rendering/src/retro/shaders/simple-lambert-instanced.wgsl?raw').then(m => m.default);
 
-    // Create shader handles (non-instanced)
-    this.cubeShader = this.backend.createShader('cube-shader', {
-      vertex: wgslSource,
-      fragment: wgslSource,
-    });
-    this.sphereShader = this.backend.createShader('sphere-shader', {
-      vertex: wgslSource,
-      fragment: wgslSource,
-    });
-
-    // Create shader handles (instanced)
+    // Create shader handles (instanced only - retro rendering uses instanced rendering exclusively)
     this.cubeShaderInstanced = this.backend.createShader('cube-shader-instanced', {
       vertex: wgslSourceInstanced,
       fragment: wgslSourceInstanced,
@@ -240,72 +270,54 @@ export class Demo {
       fragment: wgslSourceInstanced,
     });
 
-    console.log('WGSL shaders compiled successfully (both standard and instanced)');
+    console.log('Retro WGSL shader compiled successfully (vertex lighting)');
 
-    // Epic 3.14: Create bind group layout
-    // Shader uses @group(0) @binding(0) for Uniforms struct
-    // Uniforms: 2 mat4 (128 bytes) + 1 mat3 (48 bytes) + 3 vec3 (48 bytes) = 224 bytes
+    // Epic 3.4: Create bind group layouts for retro rendering
+    // @group(0) - Camera uniforms: mat4 viewProj (64 bytes) + vec3 position (12 bytes) + padding (4 bytes) = 80 bytes
     this.bindGroupLayout = this.backend.createBindGroupLayout({
       entries: [
         {
           binding: 0,
           visibility: ['vertex', 'fragment'],
           type: 'uniform',
-          minBindingSize: 256, // WebGPU requires 256-byte alignment
+          minBindingSize: 256, // WebGPU requires 256-byte alignment (actual data is 80 bytes)
         },
       ],
     });
 
-    // Create shared uniform buffer for instanced rendering (view/projection matrix + lighting)
-    // This replaces the 2364 per-object uniform buffers with a single shared buffer
+    // @group(1) - Light storage buffer (read-only in vertex shader for retro vertex lighting)
+    this.lightBindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: ['vertex'],
+          type: 'read-only-storage',
+          minBindingSize: 64, // Minimum 1 light (64 bytes per light)
+        },
+      ],
+    });
+
+    // Create camera uniform buffer for retro rendering
+    // Actual data: 20 floats (80 bytes) - mat4 viewProj (16) + vec3 position (3) + padding (1)
+    // Allocated: 64 floats (256 bytes) for WebGPU alignment requirement
     this.sharedUniformBuffer = this.backend.createBuffer(
-      'shared-uniforms',
+      'camera-uniforms',
       'uniform',
-      new Float32Array(Demo.UNIFORM_FLOATS),
+      new Float32Array(Demo.UNIFORM_FLOATS), // 64 floats = 256 bytes (aligned)
       'dynamic_draw'
     );
 
-    // Create shared bind group
+    // Create camera bind group (@group(0))
     this.sharedBindGroup = this.backend.createBindGroup(this.bindGroupLayout, {
       bindings: [{ binding: 0, resource: this.sharedUniformBuffer }],
     });
 
-    // Epic 3.14: Create render pipelines
-    this.cubePipeline = this.backend.createRenderPipeline({
-      label: 'cube-pipeline',
-      shader: this.cubeShader,
-      vertexLayouts: [{
-        arrayStride: 24, // 6 floats (position + normal)
-        stepMode: 'vertex',
-        attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
-          { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
-        ],
-      }],
-      bindGroupLayouts: [this.bindGroupLayout],
-      pipelineState: OPAQUE_PIPELINE_STATE,
-      colorFormat: 'bgra8unorm',
-      depthFormat: this.backend.getDepthFormat(),
+    // Create light bind group (@group(1)) from RetroLightingSystem
+    this.lightBindGroup = this.backend.createBindGroup(this.lightBindGroupLayout, {
+      bindings: [{ binding: 0, resource: this.retroLighting.getLightBuffer() }],
     });
 
-    this.spherePipeline = this.backend.createRenderPipeline({
-      label: 'sphere-pipeline',
-      shader: this.sphereShader,
-      vertexLayouts: [{
-        arrayStride: 24,
-        stepMode: 'vertex',
-        attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x3' },
-          { shaderLocation: 1, offset: 12, format: 'float32x3' },
-        ],
-      }],
-      bindGroupLayouts: [this.bindGroupLayout],
-      pipelineState: OPAQUE_PIPELINE_STATE,
-      colorFormat: 'bgra8unorm',
-      depthFormat: this.backend.getDepthFormat(),
-    });
-
-    // Create instanced render pipelines
+    // Epic 3.4: Create retro rendering instanced pipelines
     // Vertex layout 0: per-vertex data (position + normal)
     // Vertex layout 1: per-instance data (mat4 transform + vec4 color)
     this.cubePipelineInstanced = this.backend.createRenderPipeline({
@@ -334,7 +346,7 @@ export class Demo {
           ],
         },
       ],
-      bindGroupLayouts: [this.bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout, this.lightBindGroupLayout], // @group(0) camera, @group(1) lights
       pipelineState: OPAQUE_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
       depthFormat: this.backend.getDepthFormat(),
@@ -366,13 +378,13 @@ export class Demo {
           ],
         },
       ],
-      bindGroupLayouts: [this.bindGroupLayout],
+      bindGroupLayouts: [this.bindGroupLayout, this.lightBindGroupLayout], // @group(0) camera, @group(1) lights
       pipelineState: OPAQUE_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
       depthFormat: this.backend.getDepthFormat(),
     });
 
-    console.log('Render pipelines created successfully (both standard and instanced)');
+    console.log('Retro rendering pipelines created successfully (instanced only with vertex lighting)');
     console.log('Resources will be allocated dynamically as needed');
   }
 
@@ -423,7 +435,8 @@ export class Demo {
     this.cubeIndexCount = cubeData.indices.length;
 
     // Create sphere geometry with interleaved position+normal data
-    const sphereData = createSphere(0.5, 16, 12);
+    // VRAM optimization: Reduced tessellation from (16,12) to (12,8) for 45% fewer vertices
+    const sphereData = createSphere(0.5, 12, 8);
     const sphereInterleaved = this.interleavePositionNormal(sphereData.positions, sphereData.normals);
 
     this.sphereVertexBuffer = this.backend.createBuffer(
@@ -819,10 +832,13 @@ export class Demo {
     // Shared uniform buffer is updated ONCE per frame in renderLoop, not here
     // This prevents race conditions from multiple updateBuffer calls
 
-    // Issue instanced draw call
+    // Epic 3.4: Issue retro instanced draw call with camera and light bind groups
     const drawCommand: DrawCommand = {
       pipeline,
-      bindGroups: new Map([[0, this.sharedBindGroup]]),
+      bindGroups: new Map([
+        [0, this.sharedBindGroup], // Camera uniforms (@group(0))
+        [1, this.lightBindGroup],  // Light storage buffer (@group(1))
+      ]),
       geometry: {
         type: 'indexed',
         vertexBuffers: new Map([
@@ -934,18 +950,14 @@ export class Demo {
     const tDiceLoopStart = performance.now();
 
     if (this.physicsWorld && diceEntities.length > 0) {
-      // Update shared uniform buffer ONCE for all instanced rendering this frame
-      // This prevents race conditions from multiple updateBuffer calls
-      const uniformData = new Float32Array(Demo.UNIFORM_FLOATS);
-      uniformData.set(viewProjMatrix, 0); // MVP becomes viewProj for instanced rendering
-      // Model matrix (offset 16) is UNUSED in instanced shader
-      // Normal matrix (offset 32) is UNUSED in instanced shader
-      uniformData[44] = 0.5; uniformData[45] = 1.0; uniformData[46] = 0.5; uniformData[47] = 0.0; // light dir
-      uniformData[48] = cameraTransform.x;
-      uniformData[49] = cameraTransform.y;
-      uniformData[50] = cameraTransform.z;
-      uniformData[51] = 0.0; // camera pos
-      // Base color (offset 52) is UNUSED in instanced shader (uses instance color)
+      // Epic 3.4: Update camera uniform buffer for retro rendering
+      // Camera struct: mat4 viewProj (16 floats) + vec3 position (3 floats) + padding (1 float) = 20 floats (80 bytes)
+      const uniformData = new Float32Array(Demo.CAMERA_UNIFORM_FLOATS);
+      uniformData.set(viewProjMatrix, 0); // mat4 viewProj (offset 0-15)
+      uniformData[16] = cameraTransform.x; // vec3 position.x (offset 16)
+      uniformData[17] = cameraTransform.y; // vec3 position.y (offset 17)
+      uniformData[18] = cameraTransform.z; // vec3 position.z (offset 18)
+      uniformData[19] = 0.0; // padding (offset 19)
       this.backend!.updateBuffer(this.sharedUniformBuffer, uniformData);
 
       // Group dice by mesh type (cube vs sphere)
@@ -1065,19 +1077,6 @@ export class Demo {
         } else if (category === 'textures') {
           textureCount += usage.allocations;
         }
-      }
-
-      // DEBUG: Dump all VRAM allocation IDs every 120 frames (~2 seconds at 60 FPS)
-      if (this.frameCount % 120 === 0) {
-        const allocationIds = this.backend.getVRAMProfiler().getAllocationIds();
-        console.log(`[VRAM DUMP] Frame ${this.frameCount}: ${allocationIds.length} allocations`);
-        // Group by prefix to see patterns
-        const byPrefix = new Map<string, number>();
-        for (const id of allocationIds) {
-          const prefix = id.split('_')[0];
-          byPrefix.set(prefix, (byPrefix.get(prefix) || 0) + 1);
-        }
-        console.log('[VRAM DUMP] By prefix:', Object.fromEntries(byPrefix));
       }
 
       // Calculate CPU timing for this frame (t6-t7 calculated after executeCommands)
@@ -1502,10 +1501,10 @@ export class Demo {
     const remainingEntities = Array.from(this.world.executeQuery(verifyQuery));
     console.log(`[RESET] After removal, ${remainingEntities.length} dice entities remain`);
 
-    // Clear and resize instance buffers to minimum capacity to free VRAM
+    // Epic 3.4: Clear and resize instance buffers to minimum capacity to free VRAM
     const minCapacity = 128;
     console.log(`[RESET] Clearing and resizing instance buffers to minimum capacity: ${minCapacity}`);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < Demo.INSTANCE_BUFFER_COUNT; i++) {
       // Delete GPU buffers FIRST to free VRAM immediately
       // CRITICAL: Without this, GPU buffers persist at old capacity since renderInstancedMesh
       // won't be called when there are 0 dice
