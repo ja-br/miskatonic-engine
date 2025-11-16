@@ -139,6 +139,7 @@ export class Demo {
   private retroPostProcessor: RetroPostProcessor | null = null;
   private retroLODSystem: RetroLODSystem | null = null;
   private sceneTexture: BackendTextureHandle | null = null; // Intermediate texture for post-processing
+  private sceneDepthTexture: BackendTextureHandle | null = null; // Depth texture for scene rendering
   private sceneFramebuffer: BackendFramebufferHandle | null = null; // Framebuffer wrapping sceneTexture
   private retroModeEnabled = false; // Toggle for retro rendering
 
@@ -511,11 +512,27 @@ export class Demo {
       }
     );
 
-    // Create framebuffer wrapping scene texture (required for beginRenderPass)
+    // Create depth texture for scene rendering (3D cubes need depth testing)
+    this.sceneDepthTexture = this.backend.createTexture(
+      'retro-scene-depth',
+      this.canvas.width,
+      this.canvas.height,
+      null,
+      {
+        format: this.backend.getDepthFormat(),
+        minFilter: 'nearest',
+        magFilter: 'nearest',
+        wrapS: 'clamp_to_edge',
+        wrapT: 'clamp_to_edge',
+        generateMipmaps: false,
+      }
+    );
+
+    // Create framebuffer WITH depth attachment for scene rendering
     this.sceneFramebuffer = this.backend.createFramebuffer(
       'retro-scene-framebuffer',
       [this.sceneTexture],
-      undefined // No depth attachment for post-processing
+      this.sceneDepthTexture // Scene rendering needs depth for 3D geometry
     );
 
     // Initialize RetroPostProcessor with PS2-era effects
@@ -860,18 +877,21 @@ export class Demo {
       this.backend.resize(this.canvas.width, this.canvas.height);
     }
 
-    // Recreate scene texture and framebuffer to match new canvas size (if retro systems are initialized)
+    // Recreate scene texture, depth texture, and framebuffer to match new canvas size (if retro systems are initialized)
     if (this.sceneTexture && this.backend) {
       console.log(`Recreating scene texture for new canvas size: ${this.canvas.width}x${this.canvas.height}`);
 
-      // Delete old framebuffer first, then texture
+      // Delete old framebuffer first, then textures
       if (this.sceneFramebuffer) {
         this.backend.deleteFramebuffer(this.sceneFramebuffer);
         this.sceneFramebuffer = null;
       }
       this.backend.deleteTexture(this.sceneTexture);
+      if (this.sceneDepthTexture) {
+        this.backend.deleteTexture(this.sceneDepthTexture);
+      }
 
-      // Recreate texture with new size
+      // Recreate color texture with new size
       this.sceneTexture = this.backend.createTexture(
         'retro-scene-texture',
         this.canvas.width,
@@ -887,11 +907,27 @@ export class Demo {
         }
       );
 
-      // Recreate framebuffer wrapping new texture
+      // Recreate depth texture with new size
+      this.sceneDepthTexture = this.backend.createTexture(
+        'retro-scene-depth',
+        this.canvas.width,
+        this.canvas.height,
+        null,
+        {
+          format: this.backend.getDepthFormat(),
+          minFilter: 'nearest',
+          magFilter: 'nearest',
+          wrapS: 'clamp_to_edge',
+          wrapT: 'clamp_to_edge',
+          generateMipmaps: false,
+        }
+      );
+
+      // Recreate framebuffer wrapping new textures
       this.sceneFramebuffer = this.backend.createFramebuffer(
         'retro-scene-framebuffer',
         [this.sceneTexture],
-        undefined
+        this.sceneDepthTexture
       );
 
       // Resize retro post-processor to match new canvas size
