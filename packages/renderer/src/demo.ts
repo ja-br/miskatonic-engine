@@ -4,8 +4,6 @@
 
 import {
   RenderBackend,
-  Camera as LegacyCamera,
-  OrbitControls as LegacyOrbitControls,
   CameraSystem,
   OrbitCameraController,
   BackendFactory,

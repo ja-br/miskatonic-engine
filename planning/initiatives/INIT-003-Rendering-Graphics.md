@@ -13,7 +13,7 @@ Modern WebGPU-based rendering pipeline supporting retro/lo-fi aesthetics with mo
 ### Epic 3.4: Retro Rendering Pipeline (COMPLETE OVERHAUL)
 **Priority:** P1
 **Dependencies:** Epic 3.15, Epic 3.14
-**Status:** 📋 Planned
+**Status:** 🚧 In Progress (Core Implementation Complete)
 **Aesthetic:** PlayStation 1/2 / Early 2000s / Lo-Fi / Demake Style
 
 **Philosophy:** Authentically retro visuals using period-appropriate techniques. No modern AAA features (SSAO, SSR, TAA). Embrace limitations as artistic choices.
@@ -42,44 +42,44 @@ This epic will **REMOVE** existing modern rendering features and **REPLACE** the
 - ❌ **NO BVH structures** (use simple spatial grids/octrees only)
 
 #### Post-Processing (Retro)
-- [ ] Simple additive bloom (low-res 1/4 buffer → bilinear upsample)
-- [ ] Basic tone mapping (**gamma correction only**, no Reinhard/ACES/Filmic)
-- [ ] Single-LUT color grading (256x16 texture lookup, subtle grading)
-- [ ] Ordered dither patterns for color/alpha blending (Bayer 4x4 or 8x8 matrix)
-- [ ] Noise/grain overlay for film aesthetic
-- [ ] **Optional CRT shader** (scanlines, phosphor glow, curvature)
-- [ ] Render pass execution (3 passes: bloom extract, blur, composite)
+- [x] Simple additive bloom (low-res 1/4 buffer → bilinear upsample)
+- [x] Basic tone mapping (**gamma correction only**, no Reinhard/ACES/Filmic)
+- [x] Single-LUT color grading (256x16 texture lookup, subtle grading)
+- [x] Ordered dither patterns for color/alpha blending (Bayer 4x4 or 8x8 matrix)
+- [x] Noise/grain overlay for film aesthetic
+- [x] **Optional CRT shader** (scanlines, phosphor glow, curvature)
+- [x] Render pass execution (3 passes: bloom extract, blur, composite)
 
 #### Lighting (Retro - Vertex Only)
-- [ ] **Vertex lighting system** (Lambert diffuse computed per-vertex, NOT per-pixel)
-- [ ] Vertex-painted ambient colors (baked per-vertex ambient term)
-- [ ] Simple lightmaps (baked ambient occlusion/GI, 128x128 max resolution)
-- [ ] Distance fog (linear or exponential falloff)
-- [ ] Contrast fog (depth-based desaturation for atmospheric depth)
-- [ ] Unlit emissive materials for neon signs/UI (skip lighting entirely)
-- [ ] Specular highlights via cube map lookup (simple reflection, not SSR)
+- [x] **Vertex lighting system** (Lambert diffuse computed per-vertex, NOT per-pixel)
+- [x] Vertex-painted ambient colors (baked per-vertex ambient term)
+- [x] Simple lightmaps (baked ambient occlusion/GI, 128x128 max resolution)
+- [x] Distance fog (linear or exponential falloff)
+- [x] Contrast fog (depth-based desaturation for atmospheric depth)
+- [x] Unlit emissive materials for neon signs/UI (skip lighting entirely)
+- [x] Specular highlights via cube map lookup (simple reflection, not SSR)
 
 #### LOD System (Retro)
-- [ ] Dithered crossfade LOD transitions (alpha-to-coverage or stipple patterns)
-- [ ] Distance-based switching (2-3 LOD levels max)
-- [ ] No smooth mesh morphing, no temporal blending
+- [x] Dithered crossfade LOD transitions (alpha-to-coverage or stipple patterns)
+- [x] Distance-based switching (2-3 LOD levels max)
+- [x] No smooth mesh morphing, no temporal blending
 
 #### Shader Variants (Required)
-- [ ] **vertex-color.wgsl** - Per-vertex color shading only (no textures)
-- [ ] **unlit.wgsl** - Unlit/emissive materials (bypass lighting)
-- [ ] **simple-lambert.wgsl** - Basic Lambert diffuse (vertex lighting)
-- [ ] **emissive.wgsl** - Self-illuminated materials (glowing objects)
-- [ ] **specular-cubemap.wgsl** - Cube map specular reflections
-- [ ] **bloom-extract.wgsl** - Post-process: extract bright pixels
-- [ ] **bloom-blur.wgsl** - Post-process: Gaussian blur
-- [ ] **composite.wgsl** - Post-process: final composite with dither/LUT/grain
-- [ ] **crt-effect.wgsl** - Optional CRT shader (scanlines, curvature)
+- [x] **vertex-color.wgsl** - Per-vertex color shading only (no textures)
+- [x] **unlit.wgsl** - Unlit/emissive materials (bypass lighting)
+- [x] **simple-lambert.wgsl** - Basic Lambert diffuse (vertex lighting)
+- [x] **emissive.wgsl** - Self-illuminated materials (glowing objects)
+- [x] **specular-cubemap.wgsl** - Cube map specular reflections
+- [x] **bloom-extract.wgsl** - Post-process: extract bright pixels
+- [x] **bloom-blur.wgsl** - Post-process: Gaussian blur
+- [x] **composite.wgsl** - Post-process: final composite with dither/LUT/grain
+- [x] **crt-effect.wgsl** - Optional CRT shader (scanlines, curvature)
 
 #### Textures & Materials
-- [ ] 256px maximum texture resolution constraint (enforced)
-- [ ] Point filtering (nearest-neighbor) or bilinear only
-- [ ] Texture dithering for smooth gradients (avoid color banding)
-- [ ] Separate shader variants per material type (vertex-color, unlit, lambert, emissive)
+- [x] 256px maximum texture resolution constraint (enforced)
+- [x] Point filtering (nearest-neighbor) or bilinear only
+- [x] Texture dithering for smooth gradients (avoid color banding)
+- [x] Separate shader variants per material type (vertex-color, unlit, lambert, emissive)
 
 #### Code Quality
 - [ ] Shader uniform buffer resolution
@@ -96,29 +96,29 @@ This epic will **REMOVE** existing modern rendering features and **REPLACE** the
 - Advanced CRT effects beyond basic scanlines (separate epic)
 
 **Phase 1 Tasks (Demolition):**
-- [ ] **REMOVE** shadow system files (shadows/ directory - all 7 files)
-- [ ] **REMOVE** PBR/modern lighting features from existing shaders
-- [ ] **REMOVE** any AA/TAA/temporal effect code
-- [ ] **REMOVE** deprecated Camera.ts and legacy exports
-- [ ] **UPDATE** index.ts to remove deleted exports
+- [x] **REMOVE** shadow system files (shadows/ directory - all 7 files)
+- [x] **REMOVE** PBR/modern lighting features from existing shaders
+- [x] **REMOVE** any AA/TAA/temporal effect code
+- [x] **REMOVE** deprecated Camera.ts and legacy exports
+- [x] **UPDATE** index.ts to remove deleted exports
 
 **Phase 2 Tasks (Retro Foundation):**
-- [ ] Implement 9 new retro shaders (vertex-color, unlit, lambert, emissive, etc.)
-- [ ] Create vertex lighting system (replace per-pixel lighting)
-- [ ] Add vertex color attributes to vertex layouts
-- [ ] Implement texture size constraint enforcement (256px max)
+- [x] Implement 9 new retro shaders (vertex-color, unlit, lambert, emissive, etc.)
+- [x] Create vertex lighting system (replace per-pixel lighting)
+- [x] Add vertex color attributes to vertex layouts
+- [x] Implement texture size constraint enforcement (256px max)
 
 **Phase 3 Tasks (Post-Processing):**
-- [ ] Implement 3-pass bloom pipeline (extract, blur, composite)
-- [ ] Add gamma-only tonemapping
-- [ ] Add ordered dithering (Bayer patterns)
-- [ ] Add color LUT support
-- [ ] Optional CRT shader
+- [x] Implement 3-pass bloom pipeline (extract, blur, composite)
+- [x] Add gamma-only tonemapping
+- [x] Add ordered dithering (Bayer patterns)
+- [x] Add color LUT support
+- [x] Optional CRT shader
 
 **Phase 4 Tasks (Integration):**
-- [ ] LOD system with dithered crossfade
-- [ ] Cube map specular system
-- [ ] Fog system (distance + contrast)
+- [x] LOD system with dithered crossfade
+- [x] Cube map specular system
+- [x] Fog system (distance + contrast)
 - [ ] Demo integration showing retro mode
 - [ ] Performance validation (60 FPS target)
 - [ ] Update all examples to use new retro API
