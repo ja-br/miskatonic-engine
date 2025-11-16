@@ -117,6 +117,7 @@ export const DEFAULT_RETRO_MATERIAL: RetroMaterialConfig = {
 export class RetroMaterial {
   private config: RetroMaterialConfig;
   private initialized = false;
+  private initializationPromise?: Promise<void>;
 
   // GPU resources
   private albedoTexture?: BackendTextureHandle;
@@ -137,10 +138,28 @@ export class RetroMaterial {
 
   /**
    * Initialize material (load textures, create resources)
+   * Safe to call multiple times - will return existing promise if already initializing
    */
   async initialize(): Promise<void> {
+    // If already initialized, return immediately
     if (this.initialized) return;
 
+    // If initialization is in progress, wait for it
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    // Start initialization and store the promise
+    this.initializationPromise = this.doInitialize();
+
+    try {
+      await this.initializationPromise;
+    } finally {
+      this.initializationPromise = undefined;
+    }
+  }
+
+  private async doInitialize(): Promise<void> {
     // Load textures
     await this.loadTextures();
 
@@ -463,6 +482,22 @@ export function downscaleToRetroResolution(
   height: number,
   targetSize: number = 256
 ): { data: Uint8Array; width: number; height: number } {
+  // Input validation
+  if (width <= 0 || height <= 0) {
+    throw new Error(`Invalid dimensions: width=${width}, height=${height}. Must be positive.`);
+  }
+
+  if (targetSize <= 0) {
+    throw new Error(`Invalid targetSize: ${targetSize}. Must be positive.`);
+  }
+
+  const expectedSize = width * height * 4;
+  if (imageData.length < expectedSize) {
+    throw new Error(
+      `ImageData too small: expected ${expectedSize} bytes (${width}x${height} RGBA), got ${imageData.length}`
+    );
+  }
+
   // Clamp to max resolution
   const maxSize = RETRO_TEXTURE_CONSTRAINTS.MAX_RESOLUTION;
   targetSize = Math.min(targetSize, maxSize);

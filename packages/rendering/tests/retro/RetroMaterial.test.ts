@@ -53,6 +53,23 @@ describe('RetroMaterial', () => {
       material.dispose();
     });
 
+    it('should handle concurrent initialization calls', async () => {
+      const material = new RetroMaterial(backend, {
+        type: RetroMaterialType.Lit,
+      });
+
+      // Call initialize() twice without awaiting the first
+      const promise1 = material.initialize();
+      const promise2 = material.initialize();
+
+      await Promise.all([promise1, promise2]);
+
+      // Should only create one set of resources
+      expect(material.getUniformBuffer()).toBeDefined();
+
+      material.dispose();
+    });
+
     it('should throw when accessing resources before initialization', () => {
       const material = new RetroMaterial(backend, {
         type: RetroMaterialType.Lit,
@@ -585,5 +602,42 @@ describe('downscaleToRetroResolution', () => {
 
     expect(result.width).toBe(2);
     expect(result.height).toBe(2);
+  });
+
+  describe('Input Validation', () => {
+    it('should throw on zero width', () => {
+      const imageData = new Uint8Array(100);
+      expect(() => downscaleToRetroResolution(imageData, 0, 10, 64)).toThrow('Invalid dimensions');
+    });
+
+    it('should throw on zero height', () => {
+      const imageData = new Uint8Array(100);
+      expect(() => downscaleToRetroResolution(imageData, 10, 0, 64)).toThrow('Invalid dimensions');
+    });
+
+    it('should throw on negative width', () => {
+      const imageData = new Uint8Array(100);
+      expect(() => downscaleToRetroResolution(imageData, -10, 10, 64)).toThrow('Invalid dimensions');
+    });
+
+    it('should throw on negative height', () => {
+      const imageData = new Uint8Array(100);
+      expect(() => downscaleToRetroResolution(imageData, 10, -10, 64)).toThrow('Invalid dimensions');
+    });
+
+    it('should throw on negative targetSize', () => {
+      const imageData = new Uint8Array(16 * 16 * 4);
+      expect(() => downscaleToRetroResolution(imageData, 16, 16, -64)).toThrow('Invalid targetSize');
+    });
+
+    it('should throw on zero targetSize', () => {
+      const imageData = new Uint8Array(16 * 16 * 4);
+      expect(() => downscaleToRetroResolution(imageData, 16, 16, 0)).toThrow('Invalid targetSize');
+    });
+
+    it('should throw when imageData is too small', () => {
+      const imageData = new Uint8Array(10); // Way too small for 16x16 RGBA
+      expect(() => downscaleToRetroResolution(imageData, 16, 16, 8)).toThrow('ImageData too small');
+    });
   });
 });
