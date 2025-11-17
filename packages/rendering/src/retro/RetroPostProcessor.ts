@@ -108,6 +108,9 @@ export class RetroPostProcessor {
     // Initialize shaders and bind group layouts
     this.initializeShaders();
     this.createBindGroupLayouts();
+
+    // Create pipelines (Task 4)
+    this.createPipelines();
   }
 
   /**
@@ -196,6 +199,9 @@ export class RetroPostProcessor {
         { format: 'rgba', wrapS: 'clamp_to_edge', wrapT: 'clamp_to_edge' }
       );
     }
+
+    // 4. Create uniform buffers (Task 4)
+    this.createUniformBuffers();
 
     console.log('[RetroPostProcessor] Render targets created successfully');
   }
@@ -291,6 +297,171 @@ export class RetroPostProcessor {
       entries: [
         { binding: 0, visibility: ['fragment'], type: 'uniform', minBindingSize: 256 },
       ],
+    });
+  }
+
+  /**
+   * Create uniform buffers with proper WGSL alignment
+   * Task 4: Create 3 uniform buffers
+   */
+  private createUniformBuffers(): void {
+    // BloomParams (16 bytes total)
+    // struct BloomParams {
+    //   threshold: f32,      // 4 bytes
+    //   _padding: vec3<f32>, // 12 bytes
+    // }
+    const bloomParamsData = new Float32Array(4); // 16 bytes
+    bloomParamsData[0] = this.config.bloomThreshold;
+    // bloomParamsData[1-3] remain 0 (padding)
+
+    if (this.bloomParamsBuffer) {
+      this.backend.deleteBuffer(this.bloomParamsBuffer);
+    }
+    this.bloomParamsBuffer = this.backend.createBuffer(
+      'retro-bloom-params',
+      'uniform',
+      bloomParamsData,
+      'dynamic_draw'
+    );
+
+    // BlurParams (16 bytes total)
+    // struct BlurParams {
+    //   direction: vec2<f32>,  // 8 bytes
+    //   _padding: vec2<f32>,   // 8 bytes
+    // }
+    const blurParamsData = new Float32Array(4); // 16 bytes
+    // blurParamsData[0-1] will be set per-pass (horizontal/vertical)
+    // blurParamsData[2-3] remain 0 (padding)
+
+    if (this.blurParamsBuffer) {
+      this.backend.deleteBuffer(this.blurParamsBuffer);
+    }
+    this.blurParamsBuffer = this.backend.createBuffer(
+      'retro-blur-params',
+      'uniform',
+      blurParamsData,
+      'dynamic_draw'
+    );
+
+    // PostParams (32 bytes total)
+    // struct PostParams {
+    //   bloomIntensity: f32,  // 4 bytes
+    //   grainAmount: f32,     // 4 bytes
+    //   gamma: f32,           // 4 bytes
+    //   ditherPattern: u32,   // 4 bytes
+    //   time: f32,            // 4 bytes
+    //   _padding: vec3<f32>,  // 12 bytes
+    // }
+    const postParamsData = new Float32Array(8); // 32 bytes
+    postParamsData[0] = this.config.bloomIntensity;
+    postParamsData[1] = this.config.grainAmount;
+    postParamsData[2] = this.config.gamma;
+    postParamsData[3] = this.config.ditherPattern;
+    postParamsData[4] = this.time;
+    // postParamsData[5-7] remain 0 (padding)
+
+    if (this.postParamsBuffer) {
+      this.backend.deleteBuffer(this.postParamsBuffer);
+    }
+    this.postParamsBuffer = this.backend.createBuffer(
+      'retro-post-params',
+      'uniform',
+      postParamsData,
+      'dynamic_draw'
+    );
+  }
+
+  /**
+   * Create render pipelines
+   * Task 4: Create 3 pipelines for bloom extract, blur, and composite
+   */
+  private createPipelines(): void {
+    if (!this.bloomExtractShader || !this.bloomBlurShader || !this.compositeShader) {
+      throw new Error('[RetroPostProcessor] Shaders not initialized');
+    }
+
+    if (!this.extractTextureLayout || !this.extractUniformLayout ||
+        !this.blurTextureLayout || !this.blurUniformLayout ||
+        !this.compositeSceneLayout || !this.compositeBloomLayout ||
+        !this.compositeLUTLayout || !this.compositeParamsLayout) {
+      throw new Error('[RetroPostProcessor] Bind group layouts not initialized');
+    }
+
+    // Bloom Extract Pipeline
+    // Renders bright pixels to bloom extract texture
+    this.bloomExtractPipeline = this.backend.createRenderPipeline({
+      label: 'retro-bloom-extract',
+      shader: this.bloomExtractShader,
+      vertexLayouts: [], // Fullscreen triangle, no vertex buffers
+      bindGroupLayouts: [this.extractTextureLayout, this.extractUniformLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: false,
+          srcFactor: 'one',
+          dstFactor: 'zero',
+          operation: 'add'
+        },
+        rasterization: {
+          cullMode: 'none', // Fullscreen quad, no culling needed
+          frontFace: 'ccw'
+        }
+      },
+      colorFormat: 'bgra8unorm',
+      depthFormat: undefined // No depth in post-processing
+    });
+
+    // Bloom Blur Pipeline
+    // Applies separable Gaussian blur (horizontal then vertical)
+    this.bloomBlurPipeline = this.backend.createRenderPipeline({
+      label: 'retro-bloom-blur',
+      shader: this.bloomBlurShader,
+      vertexLayouts: [], // Fullscreen triangle, no vertex buffers
+      bindGroupLayouts: [this.blurTextureLayout, this.blurUniformLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: false,
+          srcFactor: 'one',
+          dstFactor: 'zero',
+          operation: 'add'
+        },
+        rasterization: {
+          cullMode: 'none',
+          frontFace: 'ccw'
+        }
+      },
+      colorFormat: 'bgra8unorm',
+      depthFormat: undefined
+    });
+
+    // Composite Pipeline
+    // Combines scene + bloom + LUT + dither + grain
+    this.compositePipeline = this.backend.createRenderPipeline({
+      label: 'retro-composite',
+      shader: this.compositeShader,
+      vertexLayouts: [], // Fullscreen triangle, no vertex buffers
+      bindGroupLayouts: [
+        this.compositeSceneLayout,
+        this.compositeBloomLayout,
+        this.compositeLUTLayout,
+        this.compositeParamsLayout
+      ],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: false,
+          srcFactor: 'one',
+          dstFactor: 'zero',
+          operation: 'add'
+        },
+        rasterization: {
+          cullMode: 'none',
+          frontFace: 'ccw'
+        }
+      },
+      colorFormat: 'bgra8unorm',
+      depthFormat: undefined
     });
   }
 
@@ -538,11 +709,21 @@ export class RetroPostProcessor {
       this.sceneFramebuffer = null;
     }
 
-    // TODO: Dispose pipelines and bind groups
-    this.bloomExtractPipeline = null;
-    this.bloomBlurPipeline = null;
-    this.compositePipeline = null;
+    // Dispose pipelines (Task 4)
+    if (this.bloomExtractPipeline) {
+      this.backend.deletePipeline(this.bloomExtractPipeline);
+      this.bloomExtractPipeline = null;
+    }
+    if (this.bloomBlurPipeline) {
+      this.backend.deletePipeline(this.bloomBlurPipeline);
+      this.bloomBlurPipeline = null;
+    }
+    if (this.compositePipeline) {
+      this.backend.deletePipeline(this.compositePipeline);
+      this.compositePipeline = null;
+    }
 
+    // Dispose bind groups (will be created in Task 5)
     this.bloomExtractBindGroup = null;
     this.bloomBlurHorizontalBindGroup = null;
     this.bloomBlurVerticalBindGroup = null;
