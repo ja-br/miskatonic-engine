@@ -37,6 +37,55 @@ struct VertexOutput {
   @location(1) color: vec4<f32>,       // Instance color
 }
 
+// Helper: Extract 3x3 rotation/scale from 4x4 matrix
+fn mat4to3(m: mat4x4<f32>) -> mat3x3<f32> {
+  return mat3x3<f32>(
+    m[0].xyz,
+    m[1].xyz,
+    m[2].xyz
+  );
+}
+
+// Helper: Compute inverse transpose for normal transformation
+// Required for correct normal transformation with non-uniform scales
+// Uses cofactor method since WGSL doesn't provide mat3x3 inverse
+fn inverseTranspose3x3(m: mat3x3<f32>) -> mat3x3<f32> {
+  // Compute determinant
+  let det = determinant(m);
+  if (abs(det) < 0.0001) {
+    // Fallback to identity if matrix is singular
+    return mat3x3<f32>(
+      vec3<f32>(1.0, 0.0, 0.0),
+      vec3<f32>(0.0, 1.0, 0.0),
+      vec3<f32>(0.0, 0.0, 1.0)
+    );
+  }
+
+  // Compute cofactor matrix (which is transpose of adjugate)
+  // For inverse transpose, we can compute cofactor directly without full inverse
+  let invDet = 1.0 / det;
+
+  // Cofactor matrix elements
+  let c00 = (m[1][1] * m[2][2] - m[1][2] * m[2][1]) * invDet;
+  let c01 = (m[1][2] * m[2][0] - m[1][0] * m[2][2]) * invDet;
+  let c02 = (m[1][0] * m[2][1] - m[1][1] * m[2][0]) * invDet;
+
+  let c10 = (m[0][2] * m[2][1] - m[0][1] * m[2][2]) * invDet;
+  let c11 = (m[0][0] * m[2][2] - m[0][2] * m[2][0]) * invDet;
+  let c12 = (m[0][1] * m[2][0] - m[0][0] * m[2][1]) * invDet;
+
+  let c20 = (m[0][1] * m[1][2] - m[0][2] * m[1][1]) * invDet;
+  let c21 = (m[0][2] * m[1][0] - m[0][0] * m[1][2]) * invDet;
+  let c22 = (m[0][0] * m[1][1] - m[0][1] * m[1][0]) * invDet;
+
+  // Cofactor matrix is already the transpose of inverse
+  return mat3x3<f32>(
+    vec3<f32>(c00, c01, c02),
+    vec3<f32>(c10, c11, c12),
+    vec3<f32>(c20, c21, c22)
+  );
+}
+
 // Simple Lambert diffuse lighting (computed per-vertex)
 fn computeLambert(worldPos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
   var lightAccum = vec3<f32>(0.0, 0.0, 0.0);
@@ -84,8 +133,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
   // Transform position to world space
   let worldPos = instanceTransform * vec4<f32>(in.position, 1.0);
 
-  // Transform normal to world space (use 3x3 rotation part)
-  let worldNormal = normalize((instanceTransform * vec4<f32>(in.normal, 0.0)).xyz);
+  // Transform normal to world space using inverse transpose
+  // This is mathematically correct for non-uniform scales
+  let normalMatrix = inverseTranspose3x3(mat4to3(instanceTransform));
+  let worldNormal = normalize(normalMatrix * in.normal);
 
   // Transform to clip space
   out.position = camera.viewProj * worldPos;
@@ -100,15 +151,20 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 }
 
 // PS1/PS2 ambient lighting constant (prevents pure black shadows)
-const RETRO_AMBIENT_COLOR = vec3<f32>(0.15, 0.15, 0.18);
+const RETRO_AMBIENT_COLOR = vec3<f32>(0.3, 0.3, 0.35);
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-  // Apply pre-computed vertex lighting to instance color
-  let finalColor = in.color.rgb * in.lightColor;
+  // Physically-based lighting equation:
+  // 1. Start with diffuse lighting (allow > 1.0 for bright highlights)
+  let diffuse = in.lightColor;
 
-  // Add small ambient term to prevent pure black (retro games had this)
-  let litColor = finalColor + RETRO_AMBIENT_COLOR * in.color.rgb;
+  // 2. Add uniform ambient (NOT multiplied by surface color - ambient is constant)
+  let totalLight = diffuse + RETRO_AMBIENT_COLOR;
 
-  return vec4<f32>(litColor, in.color.a);
+  // 3. Multiply by surface albedo
+  let finalColor = in.color.rgb * totalLight;
+
+  // 4. Clamp only at the end for HDR->LDR conversion
+  return vec4<f32>(min(finalColor, vec3<f32>(1.0)), in.color.a);
 }

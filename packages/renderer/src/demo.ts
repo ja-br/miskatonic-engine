@@ -198,13 +198,13 @@ export class Demo {
           position: [0, 10, 0],
           color: [1.0, 0.95, 0.9], // Warm white
           intensity: 1.2,
-          direction: [0.5, -1.0, 0.5], // Diagonal from top
+          direction: [0.5, -1.0, -0.5], // Diagonal from top (flipped Z to align with camera view)
         },
         {
           type: 'point',
           position: [-10, 5, -10],
           color: [0.8, 0.9, 1.0], // Cool fill light
-          intensity: 0.6,
+          intensity: 1.2,
           range: 50.0,
         },
       ];
@@ -292,7 +292,7 @@ export class Demo {
           binding: 0,
           visibility: ['vertex'],
           type: 'read-only-storage',
-          minBindingSize: 64, // Minimum 1 light (64 bytes per light)
+          minBindingSize: 96, // CORRECTED: 48 bytes per light * 2 lights = 96 bytes (storage buffer uses 4-byte vec3 alignment, NOT 16-byte)
         },
       ],
     });
@@ -809,14 +809,12 @@ export class Demo {
       const scale = { x: transform.scaleX, y: transform.scaleY, z: transform.scaleZ };
       this.createModelMatrix(modelMatrix, position, rotation, scale);
 
-      // Calculate color with depth-based darkening
-      const depth = Math.max(0, Math.min(1, (position.y + 1) / 10));
+      // Get pure material color (let lighting system handle all brightness variation)
       const [r, g, b] = getDieColor(diceEntity.sides);
-      const brightness = 0.7 + depth * 0.3;
 
       // Set instance transform and color
       instanceBuffer.setInstanceTransform(validInstanceCount, modelMatrix);
-      instanceBuffer.setInstanceColor(validInstanceCount, r * brightness, g * brightness, b * brightness, 1.0);
+      instanceBuffer.setInstanceColor(validInstanceCount, r, g, b, 1.0);
 
       // CRITICAL: Release matrix back to pool (fixes matrix pool leak)
       this.matrixPool.release(modelMatrix);
