@@ -14,10 +14,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### What This Means
 - **NO backward compatibility layers or shims**
-- **NO deprecated API warnings** - just remove bad APIs
 - **NO hesitation to refactor** - break early and often
 - **Update all call sites** when APIs change
 - **Remove old code** that no longer compiles
+- **No Workarounds** NO HACKS, NO HALF-ASS IMPLEMENTATIONS, NO BUILD UP OF TECH DEBT, MAKE THE PROPER ARCHITECTURAL CHANGES
 
 ### Code Review Guidelines
 - Breaking changes that improve design are GOOD

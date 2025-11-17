@@ -153,6 +153,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 // PS1/PS2 ambient lighting constant (prevents pure black shadows)
 const RETRO_AMBIENT_COLOR = vec3<f32>(0.3, 0.3, 0.35);
 
+// 4x4 Bayer matrix for ordered dithering (PS1-style)
+// Hides color banding in Gouraud shading
+const bayer4 = array<f32, 16>(
+  0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+  12.0/16.0, 4.0/16.0, 14.0/16.0,  6.0/16.0,
+  3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+  15.0/16.0, 7.0/16.0, 13.0/16.0,  5.0/16.0
+);
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // Physically-based lighting equation:
@@ -163,8 +172,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let totalLight = diffuse + RETRO_AMBIENT_COLOR;
 
   // 3. Multiply by surface albedo
-  let finalColor = in.color.rgb * totalLight;
+  var finalColor = in.color.rgb * totalLight;
 
-  // 4. Clamp only at the end for HDR->LDR conversion
-  return vec4<f32>(min(finalColor, vec3<f32>(1.0)), in.color.a);
+  // 4. PS1-style ordered dithering to hide color banding
+  let screenPos = vec2<u32>(in.position.xy);
+  let bayerIndex = (screenPos.y % 4u) * 4u + (screenPos.x % 4u);
+  let ditherValue = bayer4[bayerIndex];
+  // Apply dither (subtle PS1-style strength)
+  finalColor = finalColor + (ditherValue - 0.5) * 0.04;  // ±2% - subtle but visible
+
+  // 5. Clamp only at the end for HDR->LDR conversion
+  return vec4<f32>(clamp(finalColor, vec3<f32>(0.0), vec3<f32>(1.0)), in.color.a);
 }

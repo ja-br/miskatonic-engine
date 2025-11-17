@@ -7,7 +7,7 @@
 export { RetroLightingSystem, type RetroLightingConfig, type FogConfig, type RetroLight } from './RetroLightingSystem';
 
 // Retro post-processing
-export { RetroPostProcessor, type RetroPostConfig } from './RetroPostProcessor';
+export { RetroPostProcessor, type RetroPostConfig, type CRTYahConfig, type MaskType } from './RetroPostProcessor';
 
 // Retro materials
 export { RetroMaterial, type RetroMaterialConfig, type RetroMaterialType, type RetroFilterMode } from './RetroMaterial';

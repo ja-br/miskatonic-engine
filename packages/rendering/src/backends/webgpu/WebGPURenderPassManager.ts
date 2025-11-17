@@ -11,6 +11,7 @@ import { VRAMCategory } from '../../VRAMProfiler.js';
 
 export class WebGPURenderPassManager {
   private depthTexture: GPUTexture | null = null;
+  private depthTextureView: GPUTextureView | null = null;
   private depthTextureSize = 0;
   private depthFormat: GPUTextureFormat;
 
@@ -46,7 +47,8 @@ export class WebGPURenderPassManager {
     clearColor?: [number, number, number, number],
     clearDepth?: number,
     _clearStencil?: number,
-    label?: string
+    label?: string,
+    requireDepth?: boolean
   ): void {
     if (!this.ctx.device) {
       throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
@@ -58,27 +60,65 @@ export class WebGPURenderPassManager {
       throw new Error(WebGPUErrors.CONTEXT_NOT_INITIALIZED);
     }
 
-    const colorAttachment: GPURenderPassColorAttachment = {
-      view: this.ctx.context.getCurrentTexture().createView(),
-      clearValue: clearColor
-        ? { r: clearColor[0], g: clearColor[1], b: clearColor[2], a: clearColor[3] }
-        : { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
-      loadOp: 'clear' as const,
-      storeOp: 'store' as const,
-    };
+    let colorAttachments: GPURenderPassColorAttachment[];
+    let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
 
-    const depthAttachment: GPURenderPassDepthStencilAttachment | undefined = this.depthTexture
-      ? {
-          view: this.depthTexture.createView(),
+    if (target) {
+      // Render to framebuffer - use framebuffer's attachments
+      const fb = this.getFramebuffer(target.id);
+      if (!fb) {
+        throw new Error(`Framebuffer not found: ${target.id}`);
+      }
+
+      // Use framebuffer's color attachments
+      colorAttachments = fb.colorAttachments.map(view => ({
+        view,
+        clearValue: clearColor
+          ? { r: clearColor[0], g: clearColor[1], b: clearColor[2], a: clearColor[3] }
+          : { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
+        loadOp: 'clear' as const,
+        storeOp: 'store' as const,
+      }));
+
+      // Use framebuffer's depth attachment (may be undefined)
+      depthAttachment = fb.depthStencilAttachment
+        ? {
+            view: fb.depthStencilAttachment,
+            depthClearValue: clearDepth ?? 1.0,
+            depthLoadOp: 'clear' as const,
+            depthStoreOp: 'store' as const,
+          }
+        : undefined;
+    } else {
+      // Render to swapchain - use swapchain texture + optional depth buffer
+      colorAttachments = [{
+        view: this.ctx.context.getCurrentTexture().createView(),
+        clearValue: clearColor
+          ? { r: clearColor[0], g: clearColor[1], b: clearColor[2], a: clearColor[3] }
+          : { r: 0.05, g: 0.05, b: 0.08, a: 1.0 },
+        loadOp: 'clear' as const,
+        storeOp: 'store' as const,
+      }];
+
+      // Conditionally attach depth buffer based on requireDepth flag
+      if (requireDepth === true) {
+        if (!this.depthTextureView) {
+          throw new Error('Depth attachment requested but depth texture not initialized. Call initializeDepthTexture() first.');
+        }
+        depthAttachment = {
+          view: this.depthTextureView,
           depthClearValue: clearDepth ?? 1.0,
           depthLoadOp: 'clear' as const,
           depthStoreOp: 'store' as const,
-        }
-      : undefined;
+        };
+      } else {
+        depthAttachment = undefined;
+      }
+    }
 
     this.ctx.currentPass = this.ctx.commandEncoder.beginRenderPass({
       label: label || 'Render Pass',
-      colorAttachments: [colorAttachment],
+      colorAttachments,
       depthStencilAttachment: depthAttachment,
     });
   }
@@ -131,6 +171,7 @@ export class WebGPURenderPassManager {
       format: this.depthFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
+    this.depthTextureView = this.depthTexture.createView();
   }
 
   /**
@@ -165,6 +206,7 @@ export class WebGPURenderPassManager {
       format: this.depthFormat,
       usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
+    this.depthTextureView = this.depthTexture.createView();
   }
 
   /**

@@ -246,7 +246,11 @@ export class WebGPUBackend implements IRendererBackend {
       return;
     }
 
-    this.ensureDefaultRenderPass();
+    // BUG FIX: Do NOT call ensureDefaultRenderPass() here!
+    // The composite pass already renders to swapchain. Calling ensureDefaultRenderPass()
+    // creates a NEW render pass that clears the swapchain to black, overwriting the composite output.
+    // this.ensureDefaultRenderPass();  // REMOVED
+
     this.renderPassMgr.endRenderPass();
     this.submitCommandBuffer();
   }
@@ -264,7 +268,7 @@ export class WebGPUBackend implements IRendererBackend {
         console.warn(`⚠️ Slow swap chain acquisition: ${swapTime.toFixed(2)}ms`);
       }
 
-      this.renderPassMgr.beginRenderPass(null, undefined, undefined, undefined, 'Default Pass');
+      this.renderPassMgr.beginRenderPass(null, undefined, undefined, undefined, 'Default Pass', true);
     }
   }
 
@@ -296,9 +300,10 @@ export class WebGPUBackend implements IRendererBackend {
     clearColor?: [number, number, number, number],
     clearDepth?: number,
     clearStencil?: number,
-    label?: string
+    label?: string,
+    requireDepth?: boolean
   ): void {
-    this.renderPassMgr.beginRenderPass(target, clearColor, clearDepth, clearStencil, label);
+    this.renderPassMgr.beginRenderPass(target, clearColor, clearDepth, clearStencil, label, requireDepth);
   }
 
   endRenderPass(): void {
@@ -384,6 +389,14 @@ export class WebGPUBackend implements IRendererBackend {
     this.resourceMgr.destroyTexture(handle);
   }
 
+  createDepthTexture(
+    id: string,
+    width: number,
+    height: number
+  ): BackendTextureHandle {
+    return this.resourceMgr.createDepthTexture(id, width, height);
+  }
+
   createFramebuffer(
     id: string,
     colorAttachments: BackendTextureHandle[],
@@ -393,15 +406,8 @@ export class WebGPUBackend implements IRendererBackend {
       throw new Error('createFramebuffer requires at least one color attachment');
     }
 
-    const firstAttachment = this.resourceMgr.getTexture(colorAttachments[0].id);
-    if (!firstAttachment) {
-      throw new Error(`Texture not found: ${colorAttachments[0].id}`);
-    }
-
     return this.resourceMgr.createFramebuffer(
       id,
-      firstAttachment.width,
-      firstAttachment.height,
       colorAttachments,
       depthAttachment
     );

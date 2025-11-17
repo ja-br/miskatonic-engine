@@ -19,6 +19,50 @@ import bloomExtractWGSL from './shaders/bloom-extract.wgsl?raw';
 import bloomDownsampleWGSL from './shaders/bloom-downsample.wgsl?raw';
 import bloomUpsampleWGSL from './shaders/bloom-upsample.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
+import crtYahWGSL from './shaders/crt-yah.wgsl?raw';
+
+/** CRT phosphor mask type */
+export type MaskType = 'aperture-grille' | 'slot-mask' | 'shadow-mask';
+
+/** CRT-Yah effect configuration */
+export interface CRTYahConfig {
+  /** Enable CRT effect */
+  enabled: boolean;
+
+  /** Master intensity (0=off, 1=normal, 2=intense) */
+  masterIntensity: number;
+
+  /** Brightness adjustment */
+  brightness: number;
+  /** Contrast adjustment */
+  contrast: number;
+  /** Saturation adjustment */
+  saturation: number;
+
+  /** Scanline strength (0-1) */
+  scanlinesStrength: number;
+  /** Minimum beam width */
+  beamWidthMin: number;
+  /** Maximum beam width */
+  beamWidthMax: number;
+  /** Beam shape: 0=sharp, 1=smooth */
+  beamShape: number;
+
+  /** Phosphor mask intensity (0-1) */
+  maskIntensity: number;
+  /** Phosphor mask type */
+  maskType: MaskType;
+
+  /** Screen curvature amount (0-1) */
+  curvatureAmount: number;
+  /** Vignette amount (0-1) */
+  vignetteAmount: number;
+  /** Corner radius (0-0.25) */
+  cornerRadius: number;
+
+  /** Color overflow / phosphor bloom intensity (0-1) */
+  colorOverflow: number;
+}
 
 export interface RetroPostConfig {
   /** Bloom threshold (brightness cutoff) */
@@ -37,6 +81,8 @@ export interface RetroPostConfig {
   colorLUT?: BackendTextureHandle;
   /** Internal render resolution (if undefined, uses display resolution) */
   internalResolution?: { width: number; height: number };
+  /** Optional CRT-Yah effect configuration */
+  crt?: CRTYahConfig;
 }
 
 /**
@@ -117,6 +163,15 @@ export class RetroPostProcessor {
   // 1x1 white fallback LUT (CRITICAL: prevents crash when colorLUT not provided)
   private fallbackLUT: BackendTextureHandle | null = null;
 
+  // CRT-Yah resources
+  private crtShader: BackendShaderHandle | null = null;
+  private crtPipeline: BackendPipelineHandle | null = null;
+  private crtTextureLayout: BackendBindGroupLayoutHandle | null = null;
+  private crtParamsLayout: BackendBindGroupLayoutHandle | null = null;
+  private crtParamsBuffer: BackendBufferHandle | null = null;
+  private compositeTexture: BackendTextureHandle | null = null;  // Intermediate texture for CRT input
+  private compositeFramebuffer: BackendFramebufferHandle | null = null;
+
   constructor(backend: IRendererBackend, config: Partial<RetroPostConfig> = {}) {
     this.backend = backend;
     this.config = {
@@ -128,6 +183,23 @@ export class RetroPostProcessor {
       ditherPattern: config.ditherPattern ?? 0,
       colorLUT: config.colorLUT,
       internalResolution: config.internalResolution,
+      crt: config.crt ? {
+        enabled: config.crt.enabled ?? true,
+        masterIntensity: config.crt.masterIntensity ?? 1.0,
+        brightness: config.crt.brightness ?? 0.0,
+        contrast: config.crt.contrast ?? 0.0,
+        saturation: config.crt.saturation ?? 1.0,
+        scanlinesStrength: config.crt.scanlinesStrength ?? 0.65,  // Visible but not overpowering
+        beamWidthMin: config.crt.beamWidthMin ?? 0.8,
+        beamWidthMax: config.crt.beamWidthMax ?? 1.0,
+        beamShape: config.crt.beamShape ?? 0.7,
+        maskIntensity: config.crt.maskIntensity ?? 0.45,  // Clear RGB triads without over-darkening
+        maskType: config.crt.maskType ?? 'aperture-grille',
+        curvatureAmount: config.crt.curvatureAmount ?? 0.10,  // Noticeable curve, not extreme
+        vignetteAmount: config.crt.vignetteAmount ?? 0.35,  // Mild edge darkening
+        cornerRadius: config.crt.cornerRadius ?? 0.08,  // Soft rounded corners
+        colorOverflow: config.crt.colorOverflow ?? 0.0,  // Phosphor bloom intensity
+      } : undefined,
     };
 
     // Initialize shaders and bind group layouts
@@ -338,7 +410,26 @@ export class RetroPostProcessor {
       addressModeV: 'clamp-to-edge',
     });
 
-    // 5. Create uniform buffers (Task 4)
+    // 5. Create CRT intermediate texture (if CRT enabled)
+    // CRT pass needs a texture to render composite output to, then applies CRT effect to swapchain
+    if (this.config.crt) {
+      console.log(`[RetroPostProcessor] Creating CRT intermediate texture: ${displayWidth}x${displayHeight}`);
+      this.compositeTexture = this.backend.createTexture(
+        'retro-post-composite-output',
+        displayWidth,
+        displayHeight,
+        null,
+        { format: 'bgra8unorm' as any }
+      );
+
+      this.compositeFramebuffer = this.backend.createFramebuffer(
+        'retro-post-composite-fb',
+        [this.compositeTexture],
+        undefined // No depth attachment for post-processing
+      );
+    }
+
+    // 6. Create uniform buffers (Task 4)
     this.createUniformBuffers();
 
     console.log('[RetroPostProcessor] Render targets created successfully');
@@ -372,6 +463,14 @@ export class RetroPostProcessor {
       vertex: compositeWGSL,
       fragment: compositeWGSL,
     });
+
+    // Load CRT shader (if CRT configured)
+    if (this.config.crt) {
+      this.crtShader = this.backend.createShader('retro-crt-yah', {
+        vertex: crtYahWGSL,
+        fragment: crtYahWGSL,
+      });
+    }
   }
 
   /**
@@ -458,6 +557,24 @@ export class RetroPostProcessor {
         { binding: 0, visibility: ['fragment'], type: 'uniform' },
       ],
     });
+
+    // CRT Shader (if configured)
+    if (this.config.crt) {
+      // @group(0): texture_2d + sampler (input texture - composite output)
+      this.crtTextureLayout = this.backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: ['fragment'], type: 'texture' },
+          { binding: 1, visibility: ['fragment'], type: 'sampler' },
+        ],
+      });
+
+      // @group(1): uniform buffer (CRTParams)
+      this.crtParamsLayout = this.backend.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: ['fragment'], type: 'uniform' },
+        ],
+      });
+    }
   }
 
   /**
@@ -552,6 +669,49 @@ export class RetroPostProcessor {
       postParamsData,
       'dynamic_draw'
     );
+
+    // CRTParams (96 bytes - WebGPU requires 96 bytes for this struct)
+    // struct CRTParams {
+    //   resolution: vec2<f32>,     // 8 bytes
+    //   sourceSize: vec2<f32>,     // 8 bytes
+    //   masterIntensity: f32,      // 4 bytes
+    //   ... (13 more f32 params)   // 52 bytes
+    //   _padding: vec3<f32>,       // 12 bytes
+    // }
+    if (this.config.crt) {
+      const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
+      crtParamsData[0] = this.displayWidth;
+      crtParamsData[1] = this.displayHeight;
+      crtParamsData[2] = this.width;
+      crtParamsData[3] = this.height;
+      crtParamsData[4] = this.config.crt.masterIntensity;
+      crtParamsData[5] = this.config.crt.brightness;
+      crtParamsData[6] = this.config.crt.contrast;
+      crtParamsData[7] = this.config.crt.saturation;
+      crtParamsData[8] = this.config.crt.scanlinesStrength;
+      crtParamsData[9] = this.config.crt.beamWidthMin;
+      crtParamsData[10] = this.config.crt.beamWidthMax;
+      crtParamsData[11] = this.config.crt.beamShape;
+      crtParamsData[12] = this.config.crt.maskIntensity;
+      // Map mask type string to float (1=aperture-grille, 2=slot-mask, 3=shadow-mask)
+      crtParamsData[13] = this.config.crt.maskType === 'aperture-grille' ? 1.0 :
+                          this.config.crt.maskType === 'slot-mask' ? 2.0 : 3.0;
+      crtParamsData[14] = this.config.crt.curvatureAmount;
+      crtParamsData[15] = this.config.crt.vignetteAmount;
+      crtParamsData[16] = this.config.crt.cornerRadius;
+      crtParamsData[17] = this.config.crt.colorOverflow;
+      // crtParamsData[18-23] remain 0 (padding vec3)
+
+      if (this.crtParamsBuffer) {
+        this.backend.deleteBuffer(this.crtParamsBuffer);
+      }
+      this.crtParamsBuffer = this.backend.createBuffer(
+        'retro-crt-params',
+        'uniform',
+        crtParamsData,
+        'dynamic_draw'
+      );
+    }
   }
 
   /**
@@ -672,6 +832,31 @@ export class RetroPostProcessor {
       colorFormat: 'bgra8unorm',
       depthFormat: undefined  // No depth testing for fullscreen post-processing
     });
+
+    // CRT Pipeline (if configured)
+    if (this.config.crt && this.crtShader && this.crtTextureLayout && this.crtParamsLayout) {
+      this.crtPipeline = this.backend.createRenderPipeline({
+        label: 'retro-crt-yah',
+        shader: this.crtShader,
+        vertexLayouts: [], // Fullscreen triangle, no vertex buffers
+        bindGroupLayouts: [this.crtTextureLayout, this.crtParamsLayout],
+        pipelineState: {
+          topology: 'triangle-list',
+          blend: {
+            enabled: false,
+            srcFactor: 'one',
+            dstFactor: 'zero',
+            operation: 'add'
+          },
+          rasterization: {
+            cullMode: 'none',
+            frontFace: 'ccw'
+          }
+        },
+        colorFormat: 'bgra8unorm',
+        depthFormat: undefined
+      });
+    }
   }
 
   /**
@@ -698,6 +883,13 @@ export class RetroPostProcessor {
     // Pass 3: Composite (bloom + tonemap + LUT + dither + grain)
     const result = this.compositePass(sceneTexture);
     console.log('[POST] Composite pass complete, returning:', !!result);
+
+    // Pass 4: CRT effect (if enabled)
+    if (this.config.crt && this.config.crt.enabled) {
+      console.log('[POST] Applying CRT-Yah effect');
+      this.crtPass();
+    }
+
     return result;
   }
 
@@ -1433,11 +1625,10 @@ export class RetroPostProcessor {
       ],
     });
 
-    // Begin render pass to swapchain (target = null)
-    // CRITICAL: This renders to the default framebuffer (swapchain)
-    // requireDepth=false because fullscreen post-processing doesn't need depth testing
+    // Render to CRT intermediate texture if CRT enabled, otherwise directly to swapchain
+    const renderTarget = (this.config.crt && this.compositeFramebuffer) ? this.compositeFramebuffer : null;
     this.backend.beginRenderPass(
-      null, // Render to swapchain
+      renderTarget,
       [0, 0, 0, 1], // Clear to black (shouldn't be visible since we draw fullscreen)
       undefined,
       undefined,
@@ -1471,8 +1662,93 @@ export class RetroPostProcessor {
     this.backend.deleteBindGroup(lutBindGroup);
     this.backend.deleteBindGroup(paramsBindGroup);
 
-    // Return scene texture (though we rendered to swapchain, this is for API consistency)
     return sceneTexture;
+  }
+
+  /**
+   * CRT Pass: Apply CRT-Yah effect to composite output
+   * Renders composite texture to swapchain with CRT effects
+   */
+  private crtPass(): void {
+    if (!this.config.crt || !this.crtPipeline || !this.compositeTexture || !this.crtParamsBuffer) {
+      console.warn('[RetroPostProcessor] CRT pass skipped - resources not initialized');
+      return;
+    }
+
+    if (!this.linearSampler || !this.crtTextureLayout || !this.crtParamsLayout) {
+      console.warn('[RetroPostProcessor] CRT pass skipped - samplers/layouts not initialized');
+      return;
+    }
+
+    // Update CRT params uniform with current settings
+    const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
+    crtParamsData[0] = this.displayWidth;
+    crtParamsData[1] = this.displayHeight;
+    crtParamsData[2] = this.width;
+    crtParamsData[3] = this.height;
+    crtParamsData[4] = this.config.crt.masterIntensity;
+    crtParamsData[5] = this.config.crt.brightness;
+    crtParamsData[6] = this.config.crt.contrast;
+    crtParamsData[7] = this.config.crt.saturation;
+    crtParamsData[8] = this.config.crt.scanlinesStrength;
+    crtParamsData[9] = this.config.crt.beamWidthMin;
+    crtParamsData[10] = this.config.crt.beamWidthMax;
+    crtParamsData[11] = this.config.crt.beamShape;
+    crtParamsData[12] = this.config.crt.maskIntensity;
+    crtParamsData[13] = this.config.crt.maskType === 'aperture-grille' ? 1.0 :
+                        this.config.crt.maskType === 'slot-mask' ? 2.0 : 3.0;
+    crtParamsData[14] = this.config.crt.curvatureAmount;
+    crtParamsData[15] = this.config.crt.vignetteAmount;
+    crtParamsData[16] = this.config.crt.cornerRadius;
+    crtParamsData[17] = this.config.crt.colorOverflow;
+    this.backend.updateBuffer(this.crtParamsBuffer, crtParamsData);
+
+    // Create bind group for composite texture (group 0)
+    const textureBindGroup = this.backend.createBindGroup(this.crtTextureLayout, {
+      bindings: [
+        { binding: 0, resource: this.compositeTexture },
+        { binding: 1, resource: this.linearSampler as any },
+      ],
+    });
+
+    // Create bind group for CRT params (group 1)
+    const paramsBindGroup = this.backend.createBindGroup(this.crtParamsLayout, {
+      bindings: [
+        { binding: 0, resource: this.crtParamsBuffer },
+      ],
+    });
+
+    // Render to swapchain
+    this.backend.beginRenderPass(
+      null, // null = swapchain
+      [0, 0, 0, 1],
+      undefined,
+      undefined,
+      'CRT-Yah Pass',
+      false
+    );
+
+    // Execute draw command
+    this.backend.executeDrawCommand({
+      pipeline: this.crtPipeline,
+      bindGroups: new Map([
+        [0, textureBindGroup],
+        [1, paramsBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(),
+        vertexCount: 3, // Fullscreen triangle
+      },
+      label: 'CRT-Yah Draw',
+    });
+
+    // End render pass
+    this.backend.endRenderPass();
+
+    // Clean up bind groups
+    this.backend.deleteBindGroup(textureBindGroup);
+    this.backend.deleteBindGroup(paramsBindGroup);
   }
 
   /**
@@ -1516,6 +1792,82 @@ export class RetroPostProcessor {
    */
   setColorLUT(texture: BackendTextureHandle | undefined): void {
     this.config.colorLUT = texture;
+  }
+
+  /**
+   * Update CRT color overflow amount
+   */
+  setColorOverflow(value: number): void {
+    if (!this.config.crt) return;
+    this.config.crt.colorOverflow = Math.max(0, Math.min(1, value));
+    this.updateCRTBuffer();
+  }
+
+  /**
+   * Update CRT scanlines strength
+   */
+  setScanlinesStrength(value: number): void {
+    if (!this.config.crt) return;
+    this.config.crt.scanlinesStrength = Math.max(0, Math.min(1, value));
+    this.updateCRTBuffer();
+  }
+
+  /**
+   * Update CRT mask intensity
+   */
+  setMaskIntensity(value: number): void {
+    if (!this.config.crt) return;
+    this.config.crt.maskIntensity = Math.max(0, Math.min(1, value));
+    this.updateCRTBuffer();
+  }
+
+  /**
+   * Update CRT curvature amount
+   */
+  setCurvatureAmount(value: number): void {
+    if (!this.config.crt) return;
+    this.config.crt.curvatureAmount = Math.max(0, Math.min(1, value));
+    this.updateCRTBuffer();
+  }
+
+  /**
+   * Update CRT vignette amount
+   */
+  setVignetteAmount(value: number): void {
+    if (!this.config.crt) return;
+    this.config.crt.vignetteAmount = Math.max(0, Math.min(1, value));
+    this.updateCRTBuffer();
+  }
+
+  /**
+   * Helper method to update CRT uniform buffer with current config
+   */
+  private updateCRTBuffer(): void {
+    if (!this.config.crt || !this.crtParamsBuffer) return;
+
+    const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
+    crtParamsData[0] = this.displayWidth;
+    crtParamsData[1] = this.displayHeight;
+    crtParamsData[2] = this.width;
+    crtParamsData[3] = this.height;
+    crtParamsData[4] = this.config.crt.masterIntensity;
+    crtParamsData[5] = this.config.crt.brightness;
+    crtParamsData[6] = this.config.crt.contrast;
+    crtParamsData[7] = this.config.crt.saturation;
+    crtParamsData[8] = this.config.crt.scanlinesStrength;
+    crtParamsData[9] = this.config.crt.beamWidthMin;
+    crtParamsData[10] = this.config.crt.beamWidthMax;
+    crtParamsData[11] = this.config.crt.beamShape;
+    crtParamsData[12] = this.config.crt.maskIntensity;
+    crtParamsData[13] = this.config.crt.maskType === 'aperture-grille' ? 1.0 :
+                        this.config.crt.maskType === 'slot-mask' ? 2.0 : 3.0;
+    crtParamsData[14] = this.config.crt.curvatureAmount;
+    crtParamsData[15] = this.config.crt.vignetteAmount;
+    crtParamsData[16] = this.config.crt.cornerRadius;
+    crtParamsData[17] = this.config.crt.colorOverflow;
+    // crtParamsData[18-23] remain 0 (padding)
+
+    this.backend.updateBuffer(this.crtParamsBuffer, crtParamsData);
   }
 
   /**
@@ -1605,6 +1957,16 @@ export class RetroPostProcessor {
     // Fallback LUT (only dispose if we're cleaning up everything)
     // Note: fallbackLUT is created once and reused across resizes
     // It will be cleaned up in dispose()
+
+    // CRT intermediate texture (created per-resize)
+    if (this.compositeTexture) {
+      this.backend.deleteTexture(this.compositeTexture);
+      this.compositeTexture = null;
+    }
+    if (this.compositeFramebuffer) {
+      this.backend.deleteFramebuffer(this.compositeFramebuffer);
+      this.compositeFramebuffer = null;
+    }
   }
 
   /**
@@ -1732,6 +2094,36 @@ export class RetroPostProcessor {
     // Dispose bind groups (will be created in Task 5)
     this.bloomExtractBindGroup = null;
     this.compositeBindGroup = null;
+
+    // Dispose CRT resources
+    if (this.crtShader) {
+      this.backend.deleteShader(this.crtShader);
+      this.crtShader = null;
+    }
+    if (this.crtPipeline) {
+      this.backend.deletePipeline(this.crtPipeline);
+      this.crtPipeline = null;
+    }
+    if (this.crtTextureLayout) {
+      this.backend.deleteBindGroupLayout(this.crtTextureLayout);
+      this.crtTextureLayout = null;
+    }
+    if (this.crtParamsLayout) {
+      this.backend.deleteBindGroupLayout(this.crtParamsLayout);
+      this.crtParamsLayout = null;
+    }
+    if (this.crtParamsBuffer) {
+      this.backend.deleteBuffer(this.crtParamsBuffer);
+      this.crtParamsBuffer = null;
+    }
+    if (this.compositeTexture) {
+      this.backend.deleteTexture(this.compositeTexture);
+      this.compositeTexture = null;
+    }
+    if (this.compositeFramebuffer) {
+      this.backend.deleteFramebuffer(this.compositeFramebuffer);
+      this.compositeFramebuffer = null;
+    }
   }
 
   /**

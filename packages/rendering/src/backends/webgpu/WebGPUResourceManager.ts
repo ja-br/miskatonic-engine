@@ -157,20 +157,33 @@ export class WebGPUResourceManager {
     if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
 
     const gpuFormat = this.getWebGPUTextureFormat(format);
-    const textureSize = width * height * 4;
+
+    // Detect if this is a depth format
+    const isDepthFormat = gpuFormat.includes('depth');
+
+    // Calculate VRAM size (depth formats use different bytes per pixel)
+    const bytesPerPixel = isDepthFormat ? 2 : 4; // depth16unorm = 2 bytes, depth24plus = 4 bytes
+    const textureSize = width * height * bytesPerPixel;
 
     if (!this.config.vramProfiler.allocate(id, VRAMCategory.TEXTURES, textureSize)) {
       throw new Error(`VRAM budget exceeded: cannot allocate ${textureSize} bytes for texture ${id}`);
     }
 
+    // Depth textures: only RENDER_ATTACHMENT
+    // Color textures: TEXTURE_BINDING (for sampling) + COPY_DST (for uploads) + RENDER_ATTACHMENT (for rendering to)
+    const usage = isDepthFormat
+      ? GPUTextureUsage.RENDER_ATTACHMENT
+      : GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT;
+
     const texture = this.ctx.device.createTexture({
       label: `Texture: ${id}`,
       size: { width, height },
       format: gpuFormat,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage,
     });
 
-    if (data) {
+    // Only write data for color textures (depth textures have no initial data)
+    if (data && !isDepthFormat) {
       this.ctx.device.queue.writeTexture(
         { texture },
         data,
@@ -195,6 +208,50 @@ export class WebGPUResourceManager {
     return { __brand: 'BackendTexture', id } as BackendTextureHandle;
   }
 
+  /**
+   * Create depth texture with backend-optimized format
+   * Uses the depth format selected during backend initialization
+   */
+  createDepthTexture(
+    id: string,
+    width: number,
+    height: number
+  ): BackendTextureHandle {
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
+
+    const gpuFormat = this.config.depthFormat;
+
+    // Calculate VRAM size for depth texture
+    const bytesPerPixel = gpuFormat === 'depth16unorm' ? 2 : 4; // depth16unorm = 2 bytes, depth24plus = 4 bytes
+    const textureSize = width * height * bytesPerPixel;
+
+    if (!this.config.vramProfiler.allocate(id, VRAMCategory.TEXTURES, textureSize)) {
+      throw new Error(`VRAM budget exceeded: cannot allocate ${textureSize} bytes for depth texture ${id}`);
+    }
+
+    // Depth textures only need RENDER_ATTACHMENT usage
+    const texture = this.ctx.device.createTexture({
+      label: `Texture: ${id}`,
+      size: { width, height },
+      format: gpuFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    const view = texture.createView();
+
+    this.textures.set(id, { id, texture, view, width, height, format: gpuFormat });
+
+    if (this.config.recoverySystem) {
+      this.config.recoverySystem.registerResource({
+        type: ResourceType.TEXTURE,
+        id,
+        creationParams: { width, height, format: gpuFormat },
+      } as TextureDescriptor);
+    }
+
+    return { __brand: 'BackendTexture', id } as BackendTextureHandle;
+  }
+
   destroyTexture(handle: BackendTextureHandle): void {
     const textureData = this.textures.get(handle.id);
     if (!textureData) return;
@@ -205,16 +262,22 @@ export class WebGPUResourceManager {
 
   createFramebuffer(
     id: string,
-    width: number,
-    height: number,
     colorAttachments: BackendTextureHandle[],
     depthAttachment?: BackendTextureHandle
   ): BackendFramebufferHandle {
     const colorViews: GPUTextureView[] = [];
+    let width = 0;
+    let height = 0;
+
     for (const handle of colorAttachments) {
       const tex = this.textures.get(handle.id);
       if (!tex) throw new Error(`Texture not found: ${handle.id}`);
       colorViews.push(tex.view);
+      // Get dimensions from first texture
+      if (width === 0) {
+        width = tex.texture.width;
+        height = tex.texture.height;
+      }
     }
 
     let depthView: GPUTextureView | undefined;
@@ -271,6 +334,7 @@ export class WebGPUResourceManager {
       bgra8unorm: 'bgra8unorm',
       rgba16float: 'rgba16float',
       rgba32float: 'rgba32float',
+      depth16unorm: 'depth16unorm',
       depth24plus: 'depth24plus',
     };
     return formatMap[format] || 'rgba8unorm';

@@ -114,6 +114,67 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // CRT parameter sliders
+    const colorOverflowSlider = document.getElementById('color-overflow-slider') as HTMLInputElement;
+    const colorOverflowValue = document.getElementById('color-overflow-value');
+    if (colorOverflowSlider) {
+      colorOverflowSlider.addEventListener('input', () => {
+        const value = parseInt(colorOverflowSlider.value, 10) / 100; // 0-100 to 0.0-1.0
+        demo.retroPostProcessor.setColorOverflow(value);
+        if (colorOverflowValue) {
+          colorOverflowValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
+    const scanlinesSlider = document.getElementById('scanlines-slider') as HTMLInputElement;
+    const scanlinesValue = document.getElementById('scanlines-value');
+    if (scanlinesSlider) {
+      scanlinesSlider.addEventListener('input', () => {
+        const value = parseInt(scanlinesSlider.value, 10) / 100; // 0-100 to 0.0-1.0
+        demo.retroPostProcessor.setScanlinesStrength(value);
+        if (scanlinesValue) {
+          scanlinesValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
+    const maskIntensitySlider = document.getElementById('mask-intensity-slider') as HTMLInputElement;
+    const maskIntensityValue = document.getElementById('mask-intensity-value');
+    if (maskIntensitySlider) {
+      maskIntensitySlider.addEventListener('input', () => {
+        const value = parseInt(maskIntensitySlider.value, 10) / 100; // 0-100 to 0.0-1.0
+        demo.retroPostProcessor.setMaskIntensity(value);
+        if (maskIntensityValue) {
+          maskIntensityValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
+    const curvatureSlider = document.getElementById('curvature-slider') as HTMLInputElement;
+    const curvatureValue = document.getElementById('curvature-value');
+    if (curvatureSlider) {
+      curvatureSlider.addEventListener('input', () => {
+        const value = parseInt(curvatureSlider.value, 10) / 100; // 0-20 to 0.0-0.2
+        demo.retroPostProcessor.setCurvatureAmount(value);
+        if (curvatureValue) {
+          curvatureValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
+    const vignetteSlider = document.getElementById('vignette-slider') as HTMLInputElement;
+    const vignetteValue = document.getElementById('vignette-value');
+    if (vignetteSlider) {
+      vignetteSlider.addEventListener('input', () => {
+        const value = parseInt(vignetteSlider.value, 10) / 100; // 0-100 to 0.0-1.0
+        demo.retroPostProcessor.setVignetteAmount(value);
+        if (vignetteValue) {
+          vignetteValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
     const bloomMipLevelsSlider = document.getElementById('bloom-mip-levels-slider') as HTMLInputElement;
     const bloomMipLevelsValue = document.getElementById('bloom-mip-levels-value');
     if (bloomMipLevelsSlider) {

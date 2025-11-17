@@ -6,7 +6,8 @@
 
 struct BlurParams {
   direction: vec2<f32>,  // (1,0) for horizontal, (0,1) for vertical
-  _padding: vec2<f32>,
+  blurRadius: f32,       // Blur spread multiplier (1.0 = default, 2.0 = wider)
+  _padding: f32,
 }
 
 @group(1) @binding(0) var<uniform> params: BlurParams;
@@ -24,7 +25,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
   );
   var out: VertexOutput;
   out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-  out.uv = uv;
+  out.uv = vec2<f32>(uv.x, 1.0 - uv.y);  // Flip Y for WebGPU framebuffer texture sampling
   return out;
 }
 
@@ -40,7 +41,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
   // Sample in both directions
   for (var i = 1; i < 5; i = i + 1) {
-    let offset = vec2<f32>(f32(i), f32(i)) * texelSize * params.direction;
+    let pixelOffset = f32(i) * params.blurRadius;
+    let offset = vec2<f32>(pixelOffset) * texelSize * params.direction;
     result = result + textureSample(inputTexture, inputSampler, in.uv + offset).rgb * weights[i];
     result = result + textureSample(inputTexture, inputSampler, in.uv - offset).rgb * weights[i];
   }

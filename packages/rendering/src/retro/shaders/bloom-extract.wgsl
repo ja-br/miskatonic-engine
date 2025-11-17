@@ -25,7 +25,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
   );
   var out: VertexOutput;
   out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-  out.uv = uv;
+  out.uv = vec2<f32>(uv.x, 1.0 - uv.y);  // Flip Y for WebGPU framebuffer texture sampling
   return out;
 }
 

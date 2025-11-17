@@ -14,6 +14,7 @@ import {
   InstanceBufferManager,
   globalInstanceBufferPool,
   RetroLightingSystem,
+  RetroPostProcessor,
   type RetroLight,
   type DrawCommand,
   type IRendererBackend,
@@ -80,6 +81,7 @@ export class Demo {
 
   // Epic 3.4: Retro Rendering System
   private retroLighting!: RetroLightingSystem;
+  public retroPostProcessor!: RetroPostProcessor;
   private lightBindGroupLayout!: BackendBindGroupLayoutHandle;
   private lightBindGroup!: BackendBindGroupHandle;
 
@@ -386,6 +388,39 @@ export class Demo {
 
     console.log('Retro rendering pipelines created successfully (instanced only with vertex lighting)');
     console.log('Resources will be allocated dynamically as needed');
+
+    // Epic 3.4: Initialize retro post-processor (shaders loaded internally)
+    this.retroPostProcessor = new RetroPostProcessor(
+      this.backend,
+      {
+        bloomThreshold: 0.8,
+        bloomIntensity: 0.5,
+        bloomMipLevels: 5,
+        grainAmount: 0.02,
+        gamma: 2.2,
+        ditherPattern: 0,
+        internalResolution: { width: 640, height: 480 },  // PS1-style fixed resolution
+        crt: {
+          enabled: true,
+          masterIntensity: 1.0,
+          brightness: 0.0,
+          contrast: 0.0,
+          saturation: 1.0,
+          scanlinesStrength: 0.50,        // Moderate scanline strength (CRT-Yah default)
+          beamWidthMin: 0.8,
+          beamWidthMax: 1.0,
+          beamShape: 0.7,
+          maskIntensity: 0.30,            // Subtle phosphor mask (not dominant)
+          maskType: 'aperture-grille',
+          curvatureAmount: 0.03,          // Very subtle screen curve (0.10 was too distorted!)
+          vignetteAmount: 0.20,           // Subtle edge darkening
+          cornerRadius: 0.05,             // Subtle rounded corners
+          colorOverflow: 0.3,             // Phosphor bloom intensity
+        },
+      }
+    );
+    this.retroPostProcessor.resize(this.canvas.width, this.canvas.height);
+    console.log('Retro post-processor initialized (bloom + grain + dither)');
   }
 
   /**
@@ -705,6 +740,11 @@ export class Demo {
     if (this.backend) {
       this.backend.resize(this.canvas.width, this.canvas.height);
     }
+
+    // Epic 3.4: Resize post-processor render targets
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.resize(this.canvas.width, this.canvas.height);
+    }
   }
 
   /**
@@ -919,9 +959,13 @@ export class Demo {
 
     // Epic 3.14: Begin frame
     this.backend.beginFrame();
+    console.log('[RENDER] Frame started');
 
-    // Begin render pass with clear color
-    this.backend.beginRenderPass(null, [0.05, 0.05, 0.08, 1.0], 1.0, 0, 'Main Render Pass');
+    // Epic 3.4: Render to post-processor's intermediate texture (NOT swapchain)
+    const sceneFramebuffer = this.retroPostProcessor.getSceneFramebuffer();
+    console.log('[RENDER] Got scene framebuffer:', !!sceneFramebuffer);
+    this.backend.beginRenderPass(sceneFramebuffer, [0.05, 0.05, 0.08, 1.0], 1.0, 0, 'Scene Render Pass');
+    console.log('[RENDER] Began scene render pass');
 
     // Helper function to get die color based on number of sides
     const getDieColor = (sides: number): [number, number, number] => {
@@ -977,6 +1021,8 @@ export class Demo {
         }
       }
 
+      console.log('[RENDER] Cube instances:', cubeInstances.length, 'Sphere instances:', sphereInstances.length);
+
       // Render cube instances
       if (cubeInstances.length > 0) {
         const rendered = this.renderInstancedMesh(
@@ -990,6 +1036,7 @@ export class Demo {
           viewProjMatrix,
           cameraTransform
         );
+        console.log('[RENDER] Cube mesh rendered:', rendered);
         if (rendered) {
           drawCallCount++;
           instanceGroupCount++;
@@ -1010,6 +1057,7 @@ export class Demo {
           viewProjMatrix,
           cameraTransform
         );
+        console.log('[RENDER] Sphere mesh rendered:', rendered);
         if (rendered) {
           drawCallCount++;
           instanceGroupCount++;
@@ -1021,9 +1069,21 @@ export class Demo {
     const t4 = tDiceLoopEnd; // For timing compatibility
     const t5 = tDiceLoopEnd;
 
+    // Epic 3.4: End scene render pass (rendering to intermediate texture is complete)
+    this.backend.endRenderPass();
+    console.log('[RENDER] Ended scene render pass');
+
+    // Epic 3.4: Apply post-processing effects (bloom + grain + dither) and composite to swapchain
+    const sceneTexture = this.retroPostProcessor.getSceneTexture();
+    console.log('[RENDER] Got scene texture:', !!sceneTexture);
+    this.retroPostProcessor.updateTime(deltaTime);
+    console.log('[RENDER] Applying post-processor...');
+    this.retroPostProcessor.apply(sceneTexture);
+
     // Epic 3.14: End frame
     const t6 = performance.now();
     this.backend.endFrame();
+    console.log('[RENDER] Frame ended');
     const t7 = performance.now();
 
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
@@ -1547,6 +1607,11 @@ export class Demo {
     // ECS camera cleanup (entities managed by World)
     this.cameraEntity = null;
     this.orbitController = null;
+
+    // Epic 3.4: Dispose retro post-processor
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.dispose();
+    }
 
     // Dispose physics world
     if (this.physicsWorld) {

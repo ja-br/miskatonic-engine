@@ -66,7 +66,7 @@ fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
   );
   var out: VertexOutput;
   out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-  out.uv = uv;
+  out.uv = vec2<f32>(uv.x, 1.0 - uv.y);  // Flip Y for WebGPU framebuffer texture sampling
   return out;
 }
 
@@ -79,19 +79,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   let bloom = textureSample(bloomTexture, bloomSampler, in.uv).rgb;
   color = color + bloom * params.bloomIntensity;
 
-  // Gamma correction (simple tonemapping)
+  // Gamma correction
   color = pow(color, vec3<f32>(1.0 / params.gamma));
 
-  // Color LUT
-  color = applyColorLUT(color);
+  // Color LUT (SKIPPED for now - fallback LUT is 1x1 white which causes white screen)
+  // TODO: Create proper 256x16 identity LUT as fallback, or detect 1x1 and skip
+  // color = applyColorLUT(color);
 
-  // Ordered dithering (Bayer 4x4)
-  let screenPos = vec2<u32>(in.position.xy);
-  let bayerIndex = (screenPos.y % 4u) * 4u + (screenPos.x % 4u);
-  let ditherValue = bayer4[bayerIndex];
-
-  // Apply dithering to reduce color banding
-  color = color + (ditherValue - 0.5) / 255.0;
+  // NOTE: Ordered dithering removed from post-processing
+  // PS1-style dithering should be applied in OBJECT SHADERS (cube.wgsl, sphere.wgsl)
+  // during geometry rendering, not as a fullscreen post effect
 
   // Film grain
   let noise = hash(in.position.xy + params.time);
