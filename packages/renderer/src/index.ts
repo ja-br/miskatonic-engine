@@ -65,6 +65,67 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // Bloom parameter sliders
+    const bloomThresholdSlider = document.getElementById('bloom-threshold-slider') as HTMLInputElement;
+    const bloomThresholdValue = document.getElementById('bloom-threshold-value');
+    if (bloomThresholdSlider) {
+      bloomThresholdSlider.addEventListener('input', () => {
+        const value = parseInt(bloomThresholdSlider.value, 10) / 100; // 0-100 to 0.0-1.0
+        demo.retroPostProcessor.setBloomThreshold(value);
+        if (bloomThresholdValue) {
+          bloomThresholdValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
+    const bloomIntensitySlider = document.getElementById('bloom-intensity-slider') as HTMLInputElement;
+    const bloomIntensityValue = document.getElementById('bloom-intensity-value');
+    if (bloomIntensitySlider) {
+      bloomIntensitySlider.addEventListener('input', () => {
+        const value = parseInt(bloomIntensitySlider.value, 10) / 100; // 0-200 to 0.0-2.0
+        demo.retroPostProcessor.setBloomIntensity(value);
+        if (bloomIntensityValue) {
+          bloomIntensityValue.textContent = value.toFixed(2);
+        }
+      });
+    }
+
+    const grainAmountSlider = document.getElementById('grain-amount-slider') as HTMLInputElement;
+    const grainAmountValue = document.getElementById('grain-amount-value');
+    if (grainAmountSlider) {
+      grainAmountSlider.addEventListener('input', () => {
+        const value = parseInt(grainAmountSlider.value, 10) / 1000; // 0-100 to 0.0-0.1
+        demo.retroPostProcessor.setGrainAmount(value);
+        if (grainAmountValue) {
+          grainAmountValue.textContent = value.toFixed(3);
+        }
+      });
+    }
+
+    const gammaSlider = document.getElementById('gamma-slider') as HTMLInputElement;
+    const gammaValue = document.getElementById('gamma-value');
+    if (gammaSlider) {
+      gammaSlider.addEventListener('input', () => {
+        const value = parseInt(gammaSlider.value, 10) / 10; // 10-30 to 1.0-3.0
+        demo.retroPostProcessor.setGamma(value);
+        if (gammaValue) {
+          gammaValue.textContent = value.toFixed(1);
+        }
+      });
+    }
+
+    const bloomMipLevelsSlider = document.getElementById('bloom-mip-levels-slider') as HTMLInputElement;
+    const bloomMipLevelsValue = document.getElementById('bloom-mip-levels-value');
+    if (bloomMipLevelsSlider) {
+      bloomMipLevelsSlider.addEventListener('input', () => {
+        const value = parseInt(bloomMipLevelsSlider.value, 10); // 1-5
+        demo.retroPostProcessor.setBloomMipLevels(value);
+        if (bloomMipLevelsValue) {
+          bloomMipLevelsValue.textContent = value.toString();
+        }
+      });
+    }
+
     // Make demo available for debugging
     if (process.env.NODE_ENV === 'development') {
       window.__MISKATONIC_DEBUG__ = {

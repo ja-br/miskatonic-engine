@@ -16,7 +16,8 @@ import type {
 
 // Import shaders (Vite ?raw syntax)
 import bloomExtractWGSL from './shaders/bloom-extract.wgsl?raw';
-import bloomBlurWGSL from './shaders/bloom-blur.wgsl?raw';
+import bloomDownsampleWGSL from './shaders/bloom-downsample.wgsl?raw';
+import bloomUpsampleWGSL from './shaders/bloom-upsample.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 
 export interface RetroPostConfig {
@@ -24,6 +25,8 @@ export interface RetroPostConfig {
   bloomThreshold: number;
   /** Bloom intensity (additive blend amount) */
   bloomIntensity: number;
+  /** Number of mip levels for bloom pyramid (default: 5) */
+  bloomMipLevels: number;
   /** Film grain amount */
   grainAmount: number;
   /** Gamma for tonemapping (gamma correction only) */
@@ -32,6 +35,8 @@ export interface RetroPostConfig {
   ditherPattern: 0 | 1;
   /** Optional color LUT texture (256x16) */
   colorLUT?: BackendTextureHandle;
+  /** Internal render resolution (if undefined, uses display resolution) */
+  internalResolution?: { width: number; height: number };
 }
 
 /**
@@ -44,39 +49,51 @@ export class RetroPostProcessor {
 
   // Render targets
   private bloomExtractTexture: BackendTextureHandle | null = null;
-  private bloomBlurTexture: BackendTextureHandle | null = null;
-  private bloomTempTexture: BackendTextureHandle | null = null;  // For separable blur
+  private bloomMip0Texture: BackendTextureHandle | null = null;  // 80x60 (quarter-res of extract)
+  private bloomMip1Texture: BackendTextureHandle | null = null;  // 40x30 (half of mip0)
+  private bloomMip2Texture: BackendTextureHandle | null = null;  // 20x15 (half of mip1)
+  private bloomMip3Texture: BackendTextureHandle | null = null;  // 10x8 (half of mip2)
+  private bloomMip4Texture: BackendTextureHandle | null = null;  // 5x4 (half of mip3)
 
   // Framebuffers for bloom textures
   private bloomExtractFramebuffer: BackendFramebufferHandle | null = null;
-  private bloomTempFramebuffer: BackendFramebufferHandle | null = null;
-  private bloomBlurFramebuffer: BackendFramebufferHandle | null = null;
+  private bloomMip0Framebuffer: BackendFramebufferHandle | null = null;
+  private bloomMip1Framebuffer: BackendFramebufferHandle | null = null;
+  private bloomMip2Framebuffer: BackendFramebufferHandle | null = null;
+  private bloomMip3Framebuffer: BackendFramebufferHandle | null = null;
+  private bloomMip4Framebuffer: BackendFramebufferHandle | null = null;
 
   // Pipelines
   private bloomExtractPipeline: BackendPipelineHandle | null = null;
-  private bloomBlurPipeline: BackendPipelineHandle | null = null;
+  private bloomDownsamplePipeline: BackendPipelineHandle | null = null;
+  private bloomUpsamplePipeline: BackendPipelineHandle | null = null;
   private compositePipeline: BackendPipelineHandle | null = null;
 
   // Bind groups
   private bloomExtractBindGroup: BackendBindGroupHandle | null = null;
-  private bloomBlurHorizontalBindGroup: BackendBindGroupHandle | null = null;
-  private bloomBlurVerticalBindGroup: BackendBindGroupHandle | null = null;
+  private bloomDownsampleBindGroup: BackendBindGroupHandle | null = null;
+  private bloomUpsampleBindGroup: BackendBindGroupHandle | null = null;
   private compositeBindGroup: BackendBindGroupHandle | null = null;
 
-  private width: number = 0;
-  private height: number = 0;
+  private width: number = 0;           // Internal render resolution width
+  private height: number = 0;          // Internal render resolution height
+  private displayWidth: number = 0;    // Display resolution width
+  private displayHeight: number = 0;   // Display resolution height
   private time: number = 0;
 
   // Shaders
   private bloomExtractShader: BackendShaderHandle | null = null;
-  private bloomBlurShader: BackendShaderHandle | null = null;
+  private bloomDownsampleShader: BackendShaderHandle | null = null;
+  private bloomUpsampleShader: BackendShaderHandle | null = null;
   private compositeShader: BackendShaderHandle | null = null;
 
   // Bind group layouts
   private extractTextureLayout: BackendBindGroupLayoutHandle | null = null;
   private extractUniformLayout: BackendBindGroupLayoutHandle | null = null;
-  private blurTextureLayout: BackendBindGroupLayoutHandle | null = null;
-  private blurUniformLayout: BackendBindGroupLayoutHandle | null = null;
+  private downsampleTextureLayout: BackendBindGroupLayoutHandle | null = null;
+  private downsampleUniformLayout: BackendBindGroupLayoutHandle | null = null;
+  private upsampleTextureLayout: BackendBindGroupLayoutHandle | null = null;
+  private upsampleUniformLayout: BackendBindGroupLayoutHandle | null = null;
   private compositeSceneLayout: BackendBindGroupLayoutHandle | null = null;
   private compositeBloomLayout: BackendBindGroupLayoutHandle | null = null;
   private compositeLUTLayout: BackendBindGroupLayoutHandle | null = null;
@@ -93,7 +110,8 @@ export class RetroPostProcessor {
 
   // Uniform buffers
   private bloomParamsBuffer: BackendBufferHandle | null = null;
-  private blurParamsBuffer: BackendBufferHandle | null = null;
+  private downsampleParamsBuffer: BackendBufferHandle | null = null;
+  private upsampleParamsBuffer: BackendBufferHandle | null = null;
   private postParamsBuffer: BackendBufferHandle | null = null;
 
   // 1x1 white fallback LUT (CRITICAL: prevents crash when colorLUT not provided)
@@ -104,10 +122,12 @@ export class RetroPostProcessor {
     this.config = {
       bloomThreshold: config.bloomThreshold ?? 0.8,
       bloomIntensity: config.bloomIntensity ?? 0.3,
+      bloomMipLevels: config.bloomMipLevels ?? 5,
       grainAmount: config.grainAmount ?? 0.02,
       gamma: config.gamma ?? 2.2,
       ditherPattern: config.ditherPattern ?? 0,
       colorLUT: config.colorLUT,
+      internalResolution: config.internalResolution,
     };
 
     // Initialize shaders and bind group layouts
@@ -121,33 +141,42 @@ export class RetroPostProcessor {
   /**
    * Initialize or resize post-processing resources
    */
-  resize(width: number, height: number): void {
-    this.width = width;
-    this.height = height;
+  resize(displayWidth: number, displayHeight: number): void {
+    // Store display resolution
+    this.displayWidth = displayWidth;
+    this.displayHeight = displayHeight;
+
+    // Determine internal rendering resolution
+    if (this.config.internalResolution) {
+      this.width = this.config.internalResolution.width;
+      this.height = this.config.internalResolution.height;
+    } else {
+      // Default: use display resolution (no scaling)
+      this.width = displayWidth;
+      this.height = displayHeight;
+    }
 
     // Clean up old resources
     this.disposeTextures();
 
-    console.log(`[RetroPostProcessor] Creating render targets: ${width}x${height}`);
+    console.log(`[RetroPostProcessor] Internal render resolution: ${this.width}x${this.height}`);
+    console.log(`[RetroPostProcessor] Display resolution: ${displayWidth}x${displayHeight}`);
 
-    // 1. Create scene render target (CRITICAL - missing from original plan)
-    // Scene color texture (BGRA8, full resolution) - stores rendered scene
+    // 1. Create scene render target at INTERNAL resolution
+    // Scene color texture (BGRA8) - stores rendered scene
     this.sceneColorTexture = this.backend.createTexture(
       'retro-post-scene-color',
-      width,
-      height,
+      this.width,  // Internal resolution
+      this.height, // Internal resolution
       null,
-      { format: 'bgra8unorm' as any }  // Type assertion needed - backend accepts this
+      { format: 'bgra8unorm' as any }
     );
 
-    // Scene depth texture (matches backend.getDepthFormat(), full resolution)
-    const depthFormat = this.backend.getDepthFormat();
-    this.sceneDepthTexture = this.backend.createTexture(
+    // Scene depth texture (backend chooses optimal format: depth16unorm or depth24plus)
+    this.sceneDepthTexture = this.backend.createDepthTexture(
       'retro-post-scene-depth',
-      width,
-      height,
-      null,
-      { format: depthFormat as any }  // Type assertion needed
+      this.width,  // Internal resolution
+      this.height  // Internal resolution
     );
 
     // Scene framebuffer - combines color + depth
@@ -157,10 +186,10 @@ export class RetroPostProcessor {
       this.sceneDepthTexture
     );
 
-    // 2. Create bloom textures at quarter resolution for performance
-    // Use Math.max(64, ...) to prevent tiny textures (critic's suggestion)
-    const bloomWidth = Math.max(64, Math.floor(width / 4));
-    const bloomHeight = Math.max(64, Math.floor(height / 4));
+    // 2. Create bloom textures at quarter of INTERNAL resolution for performance
+    // Use Math.max(64, ...) to prevent tiny textures
+    const bloomWidth = Math.max(64, Math.floor(this.width / 4));
+    const bloomHeight = Math.max(64, Math.floor(this.height / 4));
 
     console.log(`[RetroPostProcessor] Creating bloom textures: ${bloomWidth}x${bloomHeight}`);
 
@@ -173,20 +202,63 @@ export class RetroPostProcessor {
       { format: 'rgba' }
     );
 
-    // Bloom temp texture - temporary for separable blur
-    this.bloomTempTexture = this.backend.createTexture(
-      'retro-post-bloom-temp',
-      bloomWidth,
-      bloomHeight,
+    // Mip pyramid for bloom (5-level: mip0 through mip4)
+    const mip0Width = Math.max(32, Math.floor(bloomWidth / 2));
+    const mip0Height = Math.max(32, Math.floor(bloomHeight / 2));
+    const mip1Width = Math.max(16, Math.floor(mip0Width / 2));
+    const mip1Height = Math.max(16, Math.floor(mip0Height / 2));
+    const mip2Width = Math.max(8, Math.floor(mip1Width / 2));
+    const mip2Height = Math.max(8, Math.floor(mip1Height / 2));
+    const mip3Width = Math.max(4, Math.floor(mip2Width / 2));
+    const mip3Height = Math.max(4, Math.floor(mip2Height / 2));
+    const mip4Width = Math.max(2, Math.floor(mip3Width / 2));
+    const mip4Height = Math.max(2, Math.floor(mip3Height / 2));
+
+    console.log(`[RetroPostProcessor] Creating 5-level mip pyramid:`);
+    console.log(`  mip0=${mip0Width}x${mip0Height}, mip1=${mip1Width}x${mip1Height}`);
+    console.log(`  mip2=${mip2Width}x${mip2Height}, mip3=${mip3Width}x${mip3Height}, mip4=${mip4Width}x${mip4Height}`);
+
+    // Mip0 texture (half of extract)
+    this.bloomMip0Texture = this.backend.createTexture(
+      'retro-post-bloom-mip0',
+      mip0Width,
+      mip0Height,
       null,
       { format: 'rgba' }
     );
 
-    // Bloom blur texture - final blurred result
-    this.bloomBlurTexture = this.backend.createTexture(
-      'retro-post-bloom-blur',
-      bloomWidth,
-      bloomHeight,
+    // Mip1 texture (half of mip0)
+    this.bloomMip1Texture = this.backend.createTexture(
+      'retro-post-bloom-mip1',
+      mip1Width,
+      mip1Height,
+      null,
+      { format: 'rgba' }
+    );
+
+    // Mip2 texture (half of mip1)
+    this.bloomMip2Texture = this.backend.createTexture(
+      'retro-post-bloom-mip2',
+      mip2Width,
+      mip2Height,
+      null,
+      { format: 'rgba' }
+    );
+
+    // Mip3 texture (half of mip2)
+    this.bloomMip3Texture = this.backend.createTexture(
+      'retro-post-bloom-mip3',
+      mip3Width,
+      mip3Height,
+      null,
+      { format: 'rgba' }
+    );
+
+    // Mip4 texture (half of mip3, smallest mip)
+    this.bloomMip4Texture = this.backend.createTexture(
+      'retro-post-bloom-mip4',
+      mip4Width,
+      mip4Height,
       null,
       { format: 'rgba' }
     );
@@ -198,15 +270,33 @@ export class RetroPostProcessor {
       undefined // No depth attachment for post-processing
     );
 
-    this.bloomTempFramebuffer = this.backend.createFramebuffer(
-      'retro-post-bloom-temp-fb',
-      [this.bloomTempTexture],
+    this.bloomMip0Framebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-mip0-fb',
+      [this.bloomMip0Texture],
       undefined
     );
 
-    this.bloomBlurFramebuffer = this.backend.createFramebuffer(
-      'retro-post-bloom-blur-fb',
-      [this.bloomBlurTexture],
+    this.bloomMip1Framebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-mip1-fb',
+      [this.bloomMip1Texture],
+      undefined
+    );
+
+    this.bloomMip2Framebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-mip2-fb',
+      [this.bloomMip2Texture],
+      undefined
+    );
+
+    this.bloomMip3Framebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-mip3-fb',
+      [this.bloomMip3Texture],
+      undefined
+    );
+
+    this.bloomMip4Framebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-mip4-fb',
+      [this.bloomMip4Texture],
       undefined
     );
 
@@ -265,10 +355,16 @@ export class RetroPostProcessor {
       fragment: bloomExtractWGSL,
     });
 
-    // Load bloom blur shader
-    this.bloomBlurShader = this.backend.createShader('retro-bloom-blur', {
-      vertex: bloomBlurWGSL,
-      fragment: bloomBlurWGSL,
+    // Load bloom downsample shader
+    this.bloomDownsampleShader = this.backend.createShader('retro-bloom-downsample', {
+      vertex: bloomDownsampleWGSL,
+      fragment: bloomDownsampleWGSL,
+    });
+
+    // Load bloom upsample shader
+    this.bloomUpsampleShader = this.backend.createShader('retro-bloom-upsample', {
+      vertex: bloomUpsampleWGSL,
+      fragment: bloomUpsampleWGSL,
     });
 
     // Load composite shader
@@ -295,23 +391,39 @@ export class RetroPostProcessor {
     // @group(1): uniform buffer (BloomParams: threshold f32 + padding)
     this.extractUniformLayout = this.backend.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: ['fragment'], type: 'uniform', minBindingSize: 256 },
+        { binding: 0, visibility: ['fragment'], type: 'uniform' },
       ],
     });
 
-    // Bloom Blur Shader
+    // Bloom Downsample Shader
     // @group(0): texture_2d + sampler (input texture)
-    this.blurTextureLayout = this.backend.createBindGroupLayout({
+    this.downsampleTextureLayout = this.backend.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: ['fragment'], type: 'texture' },
         { binding: 1, visibility: ['fragment'], type: 'sampler' },
       ],
     });
 
-    // @group(1): uniform buffer (BlurParams: direction vec2 + padding)
-    this.blurUniformLayout = this.backend.createBindGroupLayout({
+    // @group(1): uniform buffer (DownsampleParams: texelSize vec2 + padding)
+    this.downsampleUniformLayout = this.backend.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: ['fragment'], type: 'uniform', minBindingSize: 256 },
+        { binding: 0, visibility: ['fragment'], type: 'uniform' },
+      ],
+    });
+
+    // Bloom Upsample Shader
+    // @group(0): texture_2d + sampler (input texture)
+    this.upsampleTextureLayout = this.backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: ['fragment'], type: 'texture' },
+        { binding: 1, visibility: ['fragment'], type: 'sampler' },
+      ],
+    });
+
+    // @group(1): uniform buffer (UpsampleParams: texelSize vec2 + blendFactor f32 + padding)
+    this.upsampleUniformLayout = this.backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: ['fragment'], type: 'uniform' },
       ],
     });
 
@@ -343,7 +455,7 @@ export class RetroPostProcessor {
     // @group(3): uniform buffer (PostParams: 5 floats + u32 + padding)
     this.compositeParamsLayout = this.backend.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: ['fragment'], type: 'uniform', minBindingSize: 256 },
+        { binding: 0, visibility: ['fragment'], type: 'uniform' },
       ],
     });
   }
@@ -353,14 +465,15 @@ export class RetroPostProcessor {
    * Task 4: Create 3 uniform buffers
    */
   private createUniformBuffers(): void {
-    // BloomParams (16 bytes total)
+    // BloomParams (32 bytes to meet WebGPU alignment requirements)
     // struct BloomParams {
     //   threshold: f32,      // 4 bytes
     //   _padding: vec3<f32>, // 12 bytes
     // }
-    const bloomParamsData = new Float32Array(4); // 16 bytes
+    // WebGPU rounds uniform buffers to 32 byte minimum
+    const bloomParamsData = new Float32Array(8); // 32 bytes
     bloomParamsData[0] = this.config.bloomThreshold;
-    // bloomParamsData[1-3] remain 0 (padding)
+    // bloomParamsData[1-7] remain 0 (padding)
 
     if (this.bloomParamsBuffer) {
       this.backend.deleteBuffer(this.bloomParamsBuffer);
@@ -372,26 +485,47 @@ export class RetroPostProcessor {
       'dynamic_draw'
     );
 
-    // BlurParams (16 bytes total)
-    // struct BlurParams {
-    //   direction: vec2<f32>,  // 8 bytes
+    // DownsampleParams (16 bytes)
+    // struct DownsampleParams {
+    //   texelSize: vec2<f32>,  // 8 bytes
     //   _padding: vec2<f32>,   // 8 bytes
     // }
-    const blurParamsData = new Float32Array(4); // 16 bytes
-    // blurParamsData[0-1] will be set per-pass (horizontal/vertical)
-    // blurParamsData[2-3] remain 0 (padding)
+    const downsampleParamsData = new Float32Array(4); // 16 bytes
+    // downsampleParamsData[0-1] will be set per-pass (texelSize)
+    // downsampleParamsData[2-3] remain 0 (padding)
 
-    if (this.blurParamsBuffer) {
-      this.backend.deleteBuffer(this.blurParamsBuffer);
+    if (this.downsampleParamsBuffer) {
+      this.backend.deleteBuffer(this.downsampleParamsBuffer);
     }
-    this.blurParamsBuffer = this.backend.createBuffer(
-      'retro-blur-params',
+    this.downsampleParamsBuffer = this.backend.createBuffer(
+      'retro-downsample-params',
       'uniform',
-      blurParamsData,
+      downsampleParamsData,
       'dynamic_draw'
     );
 
-    // PostParams (32 bytes total)
+    // UpsampleParams (16 bytes)
+    // struct UpsampleParams {
+    //   texelSize: vec2<f32>,  // 8 bytes
+    //   blendFactor: f32,      // 4 bytes
+    //   _padding: f32,         // 4 bytes
+    // }
+    const upsampleParamsData = new Float32Array(4); // 16 bytes
+    // upsampleParamsData[0-1] will be set per-pass (texelSize)
+    // upsampleParamsData[2] will be set per-pass (blendFactor)
+    // upsampleParamsData[3] remains 0 (padding)
+
+    if (this.upsampleParamsBuffer) {
+      this.backend.deleteBuffer(this.upsampleParamsBuffer);
+    }
+    this.upsampleParamsBuffer = this.backend.createBuffer(
+      'retro-upsample-params',
+      'uniform',
+      upsampleParamsData,
+      'dynamic_draw'
+    );
+
+    // PostParams (48 bytes - WebGPU requires 48 bytes for this uniform buffer)
     // struct PostParams {
     //   bloomIntensity: f32,  // 4 bytes
     //   grainAmount: f32,     // 4 bytes
@@ -399,14 +533,15 @@ export class RetroPostProcessor {
     //   ditherPattern: u32,   // 4 bytes
     //   time: f32,            // 4 bytes
     //   _padding: vec3<f32>,  // 12 bytes
+    //   _padding2: vec2<f32>, // 8 bytes additional padding
     // }
-    const postParamsData = new Float32Array(8); // 32 bytes
+    const postParamsData = new Float32Array(12); // 48 bytes
     postParamsData[0] = this.config.bloomIntensity;
     postParamsData[1] = this.config.grainAmount;
     postParamsData[2] = this.config.gamma;
     postParamsData[3] = this.config.ditherPattern;
     postParamsData[4] = this.time;
-    // postParamsData[5-7] remain 0 (padding)
+    // postParamsData[5-11] remain 0 (padding)
 
     if (this.postParamsBuffer) {
       this.backend.deleteBuffer(this.postParamsBuffer);
@@ -424,12 +559,14 @@ export class RetroPostProcessor {
    * Task 4: Create 3 pipelines for bloom extract, blur, and composite
    */
   private createPipelines(): void {
-    if (!this.bloomExtractShader || !this.bloomBlurShader || !this.compositeShader) {
+    if (!this.bloomExtractShader || !this.bloomDownsampleShader ||
+        !this.bloomUpsampleShader || !this.compositeShader) {
       throw new Error('[RetroPostProcessor] Shaders not initialized');
     }
 
     if (!this.extractTextureLayout || !this.extractUniformLayout ||
-        !this.blurTextureLayout || !this.blurUniformLayout ||
+        !this.downsampleTextureLayout || !this.downsampleUniformLayout ||
+        !this.upsampleTextureLayout || !this.upsampleUniformLayout ||
         !this.compositeSceneLayout || !this.compositeBloomLayout ||
         !this.compositeLUTLayout || !this.compositeParamsLayout) {
       throw new Error('[RetroPostProcessor] Bind group layouts not initialized');
@@ -455,21 +592,21 @@ export class RetroPostProcessor {
           frontFace: 'ccw'
         }
       },
-      colorFormat: 'bgra8unorm',
+      colorFormat: 'rgba8unorm', // Bloom textures use RGBA format
       depthFormat: undefined // No depth in post-processing
     });
 
-    // Bloom Blur Pipeline
-    // Applies separable Gaussian blur (horizontal then vertical)
-    this.bloomBlurPipeline = this.backend.createRenderPipeline({
-      label: 'retro-bloom-blur',
-      shader: this.bloomBlurShader,
+    // Bloom Downsample Pipeline
+    // 13-tap filter for downsampling bloom to mip pyramid
+    this.bloomDownsamplePipeline = this.backend.createRenderPipeline({
+      label: 'retro-bloom-downsample',
+      shader: this.bloomDownsampleShader,
       vertexLayouts: [], // Fullscreen triangle, no vertex buffers
-      bindGroupLayouts: [this.blurTextureLayout, this.blurUniformLayout],
+      bindGroupLayouts: [this.downsampleTextureLayout, this.downsampleUniformLayout],
       pipelineState: {
         topology: 'triangle-list',
         blend: {
-          enabled: false,
+          enabled: false, // Replace, don't blend
           srcFactor: 'one',
           dstFactor: 'zero',
           operation: 'add'
@@ -479,7 +616,31 @@ export class RetroPostProcessor {
           frontFace: 'ccw'
         }
       },
-      colorFormat: 'bgra8unorm',
+      colorFormat: 'rgba8unorm', // Bloom textures use RGBA format
+      depthFormat: undefined
+    });
+
+    // Bloom Upsample Pipeline
+    // 3x3 tent filter for upsampling with ADDITIVE BLENDING (critical!)
+    this.bloomUpsamplePipeline = this.backend.createRenderPipeline({
+      label: 'retro-bloom-upsample',
+      shader: this.bloomUpsampleShader,
+      vertexLayouts: [], // Fullscreen triangle, no vertex buffers
+      bindGroupLayouts: [this.upsampleTextureLayout, this.upsampleUniformLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: true, // ADDITIVE BLENDING - accumulates mip levels!
+          srcFactor: 'one',
+          dstFactor: 'one',
+          operation: 'add'
+        },
+        rasterization: {
+          cullMode: 'none',
+          frontFace: 'ccw'
+        }
+      },
+      colorFormat: 'rgba8unorm', // Bloom textures use RGBA format
       depthFormat: undefined
     });
 
@@ -509,7 +670,7 @@ export class RetroPostProcessor {
         }
       },
       colorFormat: 'bgra8unorm',
-      depthFormat: undefined
+      depthFormat: undefined  // No depth testing for fullscreen post-processing
     });
   }
 
@@ -518,14 +679,26 @@ export class RetroPostProcessor {
    * Returns final composited texture
    */
   apply(sceneTexture: BackendTextureHandle): BackendTextureHandle {
+    console.log('[POST] Starting apply()');
     // Pass 1: Extract bright pixels
     this.bloomExtractPass(sceneTexture);
+    console.log('[POST] Bloom extract pass complete');
 
-    // Pass 2: Blur bloom (separable: horizontal then vertical)
-    this.bloomBlurPass();
+    // Pass 2a: Downsample mip pyramid (Extract → Mip0 → Mip1)
+    this.bloomDownsamplePass();
+    console.log('[POST] Bloom downsample pass complete');
+
+    // Pass 2b: Upsample with additive blending (Mip1 → Mip0 → Extract)
+    this.bloomUpsamplePass();
+    console.log('[POST] Bloom upsample pass complete');
+
+    // NOTE: Old blur pass removed, replaced with mip pyramid downsample/upsample
+    // this.bloomBlurPass();
 
     // Pass 3: Composite (bloom + tonemap + LUT + dither + grain)
-    return this.compositePass(sceneTexture);
+    const result = this.compositePass(sceneTexture);
+    console.log('[POST] Composite pass complete, returning:', !!result);
+    return result;
   }
 
   /**
@@ -601,143 +774,591 @@ export class RetroPostProcessor {
   }
 
   /**
-   * Pass 2: Gaussian blur (separable filter)
+   * Bloom Downsample Pass (Mip Pyramid)
+   * Downsamples bloom extract through mip chain with 13-tap filter
+   * 5-level pyramid: Extract (160x120) → Mip0 (80x60) → Mip1 (40x30) → Mip2 (20x15) → Mip3 (10x8) → Mip4 (5x4)
    */
-  private bloomBlurPass(): void {
-    if (!this.bloomBlurTexture || !this.bloomTempTexture || !this.bloomExtractTexture) {
-      console.warn('[RetroPostProcessor] Bloom blur textures not initialized');
+  private bloomDownsamplePass(): void {
+    if (!this.bloomExtractTexture || !this.bloomMip0Texture || !this.bloomMip1Texture ||
+        !this.bloomMip2Texture || !this.bloomMip3Texture || !this.bloomMip4Texture) {
+      console.warn('[RetroPostProcessor] Bloom mip textures not initialized');
       return;
     }
 
-    if (!this.bloomTempFramebuffer || !this.bloomBlurFramebuffer || !this.bloomBlurPipeline) {
-      console.warn('[RetroPostProcessor] Bloom blur framebuffers/pipeline not initialized');
+    if (!this.bloomMip0Framebuffer || !this.bloomMip1Framebuffer ||
+        !this.bloomMip2Framebuffer || !this.bloomMip3Framebuffer || !this.bloomMip4Framebuffer) {
+      console.warn('[RetroPostProcessor] Bloom mip framebuffers not initialized');
       return;
     }
 
-    if (!this.blurParamsBuffer || !this.linearSampler) {
-      console.warn('[RetroPostProcessor] Blur params/sampler not initialized');
+    if (!this.bloomDownsamplePipeline || !this.downsampleParamsBuffer || !this.linearSampler) {
+      console.warn('[RetroPostProcessor] Downsample resources not initialized');
       return;
     }
 
-    if (!this.blurTextureLayout || !this.blurUniformLayout) {
-      console.warn('[RetroPostProcessor] Blur bind group layouts not initialized');
+    if (!this.downsampleTextureLayout || !this.downsampleUniformLayout) {
+      console.warn('[RetroPostProcessor] Downsample bind group layouts not initialized');
       return;
     }
 
-    // ========== HORIZONTAL BLUR: bloomExtractTexture → bloomTempTexture ==========
+    // ========== DOWNSAMPLE 1: Extract (160x120) → Mip0 (80x60) ==========
 
-    // Update blur params uniform with horizontal direction (1, 0)
-    const blurParamsDataH = new Float32Array(4);
-    blurParamsDataH[0] = 1.0; // direction.x
-    blurParamsDataH[1] = 0.0; // direction.y
-    this.backend.updateBuffer(this.blurParamsBuffer, blurParamsDataH);
+    // Update downsample params with EXTRACT (source) texel size
+    const downsampleParams0 = new Float32Array(4);
+    downsampleParams0[0] = 1.0 / 160.0; // texelSize.x (source: Extract 160x120)
+    downsampleParams0[1] = 1.0 / 120.0; // texelSize.y
+    this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams0);
 
-    // Create bind group for input texture (bloomExtractTexture)
-    const hTextureBindGroup = this.backend.createBindGroup(this.blurTextureLayout, {
+    // Create bind groups
+    const ds0TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
       bindings: [
-        { binding: 0, resource: this.bloomExtractTexture }, // Input texture
-        { binding: 1, resource: this.linearSampler as any }, // Sampler
+        { binding: 0, resource: this.bloomExtractTexture },
+        { binding: 1, resource: this.linearSampler as any },
       ],
     });
 
-    // Create bind group for blur params
-    const hUniformBindGroup = this.backend.createBindGroup(this.blurUniformLayout, {
+    const ds0UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
       bindings: [
-        { binding: 0, resource: this.blurParamsBuffer },
+        { binding: 0, resource: this.downsampleParamsBuffer },
       ],
     });
 
-    // Begin render pass to bloomTempTexture
+    // Render pass
     this.backend.beginRenderPass(
-      this.bloomTempFramebuffer,
+      this.bloomMip0Framebuffer,
       [0, 0, 0, 0],
       undefined,
       undefined,
-      'Bloom Blur Horizontal Pass'
+      'Bloom Downsample 0 (Extract→Mip0)'
     );
 
-    // Execute draw command
     this.backend.executeDrawCommand({
-      pipeline: this.bloomBlurPipeline,
+      pipeline: this.bloomDownsamplePipeline,
       bindGroups: new Map([
-        [0, hTextureBindGroup],
-        [1, hUniformBindGroup],
+        [0, ds0TextureBindGroup],
+        [1, ds0UniformBindGroup],
       ]),
       geometry: {
         type: 'nonIndexed',
         vertexBuffers: new Map(),
-        vertexCount: 3, // Fullscreen triangle
+        vertexCount: 3,
       },
-      label: 'Bloom Blur Horizontal Draw',
+      label: 'Bloom Downsample 0 Draw',
     });
 
-    // End render pass
     this.backend.endRenderPass();
 
-    // Clean up bind groups
-    this.backend.deleteBindGroup(hTextureBindGroup);
-    this.backend.deleteBindGroup(hUniformBindGroup);
+    // Clean up
+    this.backend.deleteBindGroup(ds0TextureBindGroup);
+    this.backend.deleteBindGroup(ds0UniformBindGroup);
 
-    // ========== VERTICAL BLUR: bloomTempTexture → bloomBlurTexture ==========
+    // ========== DOWNSAMPLE 2: Mip0 (80x60) → Mip1 (40x30) ==========
+    if (this.config.bloomMipLevels >= 2) {
+      // Update downsample params with MIP0 (source) texel size
+      const downsampleParams1 = new Float32Array(4);
+      downsampleParams1[0] = 1.0 / 80.0; // texelSize.x (source: Mip0 80x60)
+      downsampleParams1[1] = 1.0 / 60.0; // texelSize.y
+      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams1);
 
-    // Update blur params uniform with vertical direction (0, 1)
-    const blurParamsDataV = new Float32Array(4);
-    blurParamsDataV[0] = 0.0; // direction.x
-    blurParamsDataV[1] = 1.0; // direction.y
-    this.backend.updateBuffer(this.blurParamsBuffer, blurParamsDataV);
+      // Create bind groups
+      const ds1TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip0Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
 
-    // Create bind group for input texture (bloomTempTexture)
-    const vTextureBindGroup = this.backend.createBindGroup(this.blurTextureLayout, {
+      const ds1UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.downsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass
+      this.backend.beginRenderPass(
+        this.bloomMip1Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Downsample 1 (Mip0→Mip1)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomDownsamplePipeline,
+        bindGroups: new Map([
+          [0, ds1TextureBindGroup],
+          [1, ds1UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Downsample 1 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(ds1TextureBindGroup);
+      this.backend.deleteBindGroup(ds1UniformBindGroup);
+    }
+
+    // ========== DOWNSAMPLE 3: Mip1 (40x30) → Mip2 (20x15) ==========
+    if (this.config.bloomMipLevels >= 3) {
+      // Update downsample params with MIP1 (source) texel size
+      const downsampleParams2 = new Float32Array(4);
+      downsampleParams2[0] = 1.0 / 40.0; // texelSize.x (source: Mip1 40x30)
+      downsampleParams2[1] = 1.0 / 30.0; // texelSize.y
+      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams2);
+
+      // Create bind groups
+      const ds2TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip1Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const ds2UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.downsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass
+      this.backend.beginRenderPass(
+        this.bloomMip2Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Downsample 2 (Mip1→Mip2)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomDownsamplePipeline,
+        bindGroups: new Map([
+          [0, ds2TextureBindGroup],
+          [1, ds2UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Downsample 2 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(ds2TextureBindGroup);
+      this.backend.deleteBindGroup(ds2UniformBindGroup);
+    }
+
+    // ========== DOWNSAMPLE 4: Mip2 (20x15) → Mip3 (10x8) ==========
+    if (this.config.bloomMipLevels >= 4) {
+      // Update downsample params with MIP2 (source) texel size
+      const downsampleParams3 = new Float32Array(4);
+      downsampleParams3[0] = 1.0 / 20.0; // texelSize.x (source: Mip2 20x15)
+      downsampleParams3[1] = 1.0 / 15.0; // texelSize.y
+      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams3);
+
+      // Create bind groups
+      const ds3TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip2Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const ds3UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.downsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass
+      this.backend.beginRenderPass(
+        this.bloomMip3Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Downsample 3 (Mip2→Mip3)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomDownsamplePipeline,
+        bindGroups: new Map([
+          [0, ds3TextureBindGroup],
+          [1, ds3UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Downsample 3 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(ds3TextureBindGroup);
+      this.backend.deleteBindGroup(ds3UniformBindGroup);
+    }
+
+    // ========== DOWNSAMPLE 5: Mip3 (10x8) → Mip4 (5x4) ==========
+    if (this.config.bloomMipLevels >= 5) {
+      // Update downsample params with MIP3 (source) texel size
+      const downsampleParams4 = new Float32Array(4);
+      downsampleParams4[0] = 1.0 / 10.0; // texelSize.x (source: Mip3 10x8)
+      downsampleParams4[1] = 1.0 / 8.0; // texelSize.y
+      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams4);
+
+      // Create bind groups
+      const ds4TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip3Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const ds4UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.downsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass
+      this.backend.beginRenderPass(
+        this.bloomMip4Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Downsample 4 (Mip3→Mip4)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomDownsamplePipeline,
+        bindGroups: new Map([
+          [0, ds4TextureBindGroup],
+          [1, ds4UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Downsample 4 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(ds4TextureBindGroup);
+      this.backend.deleteBindGroup(ds4UniformBindGroup);
+    }
+  }
+
+  /**
+   * Bloom Upsample Pass (Mip Pyramid)
+   * Upsamples and accumulates mip levels with 3x3 tent filter and additive blending
+   * 5-level pyramid (reverse): Mip4 → Mip3 → Mip2 → Mip1 → Mip0 → Extract
+   */
+  private bloomUpsamplePass(): void {
+    if (!this.bloomMip0Texture || !this.bloomMip1Texture || !this.bloomMip2Texture ||
+        !this.bloomMip3Texture || !this.bloomMip4Texture || !this.bloomExtractTexture) {
+      console.warn('[RetroPostProcessor] Bloom mip textures not initialized');
+      return;
+    }
+
+    if (!this.bloomMip0Framebuffer || !this.bloomMip1Framebuffer || !this.bloomMip2Framebuffer ||
+        !this.bloomMip3Framebuffer || !this.bloomExtractFramebuffer) {
+      console.warn('[RetroPostProcessor] Bloom upsample framebuffers not initialized');
+      return;
+    }
+
+    if (!this.bloomUpsamplePipeline || !this.upsampleParamsBuffer || !this.linearSampler) {
+      console.warn('[RetroPostProcessor] Upsample resources not initialized');
+      return;
+    }
+
+    if (!this.upsampleTextureLayout || !this.upsampleUniformLayout) {
+      console.warn('[RetroPostProcessor] Upsample bind group layouts not initialized');
+      return;
+    }
+
+    // ========== UPSAMPLE 1: Mip4 (5x4) → Mip3 (10x8) with ADDITIVE BLEND ==========
+    if (this.config.bloomMipLevels >= 5) {
+      // Update upsample params with MIP4 (source) texel size and blend factor
+      const upsampleMip4to3 = new Float32Array(4);
+      upsampleMip4to3[0] = 1.0 / 5.0; // texelSize.x (source: Mip4 5x4)
+      upsampleMip4to3[1] = 1.0 / 4.0; // texelSize.y
+      upsampleMip4to3[2] = 0.3; // blendFactor (reduced to prevent washout from highest mip)
+      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleMip4to3);
+
+      // Create bind groups
+      const usM4toM3TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip4Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const usM4toM3UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.upsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass with ADDITIVE BLENDING
+      this.backend.beginRenderPass(
+        this.bloomMip3Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Upsample 0 (Mip4→Mip3)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomUpsamplePipeline,
+        bindGroups: new Map([
+          [0, usM4toM3TextureBindGroup],
+          [1, usM4toM3UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Upsample 0 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(usM4toM3TextureBindGroup);
+      this.backend.deleteBindGroup(usM4toM3UniformBindGroup);
+    }
+
+    // ========== UPSAMPLE 2: Mip3 (10x8) → Mip2 (20x15) with ADDITIVE BLEND ==========
+    if (this.config.bloomMipLevels >= 4) {
+      // Update upsample params with MIP3 (source) texel size and blend factor
+      const upsampleMip3to2 = new Float32Array(4);
+      upsampleMip3to2[0] = 1.0 / 10.0; // texelSize.x (source: Mip3 10x8)
+      upsampleMip3to2[1] = 1.0 / 8.0; // texelSize.y
+      upsampleMip3to2[2] = 0.4; // blendFactor (controlled contribution from mid-high mip)
+      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleMip3to2);
+
+      // Create bind groups
+      const usM3toM2TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip3Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const usM3toM2UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.upsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass with ADDITIVE BLENDING
+      this.backend.beginRenderPass(
+        this.bloomMip2Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Upsample 1 (Mip3→Mip2)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomUpsamplePipeline,
+        bindGroups: new Map([
+          [0, usM3toM2TextureBindGroup],
+          [1, usM3toM2UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Upsample 1 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(usM3toM2TextureBindGroup);
+      this.backend.deleteBindGroup(usM3toM2UniformBindGroup);
+    }
+
+    // ========== UPSAMPLE 3: Mip2 (20x15) → Mip1 (40x30) with ADDITIVE BLEND ==========
+    if (this.config.bloomMipLevels >= 3) {
+      // Update upsample params with MIP2 (source) texel size and blend factor
+      const upsampleMip2to1 = new Float32Array(4);
+      upsampleMip2to1[0] = 1.0 / 20.0; // texelSize.x (source: Mip2 20x15)
+      upsampleMip2to1[1] = 1.0 / 15.0; // texelSize.y
+      upsampleMip2to1[2] = 0.5; // blendFactor (moderate contribution from mid mip)
+      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleMip2to1);
+
+      // Create bind groups
+      const usM2toM1TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip2Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const usM2toM1UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.upsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass with ADDITIVE BLENDING
+      this.backend.beginRenderPass(
+        this.bloomMip1Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Upsample 2 (Mip2→Mip1)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomUpsamplePipeline,
+        bindGroups: new Map([
+          [0, usM2toM1TextureBindGroup],
+          [1, usM2toM1UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Upsample 2 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(usM2toM1TextureBindGroup);
+      this.backend.deleteBindGroup(usM2toM1UniformBindGroup);
+    }
+
+    // ========== UPSAMPLE 4: Mip1 (40x30) → Mip0 (80x60) with ADDITIVE BLEND ==========
+    if (this.config.bloomMipLevels >= 2) {
+      // Update upsample params with MIP1 (source) texel size and blend factor
+      const upsampleParams0 = new Float32Array(4);
+      upsampleParams0[0] = 1.0 / 40.0; // texelSize.x (source: Mip1 40x30)
+      upsampleParams0[1] = 1.0 / 30.0; // texelSize.y
+      upsampleParams0[2] = 0.6; // blendFactor (higher contribution from near-field bloom)
+      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleParams0);
+
+      // Create bind groups
+      const us0TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
+        bindings: [
+          { binding: 0, resource: this.bloomMip1Texture },
+          { binding: 1, resource: this.linearSampler as any },
+        ],
+      });
+
+      const us0UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
+        bindings: [
+          { binding: 0, resource: this.upsampleParamsBuffer },
+        ],
+      });
+
+      // Render pass with ADDITIVE BLENDING (pipeline has blend enabled)
+      this.backend.beginRenderPass(
+        this.bloomMip0Framebuffer,
+        [0, 0, 0, 0],
+        undefined,
+        undefined,
+        'Bloom Upsample 0 (Mip1→Mip0)'
+      );
+
+      this.backend.executeDrawCommand({
+        pipeline: this.bloomUpsamplePipeline,
+        bindGroups: new Map([
+          [0, us0TextureBindGroup],
+          [1, us0UniformBindGroup],
+        ]),
+        geometry: {
+          type: 'nonIndexed',
+          vertexBuffers: new Map(),
+          vertexCount: 3,
+        },
+        label: 'Bloom Upsample 0 Draw',
+      });
+
+      this.backend.endRenderPass();
+
+      // Clean up
+      this.backend.deleteBindGroup(us0TextureBindGroup);
+      this.backend.deleteBindGroup(us0UniformBindGroup);
+    }
+
+    // ========== UPSAMPLE 5: Mip0 (80x60) → Extract (160x120) with ADDITIVE BLEND ==========
+
+    // Update upsample params with MIP0 (source) texel size and blend factor
+    const upsampleParams1 = new Float32Array(4);
+    upsampleParams1[0] = 1.0 / 80.0; // texelSize.x (source: Mip0 80x60)
+    upsampleParams1[1] = 1.0 / 60.0; // texelSize.y
+    upsampleParams1[2] = 1.0; // blendFactor (final composite - full contribution)
+    this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleParams1);
+
+    // Create bind groups
+    const us1TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
       bindings: [
-        { binding: 0, resource: this.bloomTempTexture }, // Input texture (from horizontal pass)
-        { binding: 1, resource: this.linearSampler as any }, // Sampler
+        { binding: 0, resource: this.bloomMip0Texture },
+        { binding: 1, resource: this.linearSampler as any },
       ],
     });
 
-    // Create bind group for blur params
-    const vUniformBindGroup = this.backend.createBindGroup(this.blurUniformLayout, {
+    const us1UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
       bindings: [
-        { binding: 0, resource: this.blurParamsBuffer },
+        { binding: 0, resource: this.upsampleParamsBuffer },
       ],
     });
 
-    // Begin render pass to bloomBlurTexture
+    // Render pass with ADDITIVE BLENDING
     this.backend.beginRenderPass(
-      this.bloomBlurFramebuffer,
+      this.bloomExtractFramebuffer,
       [0, 0, 0, 0],
       undefined,
       undefined,
-      'Bloom Blur Vertical Pass'
+      'Bloom Upsample 1 (Mip0→Extract)'
     );
 
-    // Execute draw command
     this.backend.executeDrawCommand({
-      pipeline: this.bloomBlurPipeline,
+      pipeline: this.bloomUpsamplePipeline,
       bindGroups: new Map([
-        [0, vTextureBindGroup],
-        [1, vUniformBindGroup],
+        [0, us1TextureBindGroup],
+        [1, us1UniformBindGroup],
       ]),
       geometry: {
         type: 'nonIndexed',
         vertexBuffers: new Map(),
-        vertexCount: 3, // Fullscreen triangle
+        vertexCount: 3,
       },
-      label: 'Bloom Blur Vertical Draw',
+      label: 'Bloom Upsample 1 Draw',
     });
 
-    // End render pass
     this.backend.endRenderPass();
 
-    // Clean up bind groups
-    this.backend.deleteBindGroup(vTextureBindGroup);
-    this.backend.deleteBindGroup(vUniformBindGroup);
+    // Clean up
+    this.backend.deleteBindGroup(us1TextureBindGroup);
+    this.backend.deleteBindGroup(us1UniformBindGroup);
   }
 
   /**
    * Pass 3: Composite final image
    */
   private compositePass(sceneTexture: BackendTextureHandle): BackendTextureHandle {
-    if (!this.bloomBlurTexture || !this.compositePipeline) {
+    if (!this.bloomExtractTexture || !this.compositePipeline) {
       console.warn('[RetroPostProcessor] Composite resources not initialized');
       return sceneTexture;
     }
@@ -761,8 +1382,9 @@ export class RetroPostProcessor {
     //   ditherPattern: u32,   // 4 bytes
     //   time: f32,            // 4 bytes
     //   _padding: vec3<f32>,  // 12 bytes
+    //   _padding2: vec2<f32>, // 8 bytes additional padding
     // }
-    const postParamsData = new Float32Array(8); // 32 bytes
+    const postParamsData = new Float32Array(12); // 48 bytes
     postParamsData[0] = this.config.bloomIntensity;
     postParamsData[1] = this.config.grainAmount;
     postParamsData[2] = this.config.gamma;
@@ -770,7 +1392,7 @@ export class RetroPostProcessor {
     const ditherU32View = new Uint32Array(postParamsData.buffer, 12, 1);
     ditherU32View[0] = this.config.ditherPattern;
     postParamsData[4] = this.time;
-    // postParamsData[5-7] remain 0 (padding)
+    // postParamsData[5-11] remain 0 (padding)
     this.backend.updateBuffer(this.postParamsBuffer, postParamsData);
 
     // Create bind group for scene texture (group 0)
@@ -784,7 +1406,7 @@ export class RetroPostProcessor {
     // Create bind group for bloom texture (group 1)
     const bloomBindGroup = this.backend.createBindGroup(this.compositeBloomLayout, {
       bindings: [
-        { binding: 0, resource: this.bloomBlurTexture },
+        { binding: 0, resource: this.bloomExtractTexture },
         { binding: 1, resource: this.linearSampler as any },
       ],
     });
@@ -813,12 +1435,14 @@ export class RetroPostProcessor {
 
     // Begin render pass to swapchain (target = null)
     // CRITICAL: This renders to the default framebuffer (swapchain)
+    // requireDepth=false because fullscreen post-processing doesn't need depth testing
     this.backend.beginRenderPass(
       null, // Render to swapchain
       [0, 0, 0, 1], // Clear to black (shouldn't be visible since we draw fullscreen)
       undefined,
       undefined,
-      'Retro Composite Pass'
+      'Retro Composite Pass',
+      false // NO depth attachment for post-processing
     );
 
     // Execute draw command
@@ -860,6 +1484,10 @@ export class RetroPostProcessor {
 
   setBloomThreshold(threshold: number): void {
     this.config.bloomThreshold = Math.max(0, threshold);
+  }
+
+  setBloomMipLevels(levels: number): void {
+    this.config.bloomMipLevels = Math.max(1, Math.min(5, Math.floor(levels)));
   }
 
   /**
@@ -927,13 +1555,25 @@ export class RetroPostProcessor {
       this.backend.deleteTexture(this.bloomExtractTexture);
       this.bloomExtractTexture = null;
     }
-    if (this.bloomBlurTexture) {
-      this.backend.deleteTexture(this.bloomBlurTexture);
-      this.bloomBlurTexture = null;
+    if (this.bloomMip0Texture) {
+      this.backend.deleteTexture(this.bloomMip0Texture);
+      this.bloomMip0Texture = null;
     }
-    if (this.bloomTempTexture) {
-      this.backend.deleteTexture(this.bloomTempTexture);
-      this.bloomTempTexture = null;
+    if (this.bloomMip1Texture) {
+      this.backend.deleteTexture(this.bloomMip1Texture);
+      this.bloomMip1Texture = null;
+    }
+    if (this.bloomMip2Texture) {
+      this.backend.deleteTexture(this.bloomMip2Texture);
+      this.bloomMip2Texture = null;
+    }
+    if (this.bloomMip3Texture) {
+      this.backend.deleteTexture(this.bloomMip3Texture);
+      this.bloomMip3Texture = null;
+    }
+    if (this.bloomMip4Texture) {
+      this.backend.deleteTexture(this.bloomMip4Texture);
+      this.bloomMip4Texture = null;
     }
 
     // Bloom framebuffers
@@ -941,13 +1581,25 @@ export class RetroPostProcessor {
       this.backend.deleteFramebuffer(this.bloomExtractFramebuffer);
       this.bloomExtractFramebuffer = null;
     }
-    if (this.bloomTempFramebuffer) {
-      this.backend.deleteFramebuffer(this.bloomTempFramebuffer);
-      this.bloomTempFramebuffer = null;
+    if (this.bloomMip0Framebuffer) {
+      this.backend.deleteFramebuffer(this.bloomMip0Framebuffer);
+      this.bloomMip0Framebuffer = null;
     }
-    if (this.bloomBlurFramebuffer) {
-      this.backend.deleteFramebuffer(this.bloomBlurFramebuffer);
-      this.bloomBlurFramebuffer = null;
+    if (this.bloomMip1Framebuffer) {
+      this.backend.deleteFramebuffer(this.bloomMip1Framebuffer);
+      this.bloomMip1Framebuffer = null;
+    }
+    if (this.bloomMip2Framebuffer) {
+      this.backend.deleteFramebuffer(this.bloomMip2Framebuffer);
+      this.bloomMip2Framebuffer = null;
+    }
+    if (this.bloomMip3Framebuffer) {
+      this.backend.deleteFramebuffer(this.bloomMip3Framebuffer);
+      this.bloomMip3Framebuffer = null;
+    }
+    if (this.bloomMip4Framebuffer) {
+      this.backend.deleteFramebuffer(this.bloomMip4Framebuffer);
+      this.bloomMip4Framebuffer = null;
     }
 
     // Fallback LUT (only dispose if we're cleaning up everything)
@@ -966,9 +1618,13 @@ export class RetroPostProcessor {
       this.backend.deleteShader(this.bloomExtractShader);
       this.bloomExtractShader = null;
     }
-    if (this.bloomBlurShader) {
-      this.backend.deleteShader(this.bloomBlurShader);
-      this.bloomBlurShader = null;
+    if (this.bloomDownsampleShader) {
+      this.backend.deleteShader(this.bloomDownsampleShader);
+      this.bloomDownsampleShader = null;
+    }
+    if (this.bloomUpsampleShader) {
+      this.backend.deleteShader(this.bloomUpsampleShader);
+      this.bloomUpsampleShader = null;
     }
     if (this.compositeShader) {
       this.backend.deleteShader(this.compositeShader);
@@ -984,13 +1640,21 @@ export class RetroPostProcessor {
       this.backend.deleteBindGroupLayout(this.extractUniformLayout);
       this.extractUniformLayout = null;
     }
-    if (this.blurTextureLayout) {
-      this.backend.deleteBindGroupLayout(this.blurTextureLayout);
-      this.blurTextureLayout = null;
+    if (this.downsampleTextureLayout) {
+      this.backend.deleteBindGroupLayout(this.downsampleTextureLayout);
+      this.downsampleTextureLayout = null;
     }
-    if (this.blurUniformLayout) {
-      this.backend.deleteBindGroupLayout(this.blurUniformLayout);
-      this.blurUniformLayout = null;
+    if (this.downsampleUniformLayout) {
+      this.backend.deleteBindGroupLayout(this.downsampleUniformLayout);
+      this.downsampleUniformLayout = null;
+    }
+    if (this.upsampleTextureLayout) {
+      this.backend.deleteBindGroupLayout(this.upsampleTextureLayout);
+      this.upsampleTextureLayout = null;
+    }
+    if (this.upsampleUniformLayout) {
+      this.backend.deleteBindGroupLayout(this.upsampleUniformLayout);
+      this.upsampleUniformLayout = null;
     }
     if (this.compositeSceneLayout) {
       this.backend.deleteBindGroupLayout(this.compositeSceneLayout);
@@ -1014,9 +1678,13 @@ export class RetroPostProcessor {
       this.backend.deleteBuffer(this.bloomParamsBuffer);
       this.bloomParamsBuffer = null;
     }
-    if (this.blurParamsBuffer) {
-      this.backend.deleteBuffer(this.blurParamsBuffer);
-      this.blurParamsBuffer = null;
+    if (this.downsampleParamsBuffer) {
+      this.backend.deleteBuffer(this.downsampleParamsBuffer);
+      this.downsampleParamsBuffer = null;
+    }
+    if (this.upsampleParamsBuffer) {
+      this.backend.deleteBuffer(this.upsampleParamsBuffer);
+      this.upsampleParamsBuffer = null;
     }
     if (this.postParamsBuffer) {
       this.backend.deleteBuffer(this.postParamsBuffer);
@@ -1048,9 +1716,13 @@ export class RetroPostProcessor {
       this.backend.deletePipeline(this.bloomExtractPipeline);
       this.bloomExtractPipeline = null;
     }
-    if (this.bloomBlurPipeline) {
-      this.backend.deletePipeline(this.bloomBlurPipeline);
-      this.bloomBlurPipeline = null;
+    if (this.bloomDownsamplePipeline) {
+      this.backend.deletePipeline(this.bloomDownsamplePipeline);
+      this.bloomDownsamplePipeline = null;
+    }
+    if (this.bloomUpsamplePipeline) {
+      this.backend.deletePipeline(this.bloomUpsamplePipeline);
+      this.bloomUpsamplePipeline = null;
     }
     if (this.compositePipeline) {
       this.backend.deletePipeline(this.compositePipeline);
@@ -1059,8 +1731,6 @@ export class RetroPostProcessor {
 
     // Dispose bind groups (will be created in Task 5)
     this.bloomExtractBindGroup = null;
-    this.bloomBlurHorizontalBindGroup = null;
-    this.bloomBlurVerticalBindGroup = null;
     this.compositeBindGroup = null;
   }
 
