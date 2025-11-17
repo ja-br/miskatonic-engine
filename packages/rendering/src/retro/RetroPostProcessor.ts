@@ -47,6 +47,11 @@ export class RetroPostProcessor {
   private bloomBlurTexture: BackendTextureHandle | null = null;
   private bloomTempTexture: BackendTextureHandle | null = null;  // For separable blur
 
+  // Framebuffers for bloom textures
+  private bloomExtractFramebuffer: BackendFramebufferHandle | null = null;
+  private bloomTempFramebuffer: BackendFramebufferHandle | null = null;
+  private bloomBlurFramebuffer: BackendFramebufferHandle | null = null;
+
   // Pipelines
   private bloomExtractPipeline: BackendPipelineHandle | null = null;
   private bloomBlurPipeline: BackendPipelineHandle | null = null;
@@ -186,6 +191,25 @@ export class RetroPostProcessor {
       { format: 'rgba' }
     );
 
+    // Create framebuffers for each bloom texture
+    this.bloomExtractFramebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-extract-fb',
+      [this.bloomExtractTexture],
+      undefined // No depth attachment for post-processing
+    );
+
+    this.bloomTempFramebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-temp-fb',
+      [this.bloomTempTexture],
+      undefined
+    );
+
+    this.bloomBlurFramebuffer = this.backend.createFramebuffer(
+      'retro-post-bloom-blur-fb',
+      [this.bloomBlurTexture],
+      undefined
+    );
+
     // 3. Create fallback 1x1 white LUT (CRITICAL)
     // This is used as identity LUT when config.colorLUT is not provided
     if (!this.fallbackLUT) {
@@ -200,7 +224,31 @@ export class RetroPostProcessor {
       );
     }
 
-    // 4. Create uniform buffers (Task 4)
+    // 4. Create samplers (needed for bind groups)
+    // We need to access the WebGPU device directly to create samplers
+    // The backend interface doesn't expose sampler creation
+    const device = (this.backend as any).getDevice?.() as GPUDevice;
+    if (!device) {
+      throw new Error('[RetroPostProcessor] Cannot access GPU device for sampler creation');
+    }
+
+    // Linear sampler for post-processing textures
+    this.linearSampler = device.createSampler({
+      minFilter: 'linear',
+      magFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+
+    // Nearest sampler for LUT texture (no interpolation for color grading)
+    this.lutSampler = device.createSampler({
+      minFilter: 'nearest',
+      magFilter: 'nearest',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
+    });
+
+    // 5. Create uniform buffers (Task 4)
     this.createUniformBuffers();
 
     console.log('[RetroPostProcessor] Render targets created successfully');
@@ -484,50 +532,322 @@ export class RetroPostProcessor {
    * Pass 1: Extract bright pixels above threshold
    */
   private bloomExtractPass(sceneTexture: BackendTextureHandle): void {
-    if (!this.bloomExtractTexture) {
-      console.warn('[RetroPostProcessor] Bloom extract texture not initialized');
+    if (!this.bloomExtractTexture || !this.bloomExtractFramebuffer || !this.bloomExtractPipeline) {
+      console.warn('[RetroPostProcessor] Bloom extract resources not initialized');
       return;
     }
 
-    // TODO: Bind pipeline, set uniforms, draw full-screen triangle
-    // Shader: bloom-extract.wgsl
-    // Output: bloomExtractTexture
+    if (!this.bloomParamsBuffer || !this.linearSampler) {
+      console.warn('[RetroPostProcessor] Bloom extract uniforms/samplers not initialized');
+      return;
+    }
+
+    if (!this.extractTextureLayout || !this.extractUniformLayout) {
+      console.warn('[RetroPostProcessor] Bloom extract bind group layouts not initialized');
+      return;
+    }
+
+    // Update bloom params uniform with current threshold
+    const bloomParamsData = new Float32Array(4);
+    bloomParamsData[0] = this.config.bloomThreshold;
+    this.backend.updateBuffer(this.bloomParamsBuffer, bloomParamsData);
+
+    // Create bind group for scene texture (group 0)
+    // CRITICAL: WebGPU requires separate bindings for texture (binding 0) and sampler (binding 1)
+    const textureBindGroup = this.backend.createBindGroup(this.extractTextureLayout, {
+      bindings: [
+        { binding: 0, resource: sceneTexture }, // Texture at binding 0
+        { binding: 1, resource: this.linearSampler as any }, // Sampler at binding 1 (raw GPUSampler)
+      ],
+    });
+
+    // Create bind group for bloom params (group 1)
+    const uniformBindGroup = this.backend.createBindGroup(this.extractUniformLayout, {
+      bindings: [
+        { binding: 0, resource: this.bloomParamsBuffer },
+      ],
+    });
+
+    // Begin render pass to bloom extract framebuffer
+    this.backend.beginRenderPass(
+      this.bloomExtractFramebuffer,
+      [0, 0, 0, 0], // Clear to black
+      undefined,
+      undefined,
+      'Bloom Extract Pass'
+    );
+
+    // Execute draw command (fullscreen triangle, 3 vertices)
+    this.backend.executeDrawCommand({
+      pipeline: this.bloomExtractPipeline,
+      bindGroups: new Map([
+        [0, textureBindGroup],
+        [1, uniformBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(), // No vertex buffers - fullscreen triangle generated in shader
+        vertexCount: 3, // 3 vertices for fullscreen triangle
+      },
+      label: 'Bloom Extract Draw',
+    });
+
+    // End render pass
+    this.backend.endRenderPass();
+
+    // Clean up bind groups (they're one-time use)
+    this.backend.deleteBindGroup(textureBindGroup);
+    this.backend.deleteBindGroup(uniformBindGroup);
   }
 
   /**
    * Pass 2: Gaussian blur (separable filter)
    */
   private bloomBlurPass(): void {
-    if (!this.bloomBlurTexture || !this.bloomTempTexture) {
+    if (!this.bloomBlurTexture || !this.bloomTempTexture || !this.bloomExtractTexture) {
       console.warn('[RetroPostProcessor] Bloom blur textures not initialized');
       return;
     }
 
-    // Horizontal blur: bloomExtractTexture → bloomTempTexture
-    // TODO: Set direction uniform to (1, 0)
+    if (!this.bloomTempFramebuffer || !this.bloomBlurFramebuffer || !this.bloomBlurPipeline) {
+      console.warn('[RetroPostProcessor] Bloom blur framebuffers/pipeline not initialized');
+      return;
+    }
 
-    // Vertical blur: bloomTempTexture → bloomBlurTexture
-    // TODO: Set direction uniform to (0, 1)
+    if (!this.blurParamsBuffer || !this.linearSampler) {
+      console.warn('[RetroPostProcessor] Blur params/sampler not initialized');
+      return;
+    }
 
-    // Shader: bloom-blur.wgsl
+    if (!this.blurTextureLayout || !this.blurUniformLayout) {
+      console.warn('[RetroPostProcessor] Blur bind group layouts not initialized');
+      return;
+    }
+
+    // ========== HORIZONTAL BLUR: bloomExtractTexture → bloomTempTexture ==========
+
+    // Update blur params uniform with horizontal direction (1, 0)
+    const blurParamsDataH = new Float32Array(4);
+    blurParamsDataH[0] = 1.0; // direction.x
+    blurParamsDataH[1] = 0.0; // direction.y
+    this.backend.updateBuffer(this.blurParamsBuffer, blurParamsDataH);
+
+    // Create bind group for input texture (bloomExtractTexture)
+    const hTextureBindGroup = this.backend.createBindGroup(this.blurTextureLayout, {
+      bindings: [
+        { binding: 0, resource: this.bloomExtractTexture }, // Input texture
+        { binding: 1, resource: this.linearSampler as any }, // Sampler
+      ],
+    });
+
+    // Create bind group for blur params
+    const hUniformBindGroup = this.backend.createBindGroup(this.blurUniformLayout, {
+      bindings: [
+        { binding: 0, resource: this.blurParamsBuffer },
+      ],
+    });
+
+    // Begin render pass to bloomTempTexture
+    this.backend.beginRenderPass(
+      this.bloomTempFramebuffer,
+      [0, 0, 0, 0],
+      undefined,
+      undefined,
+      'Bloom Blur Horizontal Pass'
+    );
+
+    // Execute draw command
+    this.backend.executeDrawCommand({
+      pipeline: this.bloomBlurPipeline,
+      bindGroups: new Map([
+        [0, hTextureBindGroup],
+        [1, hUniformBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(),
+        vertexCount: 3, // Fullscreen triangle
+      },
+      label: 'Bloom Blur Horizontal Draw',
+    });
+
+    // End render pass
+    this.backend.endRenderPass();
+
+    // Clean up bind groups
+    this.backend.deleteBindGroup(hTextureBindGroup);
+    this.backend.deleteBindGroup(hUniformBindGroup);
+
+    // ========== VERTICAL BLUR: bloomTempTexture → bloomBlurTexture ==========
+
+    // Update blur params uniform with vertical direction (0, 1)
+    const blurParamsDataV = new Float32Array(4);
+    blurParamsDataV[0] = 0.0; // direction.x
+    blurParamsDataV[1] = 1.0; // direction.y
+    this.backend.updateBuffer(this.blurParamsBuffer, blurParamsDataV);
+
+    // Create bind group for input texture (bloomTempTexture)
+    const vTextureBindGroup = this.backend.createBindGroup(this.blurTextureLayout, {
+      bindings: [
+        { binding: 0, resource: this.bloomTempTexture }, // Input texture (from horizontal pass)
+        { binding: 1, resource: this.linearSampler as any }, // Sampler
+      ],
+    });
+
+    // Create bind group for blur params
+    const vUniformBindGroup = this.backend.createBindGroup(this.blurUniformLayout, {
+      bindings: [
+        { binding: 0, resource: this.blurParamsBuffer },
+      ],
+    });
+
+    // Begin render pass to bloomBlurTexture
+    this.backend.beginRenderPass(
+      this.bloomBlurFramebuffer,
+      [0, 0, 0, 0],
+      undefined,
+      undefined,
+      'Bloom Blur Vertical Pass'
+    );
+
+    // Execute draw command
+    this.backend.executeDrawCommand({
+      pipeline: this.bloomBlurPipeline,
+      bindGroups: new Map([
+        [0, vTextureBindGroup],
+        [1, vUniformBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(),
+        vertexCount: 3, // Fullscreen triangle
+      },
+      label: 'Bloom Blur Vertical Draw',
+    });
+
+    // End render pass
+    this.backend.endRenderPass();
+
+    // Clean up bind groups
+    this.backend.deleteBindGroup(vTextureBindGroup);
+    this.backend.deleteBindGroup(vUniformBindGroup);
   }
 
   /**
    * Pass 3: Composite final image
    */
   private compositePass(sceneTexture: BackendTextureHandle): BackendTextureHandle {
-    if (!this.bloomBlurTexture) {
-      console.warn('[RetroPostProcessor] Bloom blur texture not initialized');
+    if (!this.bloomBlurTexture || !this.compositePipeline) {
+      console.warn('[RetroPostProcessor] Composite resources not initialized');
       return sceneTexture;
     }
 
-    // TODO: Bind composite pipeline
-    // Inputs: sceneTexture, bloomBlurTexture, colorLUT (optional)
-    // Uniforms: bloomIntensity, grainAmount, gamma, ditherPattern, time
-    // Shader: composite.wgsl
-    // Output: swapchain or intermediate texture
+    if (!this.postParamsBuffer || !this.linearSampler || !this.lutSampler) {
+      console.warn('[RetroPostProcessor] Composite uniforms/samplers not initialized');
+      return sceneTexture;
+    }
 
-    // For now, return input
+    if (!this.compositeSceneLayout || !this.compositeBloomLayout ||
+        !this.compositeLUTLayout || !this.compositeParamsLayout) {
+      console.warn('[RetroPostProcessor] Composite bind group layouts not initialized');
+      return sceneTexture;
+    }
+
+    // Update post params uniform with current settings
+    // struct PostParams {
+    //   bloomIntensity: f32,  // 4 bytes
+    //   grainAmount: f32,     // 4 bytes
+    //   gamma: f32,           // 4 bytes
+    //   ditherPattern: u32,   // 4 bytes
+    //   time: f32,            // 4 bytes
+    //   _padding: vec3<f32>,  // 12 bytes
+    // }
+    const postParamsData = new Float32Array(8); // 32 bytes
+    postParamsData[0] = this.config.bloomIntensity;
+    postParamsData[1] = this.config.grainAmount;
+    postParamsData[2] = this.config.gamma;
+    // ditherPattern is u32, but we store in Float32Array (bit pattern preserved)
+    const ditherU32View = new Uint32Array(postParamsData.buffer, 12, 1);
+    ditherU32View[0] = this.config.ditherPattern;
+    postParamsData[4] = this.time;
+    // postParamsData[5-7] remain 0 (padding)
+    this.backend.updateBuffer(this.postParamsBuffer, postParamsData);
+
+    // Create bind group for scene texture (group 0)
+    const sceneBindGroup = this.backend.createBindGroup(this.compositeSceneLayout, {
+      bindings: [
+        { binding: 0, resource: sceneTexture },
+        { binding: 1, resource: this.linearSampler as any },
+      ],
+    });
+
+    // Create bind group for bloom texture (group 1)
+    const bloomBindGroup = this.backend.createBindGroup(this.compositeBloomLayout, {
+      bindings: [
+        { binding: 0, resource: this.bloomBlurTexture },
+        { binding: 1, resource: this.linearSampler as any },
+      ],
+    });
+
+    // Create bind group for color LUT (group 2)
+    // Use fallback 1x1 white texture if no LUT provided
+    const lutTexture = this.config.colorLUT || this.fallbackLUT;
+    if (!lutTexture) {
+      console.warn('[RetroPostProcessor] No LUT texture available (not even fallback)');
+      return sceneTexture;
+    }
+
+    const lutBindGroup = this.backend.createBindGroup(this.compositeLUTLayout, {
+      bindings: [
+        { binding: 0, resource: lutTexture },
+        { binding: 1, resource: this.lutSampler as any }, // Nearest filtering for LUT
+      ],
+    });
+
+    // Create bind group for post params (group 3)
+    const paramsBindGroup = this.backend.createBindGroup(this.compositeParamsLayout, {
+      bindings: [
+        { binding: 0, resource: this.postParamsBuffer },
+      ],
+    });
+
+    // Begin render pass to swapchain (target = null)
+    // CRITICAL: This renders to the default framebuffer (swapchain)
+    this.backend.beginRenderPass(
+      null, // Render to swapchain
+      [0, 0, 0, 1], // Clear to black (shouldn't be visible since we draw fullscreen)
+      undefined,
+      undefined,
+      'Retro Composite Pass'
+    );
+
+    // Execute draw command
+    this.backend.executeDrawCommand({
+      pipeline: this.compositePipeline,
+      bindGroups: new Map([
+        [0, sceneBindGroup],
+        [1, bloomBindGroup],
+        [2, lutBindGroup],
+        [3, paramsBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(),
+        vertexCount: 3, // Fullscreen triangle
+      },
+      label: 'Retro Composite Draw',
+    });
+
+    // End render pass
+    this.backend.endRenderPass();
+
+    // Clean up bind groups
+    this.backend.deleteBindGroup(sceneBindGroup);
+    this.backend.deleteBindGroup(bloomBindGroup);
+    this.backend.deleteBindGroup(lutBindGroup);
+    this.backend.deleteBindGroup(paramsBindGroup);
+
+    // Return scene texture (though we rendered to swapchain, this is for API consistency)
     return sceneTexture;
   }
 
@@ -614,6 +934,20 @@ export class RetroPostProcessor {
     if (this.bloomTempTexture) {
       this.backend.deleteTexture(this.bloomTempTexture);
       this.bloomTempTexture = null;
+    }
+
+    // Bloom framebuffers
+    if (this.bloomExtractFramebuffer) {
+      this.backend.deleteFramebuffer(this.bloomExtractFramebuffer);
+      this.bloomExtractFramebuffer = null;
+    }
+    if (this.bloomTempFramebuffer) {
+      this.backend.deleteFramebuffer(this.bloomTempFramebuffer);
+      this.bloomTempFramebuffer = null;
+    }
+    if (this.bloomBlurFramebuffer) {
+      this.backend.deleteFramebuffer(this.bloomBlurFramebuffer);
+      this.bloomBlurFramebuffer = null;
     }
 
     // Fallback LUT (only dispose if we're cleaning up everything)

@@ -392,6 +392,27 @@ export interface IRendererBackend {
   ): void;
 
   /**
+   * Begin render pass to specified target
+   * @param target - Framebuffer to render to, or null for swapchain
+   * @param clearColor - Optional clear color [r, g, b, a]
+   * @param clearDepth - Optional depth clear value
+   * @param clearStencil - Optional stencil clear value
+   * @param label - Debug label for GPU profiling
+   */
+  beginRenderPass(
+    target: BackendFramebufferHandle | null,
+    clearColor?: [number, number, number, number],
+    clearDepth?: number,
+    clearStencil?: number,
+    label?: string
+  ): void;
+
+  /**
+   * End current render pass
+   */
+  endRenderPass(): void;
+
+  /**
    * Cleanup all resources
    */
   dispose(): void;

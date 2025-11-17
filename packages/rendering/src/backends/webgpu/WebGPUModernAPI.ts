@@ -80,8 +80,11 @@ export class WebGPUModernAPI {
 
     // Convert resources to WebGPU bind group entries
     const entries: GPUBindGroupEntry[] = resources.bindings.map(binding => {
-      if ('__brand' in binding.resource && binding.resource.__brand === 'BackendBuffer') {
-        const bufferHandle = binding.resource as BackendBufferHandle;
+      const res: any = binding.resource;
+
+      // Check for BackendBuffer
+      if ('__brand' in res && res.__brand === 'BackendBuffer') {
+        const bufferHandle = res as BackendBufferHandle;
         const bufferData = this.getBuffer(bufferHandle.id);
         if (!bufferData) {
           throw new Error(`Buffer ${bufferHandle.id} not found`);
@@ -90,9 +93,24 @@ export class WebGPUModernAPI {
           binding: binding.binding,
           resource: { buffer: bufferData.buffer },
         };
-      } else {
-        // Texture binding
-        const textureBinding = binding.resource as { texture: BackendTextureHandle; sampler?: any };
+      }
+
+      // Check for BackendTexture
+      if ('__brand' in res && res.__brand === 'BackendTexture') {
+        const textureHandle = res as BackendTextureHandle;
+        const textureData = this.getTexture(textureHandle.id);
+        if (!textureData) {
+          throw new Error(`Texture ${textureHandle.id} not found`);
+        }
+        return {
+          binding: binding.binding,
+          resource: textureData.view,
+        };
+      }
+
+      // Check for combined texture + sampler binding (legacy)
+      if (res?.texture) {
+        const textureBinding = res as { texture: BackendTextureHandle; sampler?: any };
         const textureData = this.getTexture(textureBinding.texture.id);
         if (!textureData) {
           throw new Error(`Texture ${textureBinding.texture.id} not found`);
@@ -102,6 +120,13 @@ export class WebGPUModernAPI {
           resource: textureData.view,
         };
       }
+
+      // Raw GPU object (sampler, texture view, etc.)
+      // CRITICAL: This allows passing GPUSampler directly for post-processing
+      return {
+        binding: binding.binding,
+        resource: res as GPUBindingResource,
+      };
     });
 
     const bindGroup = this.ctx.device.createBindGroup({
