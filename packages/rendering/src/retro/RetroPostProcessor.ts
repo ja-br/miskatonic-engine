@@ -120,17 +120,84 @@ export class RetroPostProcessor {
     // Clean up old resources
     this.disposeTextures();
 
-    // Create bloom textures at quarter resolution for performance
-    const bloomWidth = Math.max(1, Math.floor(width / 4));
-    const bloomHeight = Math.max(1, Math.floor(height / 4));
+    console.log(`[RetroPostProcessor] Creating render targets: ${width}x${height}`);
 
-    // TODO: Create textures using backend API
-    // this.bloomExtractTexture = this.backend.createTexture(...)
-    // this.bloomBlurTexture = this.backend.createTexture(...)
-    // this.bloomTempTexture = this.backend.createTexture(...)
+    // 1. Create scene render target (CRITICAL - missing from original plan)
+    // Scene color texture (BGRA8, full resolution) - stores rendered scene
+    this.sceneColorTexture = this.backend.createTexture(
+      'retro-post-scene-color',
+      width,
+      height,
+      null,
+      { format: 'bgra8unorm' as any }  // Type assertion needed - backend accepts this
+    );
 
-    // For now, mark as placeholders
-    console.warn('[RetroPostProcessor] Texture creation not yet implemented');
+    // Scene depth texture (matches backend.getDepthFormat(), full resolution)
+    const depthFormat = this.backend.getDepthFormat();
+    this.sceneDepthTexture = this.backend.createTexture(
+      'retro-post-scene-depth',
+      width,
+      height,
+      null,
+      { format: depthFormat as any }  // Type assertion needed
+    );
+
+    // Scene framebuffer - combines color + depth
+    this.sceneFramebuffer = this.backend.createFramebuffer(
+      'retro-post-scene-fb',
+      [this.sceneColorTexture],
+      this.sceneDepthTexture
+    );
+
+    // 2. Create bloom textures at quarter resolution for performance
+    // Use Math.max(64, ...) to prevent tiny textures (critic's suggestion)
+    const bloomWidth = Math.max(64, Math.floor(width / 4));
+    const bloomHeight = Math.max(64, Math.floor(height / 4));
+
+    console.log(`[RetroPostProcessor] Creating bloom textures: ${bloomWidth}x${bloomHeight}`);
+
+    // Bloom extract texture - bright pixels extracted
+    this.bloomExtractTexture = this.backend.createTexture(
+      'retro-post-bloom-extract',
+      bloomWidth,
+      bloomHeight,
+      null,
+      { format: 'rgba' }
+    );
+
+    // Bloom temp texture - temporary for separable blur
+    this.bloomTempTexture = this.backend.createTexture(
+      'retro-post-bloom-temp',
+      bloomWidth,
+      bloomHeight,
+      null,
+      { format: 'rgba' }
+    );
+
+    // Bloom blur texture - final blurred result
+    this.bloomBlurTexture = this.backend.createTexture(
+      'retro-post-bloom-blur',
+      bloomWidth,
+      bloomHeight,
+      null,
+      { format: 'rgba' }
+    );
+
+    // 3. Create fallback 1x1 white LUT (CRITICAL)
+    // This is used as identity LUT when config.colorLUT is not provided
+    if (!this.fallbackLUT) {
+      console.log('[RetroPostProcessor] Creating fallback 1x1 white LUT');
+      const whitePix = new Uint8Array([255, 255, 255, 255]);
+      this.fallbackLUT = this.backend.createTexture(
+        'retro-post-fallback-lut',
+        1,
+        1,
+        whitePix,
+        { format: 'rgba', wrapS: 'clamp_to_edge', wrapT: 'clamp_to_edge' }
+      );
+    }
+
+    console.log('[RetroPostProcessor] Render targets created successfully');
   }
 
   /**
@@ -350,18 +417,37 @@ export class RetroPostProcessor {
    * Clean up textures
    */
   private disposeTextures(): void {
+    // Scene render target
+    if (this.sceneColorTexture) {
+      this.backend.deleteTexture(this.sceneColorTexture);
+      this.sceneColorTexture = null;
+    }
+    if (this.sceneDepthTexture) {
+      this.backend.deleteTexture(this.sceneDepthTexture);
+      this.sceneDepthTexture = null;
+    }
+    if (this.sceneFramebuffer) {
+      this.backend.deleteFramebuffer(this.sceneFramebuffer);
+      this.sceneFramebuffer = null;
+    }
+
+    // Bloom textures
     if (this.bloomExtractTexture) {
-      // TODO: this.backend.destroyTexture(this.bloomExtractTexture);
+      this.backend.deleteTexture(this.bloomExtractTexture);
       this.bloomExtractTexture = null;
     }
     if (this.bloomBlurTexture) {
-      // TODO: this.backend.destroyTexture(this.bloomBlurTexture);
+      this.backend.deleteTexture(this.bloomBlurTexture);
       this.bloomBlurTexture = null;
     }
     if (this.bloomTempTexture) {
-      // TODO: this.backend.destroyTexture(this.bloomTempTexture);
+      this.backend.deleteTexture(this.bloomTempTexture);
       this.bloomTempTexture = null;
     }
+
+    // Fallback LUT (only dispose if we're cleaning up everything)
+    // Note: fallbackLUT is created once and reused across resizes
+    // It will be cleaned up in dispose()
   }
 
   /**
@@ -461,5 +547,27 @@ export class RetroPostProcessor {
     this.bloomBlurHorizontalBindGroup = null;
     this.bloomBlurVerticalBindGroup = null;
     this.compositeBindGroup = null;
+  }
+
+  /**
+   * Get scene framebuffer for rendering the main scene
+   * Demo should render to this instead of directly to swapchain
+   */
+  getSceneFramebuffer(): BackendFramebufferHandle {
+    if (!this.sceneFramebuffer) {
+      throw new Error('[RetroPostProcessor] Scene framebuffer not initialized - call resize() first');
+    }
+    return this.sceneFramebuffer;
+  }
+
+  /**
+   * Get scene color texture (used internally for post-processing)
+   * This is the rendered scene that will be post-processed
+   */
+  getSceneTexture(): BackendTextureHandle {
+    if (!this.sceneColorTexture) {
+      throw new Error('[RetroPostProcessor] Scene texture not initialized - call resize() first');
+    }
+    return this.sceneColorTexture;
   }
 }
