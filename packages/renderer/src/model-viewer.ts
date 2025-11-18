@@ -193,6 +193,9 @@ export class ModelViewer {
       // Load shaders
       await this.createShaders();
 
+      // Create pipeline and shared resources (only once)
+      this.createPipeline();
+
       // Load model
       await this.loadModel();
 
@@ -283,9 +286,6 @@ export class ModelViewer {
       console.warn('Failed to load model, using fallback sphere:', error);
       simpleGeometry = createSphere(2.0, 32, 24);
     }
-
-    // Create pipeline first (needed for bind groups)
-    this.createPipeline();
 
     if (modelData && modelData.materialGroups.length > 0) {
       // Multi-material model
