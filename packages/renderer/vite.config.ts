@@ -4,6 +4,7 @@ import path from 'path';
 export default defineConfig({
   root: __dirname,
   base: './',
+  publicDir: path.resolve(__dirname, '../../public'),
   build: {
     outDir: '../../dist/renderer',
     emptyOutDir: true,

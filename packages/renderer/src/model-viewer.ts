@@ -21,6 +21,7 @@ import {
   type BackendTextureHandle,
   type BackendSamplerHandle,
   type GeometryData,
+  type DrawCommand,
   OPAQUE_PIPELINE_STATE,
 } from '../../rendering/src';
 import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
@@ -83,6 +84,9 @@ export class ModelViewer {
   private lastFrameTime: number = 0;
   private frameTimeHistory: number[] = [];
   private startTime: number = 0;
+
+  // Camera target (adjustable with Q/E keys)
+  private targetY: number = 2;
 
   // Event listener references for cleanup
   private mousedownHandler: ((e: MouseEvent) => void) | null = null;
@@ -157,9 +161,9 @@ export class ModelViewer {
         100
       ));
 
-      // Create orbit controller
+      // Create orbit controller - target model center (slightly above ground)
       this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 10);
-      this.orbitController.setTarget(0, 0, 0);
+      this.orbitController.setTarget(0, this.targetY, 0);
 
       // Setup camera controls
       this.setupCameraControls();
@@ -212,13 +216,14 @@ export class ModelViewer {
       modelData = createSphere(2.0, 32, 24);
     }
 
-    // Store stats
+    // Store stats - use actual index count (complete triangles only, ignoring padding)
     this.modelVertexCount = modelData.positions.length / 3;
-    this.modelIndexCount = modelData.indices.length;
+    // The indices array may be padded for WebGPU 4-byte alignment, so use only complete triangles
+    this.modelIndexCount = Math.floor(modelData.indices.length / 3) * 3;
 
     // Determine correct index format based on maximum index value, not vertex count
-    const maxIndex = modelData.indices.length > 0
-      ? Math.max(...Array.from(modelData.indices))
+    const maxIndex = this.modelIndexCount > 0
+      ? Math.max(...Array.from(modelData.indices).slice(0, this.modelIndexCount))
       : 0;
     this.modelIndexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
 
@@ -265,6 +270,12 @@ export class ModelViewer {
     if (!this.backend) return;
 
     const groundData = createPlane(20, 20, 4, 4);
+
+    // Lower ground plane slightly below Y=0 to avoid z-fighting with model base
+    for (let i = 1; i < groundData.positions.length; i += 3) {
+      groundData.positions[i] = -0.1;
+    }
+
     const interleavedData = this.interleaveVertexData(groundData);
 
     this.groundVertexBuffer = this.backend.createBuffer(
@@ -313,14 +324,15 @@ export class ModelViewer {
     if (!this.backend) return;
 
     // Create bind group layout for camera uniforms (@group(0))
-    this.bindGroupLayout = this.backend.createBindGroupLayout('camera-layout', [
-      {
-        binding: 0,
-        visibility: 'vertex',
-        type: 'buffer',
-        bufferType: 'uniform',
-      },
-    ]);
+    this.bindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        {
+          binding: 0,
+          visibility: ['vertex'],
+          type: 'uniform',
+        },
+      ],
+    });
 
     // Create uniform buffer for camera
     const uniformData = new Float32Array(ModelViewer.CAMERA_UNIFORM_FLOATS);
@@ -332,32 +344,38 @@ export class ModelViewer {
     );
 
     // Create bind group for camera (@group(0))
-    this.sharedBindGroup = this.backend.createBindGroup('camera-bind-group', this.bindGroupLayout, [
-      {
-        binding: 0,
-        resource: this.sharedUniformBuffer,
-      },
-    ]);
+    this.sharedBindGroup = this.backend.createBindGroup(this.bindGroupLayout, {
+      bindings: [
+        {
+          binding: 0,
+          resource: this.sharedUniformBuffer,
+        },
+      ],
+    });
 
     // Create material bind group layout (@group(1))
-    this.materialBindGroupLayout = this.backend.createBindGroupLayout('material-layout', [
-      { binding: 0, visibility: 'fragment', type: 'texture', textureType: '2d' },
-      { binding: 1, visibility: 'fragment', type: 'sampler' },
-      { binding: 2, visibility: 'fragment', type: 'buffer', bufferType: 'uniform' },
-    ]);
+    this.materialBindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: ['fragment'], type: 'texture' },
+        { binding: 1, visibility: ['fragment'], type: 'sampler' },
+        { binding: 2, visibility: ['fragment'], type: 'uniform' },
+      ],
+    });
 
     // Create dummy 1x1 white texture
-    this.dummyTexture = this.backend.createTexture('dummy-texture', {
-      width: 1,
-      height: 1,
-      format: 'rgba8unorm',
-      usage: 'texture_binding',
-    });
     const whitePixel = new Uint8Array([255, 255, 255, 255]);
-    this.backend.updateTexture(this.dummyTexture, whitePixel, 1, 1);
+    this.dummyTexture = this.backend.createTexture(
+      'dummy-texture',
+      1,
+      1,
+      whitePixel,
+      {
+        format: 'rgba8unorm',
+      }
+    );
 
     // Create sampler
-    this.dummySampler = this.backend.createSampler({
+    this.dummySampler = this.backend.createSampler('dummy-sampler', {
       magFilter: 'linear',
       minFilter: 'linear',
     });
@@ -377,30 +395,49 @@ export class ModelViewer {
     );
 
     // Create material bind group (@group(1))
-    this.materialBindGroup = this.backend.createBindGroup('material-bind-group', this.materialBindGroupLayout, [
-      { binding: 0, resource: this.dummyTexture },
-      { binding: 1, resource: this.dummySampler },
-      { binding: 2, resource: this.materialBuffer },
-    ]);
+    this.materialBindGroup = this.backend.createBindGroup(this.materialBindGroupLayout, {
+      bindings: [
+        { binding: 0, resource: this.dummyTexture },
+        { binding: 1, resource: this.dummySampler },
+        { binding: 2, resource: this.materialBuffer },
+      ],
+    });
 
-    // Get light bind group from RetroLightingSystem (@group(2))
-    this.lightBindGroupLayout = this.retroLighting.getBindGroupLayout();
-    this.lightBindGroup = this.retroLighting.getBindGroup();
+    // Create light bind group layout (@group(2)) - read-only storage buffer for lights array
+    this.lightBindGroupLayout = this.backend.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: ['vertex', 'fragment'], type: 'read-only-storage' },
+      ],
+    });
+
+    // Create light bind group using buffer from RetroLightingSystem
+    const lightBuffer = this.retroLighting.getLightBuffer();
+    if (!lightBuffer) {
+      throw new Error('RetroLightingSystem light buffer not initialized');
+    }
+    this.lightBindGroup = this.backend.createBindGroup(this.lightBindGroupLayout, {
+      bindings: [
+        { binding: 0, resource: lightBuffer },
+      ],
+    });
 
     // Create pipeline
     this.modelPipeline = this.backend.createRenderPipeline({
       shader: this.modelShader,
-      vertexBufferLayout: {
-        stride: ModelViewer.VERTEX_STRIDE,
+      vertexLayouts: [{
+        arrayStride: ModelViewer.VERTEX_STRIDE,
+        stepMode: 'vertex',
         attributes: [
-          { location: 0, offset: 0, format: 'float32x3' },  // position
-          { location: 1, offset: 12, format: 'float32x3' }, // normal
-          { location: 2, offset: 24, format: 'float32x2' }, // uv
-          { location: 3, offset: 32, format: 'float32x4' }, // color (ambient)
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
+          { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+          { shaderLocation: 2, offset: 24, format: 'float32x2' }, // uv
+          { shaderLocation: 3, offset: 32, format: 'float32x4' }, // color (ambient)
         ],
-      },
+      }],
       bindGroupLayouts: [this.bindGroupLayout, this.materialBindGroupLayout, this.lightBindGroupLayout],
       pipelineState: OPAQUE_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth16unorm',
     });
   }
 
@@ -441,13 +478,29 @@ export class ModelViewer {
       }
     };
 
-    // Reset camera on 'R' key
+    // Keyboard controls
     this.keydownHandler = (e: KeyboardEvent) => {
+      // Reset camera on 'R' key
       if (e.key === 'r' || e.key === 'R') {
         if (this.orbitController && this.cameraEntity) {
+          this.targetY = 2;
           this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 10);
-          this.orbitController.setTarget(0, 0, 0);
+          this.orbitController.setTarget(0, this.targetY, 0);
           console.log('Camera reset');
+        }
+      }
+      // Raise camera target with Q or Up arrow
+      if (e.key === 'q' || e.key === 'Q' || e.key === 'ArrowUp') {
+        this.targetY += 0.5;
+        if (this.orbitController) {
+          this.orbitController.setTarget(0, this.targetY, 0);
+        }
+      }
+      // Lower camera target with E or Down arrow
+      if (e.key === 'e' || e.key === 'E' || e.key === 'ArrowDown') {
+        this.targetY -= 0.5;
+        if (this.orbitController) {
+          this.orbitController.setTarget(0, this.targetY, 0);
         }
       }
     };
@@ -474,6 +527,7 @@ export class ModelViewer {
 
   start(): void {
     this.startTime = performance.now();
+    this.lastFrameTime = this.startTime;
     this.lastFpsUpdate = this.startTime;
     this.render();
   }
@@ -482,17 +536,15 @@ export class ModelViewer {
     if (!this.backend || !this.cameraEntity) return;
 
     const currentTime = performance.now();
-    const deltaTime = (currentTime - this.lastFrameTime) / 1000;
+    const frameTime = currentTime - this.lastFrameTime;
+    const deltaTime = frameTime / 1000;
     this.lastFrameTime = currentTime;
 
     // Update ECS systems
-    this.world.update(deltaTime);
     this.transformSystem.update(this.world, deltaTime);
 
-    // Update camera controller
-    if (this.orbitController) {
-      this.orbitController.update(deltaTime);
-    }
+    // OrbitCameraController updates immediately on rotate/zoom calls
+    // No update() method needed
 
     // Get camera matrices
     const cameraTransform = this.world.getComponent(this.cameraEntity, Transform);
@@ -503,59 +555,91 @@ export class ModelViewer {
       return;
     }
 
-    // Update camera uniform buffer
-    const viewMatrix = Mat4.lookAt(
-      cameraTransform.positionX, cameraTransform.positionY, cameraTransform.positionZ,
-      0, 0, 0, // Look at origin
-      0, 1, 0  // Up vector
-    );
+    // Update camera uniform buffer - use lookAt with orbit target
+    const eyeVec = new Float32Array([cameraTransform.x, cameraTransform.y, cameraTransform.z]);
+    const targetVec = new Float32Array([0, this.targetY, 0]); // Match orbit controller target
+    const upVec = new Float32Array([0, 1, 0]);
+    const viewMatrix = Mat4.lookAt(eyeVec, targetVec, upVec);
 
     const aspect = this.canvas.width / this.canvas.height;
-    const projectionMatrix = cameraComponent.getProjectionMatrix(aspect);
+    const projectionMatrix = this.cameraSystem.getProjectionMatrix(this.cameraEntity, aspect);
     const viewProjectionMatrix = Mat4.multiply(projectionMatrix, viewMatrix);
 
     const uniformData = new Float32Array(ModelViewer.CAMERA_UNIFORM_FLOATS);
     uniformData.set(viewProjectionMatrix, 0);
-    uniformData[16] = cameraTransform.positionX;
-    uniformData[17] = cameraTransform.positionY;
-    uniformData[18] = cameraTransform.positionZ;
+    uniformData[16] = cameraTransform.x;
+    uniformData[17] = cameraTransform.y;
+    uniformData[18] = cameraTransform.z;
 
     this.backend.updateBuffer(this.sharedUniformBuffer, uniformData);
 
-    // Begin frame
+    // Begin frame and render pass
     this.backend.beginFrame();
+    this.backend.beginRenderPass(
+      null,                           // null = swapchain
+      [0.1, 0.1, 0.15, 1.0],         // clear color (dark blue-gray)
+      1.0,                            // clear depth
+      undefined,                      // stencil
+      'Model Viewer Pass',            // label
+      true                            // requireDepth = true for 3D rendering
+    );
 
-    // Bind pipeline and resources
-    this.backend.bindPipeline(this.modelPipeline);
-    this.backend.bindGroup(0, this.sharedBindGroup);     // Camera
-    this.backend.bindGroup(1, this.materialBindGroup);   // Material
-    this.backend.bindGroup(2, this.lightBindGroup);      // Lights
+    // Create and execute draw commands
+    const groundCommand: DrawCommand = {
+      pipeline: this.modelPipeline,
+      bindGroups: new Map([
+        [0, this.sharedBindGroup],
+        [1, this.materialBindGroup],
+        [2, this.lightBindGroup],
+      ]),
+      geometry: {
+        type: 'indexed',
+        vertexBuffers: new Map([[0, this.groundVertexBuffer]]),
+        indexBuffer: this.groundIndexBuffer,
+        indexFormat: 'uint16',
+        indexCount: this.groundIndexCount,
+      },
+      label: 'ground-plane',
+    };
 
-    // Draw ground plane
-    this.backend.setVertexBuffer(this.groundVertexBuffer);
-    this.backend.setIndexBuffer(this.groundIndexBuffer, 'uint16');
-    this.backend.drawIndexed(this.groundIndexCount);
+    const modelCommand: DrawCommand = {
+      pipeline: this.modelPipeline,
+      bindGroups: new Map([
+        [0, this.sharedBindGroup],
+        [1, this.materialBindGroup],
+        [2, this.lightBindGroup],
+      ]),
+      geometry: {
+        type: 'indexed',
+        vertexBuffers: new Map([[0, this.modelVertexBuffer]]),
+        indexBuffer: this.modelIndexBuffer,
+        indexFormat: this.modelIndexFormat,
+        indexCount: this.modelIndexCount,
+      },
+      label: 'model',
+    };
 
-    // Draw model
-    this.backend.setVertexBuffer(this.modelVertexBuffer);
-    this.backend.setIndexBuffer(this.modelIndexBuffer, this.modelIndexFormat);
-    this.backend.drawIndexed(this.modelIndexCount);
+    this.backend.executeDrawCommand(groundCommand);
+    this.backend.executeDrawCommand(modelCommand);
 
-    // End frame
+    // End render pass and frame
+    this.backend.endRenderPass();
     this.backend.endFrame();
 
     // Update FPS
-    this.updateFPS(currentTime);
+    this.updateFPS(frameTime);
 
     this.animationId = requestAnimationFrame(this.render);
   };
 
-  private updateFPS(currentTime: number): void {
+  private updateFPS(frameTime: number): void {
     this.frameCount++;
-    this.frameTimeHistory.push(currentTime - this.lastFrameTime);
+    this.frameTimeHistory.push(frameTime);
     if (this.frameTimeHistory.length > 60) {
       this.frameTimeHistory.shift();
     }
+
+    const currentTime = performance.now();
 
     // Update stats every 1 second (aligned with demo.ts throttling)
     if (currentTime - this.lastFpsUpdate >= 1000) {
@@ -615,7 +699,7 @@ export class ModelViewer {
     }
 
     if (this.backend) {
-      this.backend.destroy();
+      this.backend.dispose();
       this.backend = null;
     }
   }

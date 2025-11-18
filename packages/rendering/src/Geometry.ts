@@ -130,13 +130,23 @@ export function createSphere(
 
   // Use Uint32Array if vertex count exceeds Uint16 max (65535)
   const vertexCount = positions.length / 3;
-  const IndicesArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
+
+  let indicesArray: Uint16Array | Uint32Array;
+  if (vertexCount > 65535) {
+    indicesArray = new Uint32Array(indices);
+  } else {
+    // WebGPU requires buffer sizes to be multiples of 4 bytes.
+    // Uint16Array with odd length needs padding.
+    const paddedLength = indices.length % 2 === 0 ? indices.length : indices.length + 1;
+    indicesArray = new Uint16Array(paddedLength);
+    indicesArray.set(indices);
+  }
 
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     uvs: new Float32Array(uvs),
-    indices: new IndicesArray(indices),
+    indices: indicesArray,
   };
 }
 
@@ -191,13 +201,23 @@ export function createPlane(
 
   // Use Uint32Array if vertex count exceeds Uint16 max (65535)
   const vertexCount = positions.length / 3;
-  const IndicesArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
+
+  let indicesArray: Uint16Array | Uint32Array;
+  if (vertexCount > 65535) {
+    indicesArray = new Uint32Array(indices);
+  } else {
+    // WebGPU requires buffer sizes to be multiples of 4 bytes.
+    // Uint16Array with odd length needs padding.
+    const paddedLength = indices.length % 2 === 0 ? indices.length : indices.length + 1;
+    indicesArray = new Uint16Array(paddedLength);
+    indicesArray.set(indices);
+  }
 
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     uvs: new Float32Array(uvs),
-    indices: new IndicesArray(indices),
+    indices: indicesArray,
   };
 }
 
@@ -270,11 +290,22 @@ export function parseOBJ(objText: string): GeometryData {
       const faceVertices = parts.slice(1);
 
       // Fan triangulation for polygons (assumes convex)
-      for (let i = 1; i < faceVertices.length - 1; i++) {
+      triangleLoop: for (let i = 1; i < faceVertices.length - 1; i++) {
         const v1 = faceVertices[0];
         const v2 = faceVertices[i];
         const v3 = faceVertices[i + 1];
 
+        // Validate all 3 vertices before processing triangle
+        for (const v of [v1, v2, v3]) {
+          const vertParts = v.split('/');
+          const posIdx = parseInt(vertParts[0]) - 1;
+          if (posIdx < 0 || posIdx >= tempPositions.length / 3) {
+            console.warn(`Invalid position index: ${posIdx + 1}, skipping triangle`);
+            continue triangleLoop;
+          }
+        }
+
+        // Process all 3 vertices (validation passed)
         for (const v of [v1, v2, v3]) {
           let idx = vertexMap.get(v);
 
@@ -283,12 +314,6 @@ export function parseOBJ(objText: string): GeometryData {
             const posIdx = parseInt(vertParts[0]) - 1;
             const uvIdx = vertParts[1] ? parseInt(vertParts[1]) - 1 : -1;
             const normIdx = vertParts[2] ? parseInt(vertParts[2]) - 1 : -1;
-
-            // Validate indices
-            if (posIdx < 0 || posIdx >= tempPositions.length / 3) {
-              console.warn(`Invalid position index: ${posIdx + 1}, skipping face`);
-              continue;
-            }
 
             // Add position
             positions.push(
@@ -335,13 +360,23 @@ export function parseOBJ(objText: string): GeometryData {
 
   // Use Uint32Array if vertex count exceeds Uint16 max
   const vertexCount = positions.length / 3;
-  const IndicesArray = vertexCount > 65535 ? Uint32Array : Uint16Array;
+
+  let indicesArray: Uint16Array | Uint32Array;
+  if (vertexCount > 65535) {
+    indicesArray = new Uint32Array(indices);
+  } else {
+    // WebGPU requires buffer sizes to be multiples of 4 bytes.
+    // Uint16Array with odd length needs padding.
+    const paddedLength = indices.length % 2 === 0 ? indices.length : indices.length + 1;
+    indicesArray = new Uint16Array(paddedLength);
+    indicesArray.set(indices);
+  }
 
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
     uvs: new Float32Array(uvs),
-    indices: new IndicesArray(indices),
+    indices: indicesArray,
   };
 }
 

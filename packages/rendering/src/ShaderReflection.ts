@@ -274,35 +274,40 @@ export class WGSLReflectionParser {
       bindGroupLayouts.push(groupMap.get(i) || { entries: [] });
     }
 
-    // Extract vertex attributes
-    const attrRegex = /@location\((\d+)\)\s+(\w+)\s*:\s*vec(\d+)<f32>/g;
-    let attrMatch: RegExpExecArray | null;
-    while ((attrMatch = attrRegex.exec(source)) !== null) {
-      const location = parseInt(attrMatch[1]);
-      const components = parseInt(attrMatch[3]);
+    // Extract vertex attributes - only from VertexInput struct
+    // First find the VertexInput struct block to avoid capturing VertexOutput attributes
+    const vertexInputMatch = /struct\s+VertexInput\s*\{([^}]+)\}/s.exec(source);
+    if (vertexInputMatch) {
+      const vertexInputBlock = vertexInputMatch[1];
+      const attrRegex = /@location\((\d+)\)\s+(\w+)\s*:\s*vec(\d+)<f32>/g;
+      let attrMatch: RegExpExecArray | null;
+      while ((attrMatch = attrRegex.exec(vertexInputBlock)) !== null) {
+        const location = parseInt(attrMatch[1]);
+        const components = parseInt(attrMatch[3]);
 
-      // Validate attribute values
-      if (isNaN(location) || isNaN(components)) {
-        throw new Error(
-          `Invalid attribute syntax: @location(${attrMatch[1]}) with vec${attrMatch[3]}`
-        );
+        // Validate attribute values
+        if (isNaN(location) || isNaN(components)) {
+          throw new Error(
+            `Invalid attribute syntax: @location(${attrMatch[1]}) with vec${attrMatch[3]}`
+          );
+        }
+
+        if (location < 0 || location > 15) {
+          throw new Error(`Attribute location ${location} out of range [0, 15]`);
+        }
+
+        if (components < 1 || components > 4) {
+          throw new Error(`Invalid vector size vec${components} (must be vec1-vec4)`);
+        }
+
+        const name = attrMatch[2];
+        attributes.push({
+          location,
+          name,
+          format: `float32x${components}`,
+          offset: 0, // Will be computed during pipeline creation
+        });
       }
-
-      if (location < 0 || location > 15) {
-        throw new Error(`Attribute location ${location} out of range [0, 15]`);
-      }
-
-      if (components < 1 || components > 4) {
-        throw new Error(`Invalid vector size vec${components} (must be vec1-vec4)`);
-      }
-
-      const name = attrMatch[2];
-      attributes.push({
-        location,
-        name,
-        format: `float32x${components}`,
-        offset: 0, // Will be computed during pipeline creation
-      });
     }
 
     // Extract entry points
