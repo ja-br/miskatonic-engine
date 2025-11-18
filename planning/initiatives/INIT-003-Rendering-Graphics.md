@@ -285,7 +285,7 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 
 **Camera Controls:**
 - [x] Orbit rotation using existing OrbitCameraController.rotate() (left mouse drag)
-- [ ] Add pan() method to OrbitCameraController for target movement (right mouse drag)
+- [x] Add pan() method to OrbitCameraController for target movement (right mouse drag)
 - [x] Zoom using existing OrbitCameraController.zoom() (mouse wheel)
 - [x] Reset camera to default view (R key - reset distance, azimuth, elevation)
 - [ ] Display camera state in debug UI (distance, azimuth, elevation, target position)
@@ -294,7 +294,7 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 - [x] Copy stats display from demo.ts (FPS counter, frame time graph, VRAM usage)
 - [x] Reuse RetroPostProcessor UI controls (bloom, CRT, fog toggles from demo)
 - [x] Add model-specific stats section (vertex count, triangle count, draw calls)
-- [ ] Add light direction sliders (azimuth, elevation) updating RetroLightingSystem
+- [x] Add light direction sliders (azimuth, elevation) updating RetroLightingSystem
 - [ ] Add wireframe toggle using WIREFRAME_PIPELINE_STATE from PipelineStateDescriptor
 - [ ] Display loaded texture info if MTL file references textures
 
@@ -354,10 +354,10 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
   - [x] Start render loop with requestAnimationFrame
 
 **Phase 3: Debug UI & Camera Enhancement**
-- [ ] Enhance OrbitCameraController with pan functionality:
-  - [ ] Add `pan(deltaX: number, deltaY: number)` method
-  - [ ] Update target position based on camera's right/up vectors
-  - [ ] Maintain orbit center during pan operations
+- [x] Enhance OrbitCameraController with pan functionality:
+  - [x] Add `pan(deltaX: number, deltaY: number)` method
+  - [x] Update target position based on camera's right/up vectors
+  - [x] Maintain orbit center during pan operations
 - [x] Copy and adapt debug UI from demo.ts:
   - [x] FPS counter and frame time graph
   - [x] VRAM usage from VRAMProfiler
@@ -382,9 +382,9 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
   - [ ] Load textures referenced in map_Kd
   - [ ] Apply 256px resize constraint to textures
   - [x] Fallback to default gray material if MTL missing
-- [ ] Add light direction controls:
-  - [ ] Azimuth/elevation sliders in UI
-  - [ ] Update RetroLightingSystem on change
+- [x] Add light direction controls:
+  - [x] Azimuth/elevation sliders in UI
+  - [x] Update RetroLightingSystem on change
   - [ ] Visual feedback with light direction indicator
 - [x] Error handling:
   - [x] Graceful fallback for missing OBJ file (show cube)
