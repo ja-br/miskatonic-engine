@@ -1038,6 +1038,43 @@ export class ModelViewer {
     // Clean up previous model resources
     this.disposeModelResources();
 
+    // Calculate bounding box across all material groups
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+    for (const group of materialGroups) {
+      const positions = group.geometry.positions;
+      for (let i = 0; i < positions.length; i += 3) {
+        minX = Math.min(minX, positions[i]);
+        maxX = Math.max(maxX, positions[i]);
+        minY = Math.min(minY, positions[i + 1]);
+        maxY = Math.max(maxY, positions[i + 1]);
+        minZ = Math.min(minZ, positions[i + 2]);
+        maxZ = Math.max(maxZ, positions[i + 2]);
+      }
+    }
+
+    // Calculate center and size
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    const centerZ = (minZ + maxZ) / 2;
+    const sizeX = maxX - minX;
+    const sizeY = maxY - minY;
+    const sizeZ = maxZ - minZ;
+    const maxSize = Math.max(sizeX, sizeY, sizeZ);
+
+    console.log(`Model bounds: center=(${centerX.toFixed(2)}, ${centerY.toFixed(2)}, ${centerZ.toFixed(2)}), size=(${sizeX.toFixed(2)}, ${sizeY.toFixed(2)}, ${sizeZ.toFixed(2)})`);
+
+    // Center geometry at origin (shift Y so bottom is at Y=0)
+    for (const group of materialGroups) {
+      const positions = group.geometry.positions;
+      for (let i = 0; i < positions.length; i += 3) {
+        positions[i] -= centerX;
+        positions[i + 1] -= minY; // Shift so bottom is at Y=0
+        positions[i + 2] -= centerZ;
+      }
+    }
+
     // Process each material group
     let totalVertices = 0;
     let totalTriangles = 0;
@@ -1110,10 +1147,13 @@ export class ModelViewer {
     // Update UI with model stats
     this.updateModelStats();
 
-    // Reset camera to default view for new model
+    // Reset camera to view the model properly
     if (this.orbitController) {
-      this.targetY = 2;
-      this.orbitController.reset(10, 0, Math.PI / 6);
+      // Set camera target to model's center (bottom at Y=0, so center is at sizeY/2)
+      this.targetY = sizeY / 2;
+      // Set distance based on model size (roughly 2x the max dimension)
+      const distance = maxSize * 2;
+      this.orbitController.reset(distance, 0, Math.PI / 6);
       this.orbitController.setTarget(0, this.targetY, 0);
     }
   }
