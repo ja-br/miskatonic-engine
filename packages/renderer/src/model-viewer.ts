@@ -8,6 +8,8 @@ import {
   OrbitCameraController,
   CameraSystem,
   loadOBJWithMaterials,
+  parseOBJWithMaterials,
+  parseMTL,
   createPlane,
   createSphere,
   createCube,
@@ -26,6 +28,7 @@ import {
   type DrawCommand,
   type ModelData,
   type MaterialGroup,
+  type MaterialData,
   OPAQUE_PIPELINE_STATE,
 } from '../../rendering/src';
 import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
@@ -996,6 +999,191 @@ export class ModelViewer {
 
     await this.loadModel(modelPath);
     console.log(`Switched to model: ${modelPath}`);
+  }
+
+  /**
+   * Load a model from an absolute filesystem path
+   * Used for user-selected files via file picker
+   */
+  async loadModelFromFilePath(filePath: string): Promise<void> {
+    if (!this.backend) return;
+
+    console.log(`Loading model from filesystem: ${filePath}`);
+
+    // Read OBJ file content via IPC
+    const objResult = await window.electronAPI.file.readArbitrary(filePath, 'utf-8');
+    if (!objResult.success || !objResult.data) {
+      throw new Error(`Failed to read OBJ file: ${objResult.error}`);
+    }
+
+    // Parse OBJ with materials
+    const { materialGroups, mtlPath } = parseOBJWithMaterials(objResult.data);
+
+    // Determine base path for MTL and textures
+    const basePath = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+
+    // Load MTL file if referenced
+    let materials = new Map<string, MaterialData>();
+    if (mtlPath) {
+      const mtlFilePath = basePath + mtlPath;
+      const mtlResult = await window.electronAPI.file.readArbitrary(mtlFilePath, 'utf-8');
+      if (mtlResult.success && mtlResult.data) {
+        materials = parseMTL(mtlResult.data);
+        console.log(`Loaded ${materials.size} materials from ${mtlPath}`);
+      } else {
+        console.warn(`Failed to load MTL file: ${mtlFilePath}`);
+      }
+    }
+
+    // Clean up previous model resources
+    this.disposeModelResources();
+
+    // Process each material group
+    let totalVertices = 0;
+    let totalTriangles = 0;
+
+    for (const group of materialGroups) {
+      const geometry = group.geometry;
+      const indexCount = Math.floor(geometry.indices.length / 3) * 3;
+      const vertexCount = geometry.positions.length / 3;
+
+      totalVertices += vertexCount;
+      totalTriangles += indexCount / 3;
+
+      // Interleave vertex data
+      const interleavedData = this.interleaveVertexData(geometry);
+
+      // Create GPU buffers
+      const vertexBuffer = this.backend.createBuffer(
+        `vertices-${group.materialName}`,
+        'vertex',
+        interleavedData,
+        'static_draw'
+      );
+      const indexBuffer = this.backend.createBuffer(
+        `indices-${group.materialName}`,
+        'index',
+        geometry.indices,
+        'static_draw'
+      );
+
+      // Determine index format from actual array type
+      const indexFormat = geometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
+
+      // Load texture for this material
+      let texture = this.dummyTexture;
+      const materialDef = materials.get(group.materialName);
+      if (materialDef?.texturePath) {
+        const texturePath = basePath + materialDef.texturePath;
+        try {
+          texture = await this.loadTextureFromFilePath(texturePath, group.materialName);
+        } catch (error) {
+          console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
+        }
+      }
+
+      // Create bind group for this material
+      const bindGroup = this.backend.createBindGroup(this.materialBindGroupLayout, {
+        bindings: [
+          { binding: 0, resource: texture },
+          { binding: 1, resource: this.dummySampler },
+          { binding: 2, resource: this.materialBuffer },
+        ],
+      });
+
+      this.materialGroups.push({
+        materialName: group.materialName,
+        vertexBuffer,
+        indexBuffer,
+        indexCount,
+        indexFormat,
+        texture,
+        bindGroup,
+      });
+    }
+
+    this.modelVertexCount = totalVertices;
+    this.modelIndexCount = totalTriangles * 3;
+
+    console.log(`Model: ${totalVertices} vertices, ${totalTriangles} triangles in ${this.materialGroups.length} groups`);
+
+    // Update UI with model stats
+    this.updateModelStats();
+
+    // Reset camera to default view for new model
+    if (this.orbitController) {
+      this.targetY = 2;
+      this.orbitController.reset(10, 0, Math.PI / 6);
+      this.orbitController.setTarget(0, this.targetY, 0);
+    }
+  }
+
+  /**
+   * Load a texture from an absolute filesystem path
+   */
+  private async loadTextureFromFilePath(filePath: string, name: string): Promise<BackendTextureHandle> {
+    if (!this.backend) throw new Error('Backend not initialized');
+
+    const MAX_TEXTURE_SIZE = 256;
+
+    // Read file as base64 via IPC
+    const result = await window.electronAPI.file.readArbitrary(filePath, 'base64');
+    if (!result.success || !result.data) {
+      throw new Error(`Failed to read texture: ${result.error}`);
+    }
+
+    // Determine MIME type from extension
+    const ext = filePath.toLowerCase().split('.').pop() || 'png';
+    const mimeTypes: Record<string, string> = {
+      'png': 'image/png',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'bmp': 'image/bmp',
+      'gif': 'image/gif',
+    };
+    const mimeType = mimeTypes[ext] || 'image/png';
+
+    // Convert base64 to blob and load as image
+    const blob = await fetch(`data:${mimeType};base64,${result.data}`).then(r => r.blob());
+    const img = await createImageBitmap(blob);
+
+    // Calculate resized dimensions (max 256px, maintain aspect ratio)
+    let targetWidth = img.width;
+    let targetHeight = img.height;
+
+    if (img.width > MAX_TEXTURE_SIZE || img.height > MAX_TEXTURE_SIZE) {
+      const scale = Math.min(MAX_TEXTURE_SIZE / img.width, MAX_TEXTURE_SIZE / img.height);
+      targetWidth = Math.floor(img.width * scale);
+      targetHeight = Math.floor(img.height * scale);
+    }
+
+    // Create canvas at target size
+    const canvas = document.createElement('canvas');
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Failed to get canvas context');
+    }
+
+    // Draw image scaled to target size
+    ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+    const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+
+    const texture = this.backend.createTexture(
+      `texture-${name}`,
+      targetWidth,
+      targetHeight,
+      new Uint8Array(imageData.data.buffer),
+      { format: 'rgba8unorm' }
+    );
+
+    const resized = (img.width !== targetWidth || img.height !== targetHeight)
+      ? ` (resized from ${img.width}x${img.height})`
+      : '';
+    console.log(`Loaded texture: ${name} (${targetWidth}x${targetHeight})${resized}`);
+
+    return texture;
   }
 
   /**

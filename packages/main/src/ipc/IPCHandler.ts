@@ -5,7 +5,7 @@ import { MiskatonicError, ErrorCode } from '@miskatonic/shared';
 import { z } from 'zod';
 
 // Import all channel handlers
-import { FileReadHandler, FileWriteHandler } from './channels/FileChannel';
+import { FileReadHandler, FileWriteHandler, FileReadArbitraryHandler } from './channels/FileChannel';
 import { WindowMinimizeHandler, WindowMaximizeHandler, WindowCloseHandler } from './channels/WindowChannel';
 import {
   SystemInfoHandler,
@@ -98,6 +98,7 @@ export class IPCHandler {
       // File handlers
       new FileReadHandler(),
       new FileWriteHandler(),
+      new FileReadArbitraryHandler(),
 
       // Window handlers
       new WindowMinimizeHandler(),

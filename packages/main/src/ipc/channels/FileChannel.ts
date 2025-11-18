@@ -12,6 +12,10 @@ import {
   FileWriteRequestSchema,
   FileWriteResponse,
   FileWriteResponseSchema,
+  FileReadArbitraryRequest,
+  FileReadArbitraryRequestSchema,
+  FileReadArbitraryResponse,
+  FileReadArbitraryResponseSchema,
 } from '@miskatonic/shared';
 import { MiskatonicError, ErrorCode } from '@miskatonic/shared';
 import log from 'electron-log';
@@ -203,5 +207,62 @@ export class FileWriteHandler extends BaseChannelHandler<FileWriteRequest, FileW
       stream.write(data);
       stream.end();
     });
+  }
+}
+
+/**
+ * Handler for reading arbitrary files (outside sandbox)
+ * Used for user-selected files via file dialog
+ */
+export class FileReadArbitraryHandler extends BaseChannelHandler<
+  FileReadArbitraryRequest,
+  FileReadArbitraryResponse
+> {
+  channel = IPC_CHANNELS.FILE_READ_ARBITRARY;
+  requestSchema = FileReadArbitraryRequestSchema;
+  responseSchema = FileReadArbitraryResponseSchema;
+
+  async handle(
+    _event: IpcMainInvokeEvent,
+    request: FileReadArbitraryRequest
+  ): Promise<FileReadArbitraryResponse> {
+    try {
+      // Read file from absolute path (user-selected via dialog)
+      // No sandboxing - trust that user selected this file
+      const fullPath = path.resolve(request.path);
+
+      // Check if file exists
+      const stats = await fs.stat(fullPath).catch(() => null);
+      if (!stats) {
+        return {
+          success: false,
+          error: 'File not found',
+        };
+      }
+
+      let data: string;
+
+      if (request.encoding === 'base64') {
+        // Read as buffer and convert to base64
+        const buffer = await fs.readFile(fullPath);
+        data = buffer.toString('base64');
+      } else {
+        // Read as text
+        data = await fs.readFile(fullPath, 'utf-8');
+      }
+
+      log.debug(`Read arbitrary file: ${request.path} (${stats.size} bytes, ${request.encoding})`);
+
+      return {
+        success: true,
+        data,
+      };
+    } catch (error) {
+      log.error('Arbitrary file read error:', error);
+      return {
+        success: false,
+        error: String(error),
+      };
+    }
   }
 }

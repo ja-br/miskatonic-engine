@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron';
-import { IPC_CHANNELS, FileReadResponse, FileWriteResponse } from '@miskatonic/shared';
+import { IPC_CHANNELS, FileReadResponse, FileWriteResponse, FileReadArbitraryResponse } from '@miskatonic/shared';
 
 /**
  * File API exposed to renderer
@@ -18,6 +18,13 @@ export function createFileAPI() {
      */
     write: (path: string, data: string): Promise<FileWriteResponse> => {
       return ipcRenderer.invoke(IPC_CHANNELS.FILE_WRITE, { path, data });
+    },
+
+    /**
+     * Read a file from any path (user-selected files only)
+     */
+    readArbitrary: (path: string, encoding: 'utf-8' | 'base64' = 'utf-8'): Promise<FileReadArbitraryResponse> => {
+      return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ_ARBITRARY, { path, encoding });
     },
   };
 }

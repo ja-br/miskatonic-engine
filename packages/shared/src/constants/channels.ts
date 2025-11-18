@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   FILE_WRITE: 'file:write',
   FILE_DELETE: 'file:delete',
   FILE_WATCH: 'file:watch',
+  FILE_READ_ARBITRARY: 'file:read-arbitrary',
 
   // Window operations
   WINDOW_MINIMIZE: 'window:minimize',

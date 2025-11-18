@@ -44,6 +44,22 @@ export const FileWriteResponseSchema = z.object({
 
 export type FileWriteResponse = z.infer<typeof FileWriteResponseSchema>;
 
+// Arbitrary file read (outside sandbox, for user-selected files)
+export const FileReadArbitraryRequestSchema = z.object({
+  path: z.string(),
+  encoding: z.enum(['utf-8', 'base64']).default('utf-8'),
+});
+
+export type FileReadArbitraryRequest = z.infer<typeof FileReadArbitraryRequestSchema>;
+
+export const FileReadArbitraryResponseSchema = z.object({
+  success: z.boolean(),
+  data: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export type FileReadArbitraryResponse = z.infer<typeof FileReadArbitraryResponseSchema>;
+
 /**
  * Window operation types
  */

@@ -16,6 +16,23 @@ interface ElectronAPI {
       success: boolean;
       error?: string;
     }>;
+    readArbitrary: (path: string, encoding?: 'utf-8' | 'base64') => Promise<{
+      success: boolean;
+      data?: string;
+      error?: string;
+    }>;
+  };
+  dialog: {
+    openFile: (options?: {
+      title?: string;
+      defaultPath?: string;
+      buttonLabel?: string;
+      filters?: { name: string; extensions: string[] }[];
+      multiSelect?: boolean;
+    }) => Promise<{
+      canceled: boolean;
+      filePaths: string[];
+    }>;
   };
   window: {
     minimize: () => Promise<void>;

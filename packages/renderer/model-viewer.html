@@ -186,6 +186,9 @@
             <option value="sphere">Generated Sphere</option>
             <option value="cube">Generated Cube</option>
           </select>
+          <button id="browse-model-btn" style="margin-top: 8px; padding: 8px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; cursor: pointer; width: 100%;">
+            Browse...
+          </button>
         </div>
 
         <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
@@ -305,6 +308,32 @@
           if (modelSelect) {
             modelSelect.addEventListener('change', async (e) => {
               await viewer.loadModelByPath(e.target.value);
+            });
+          }
+
+          // Browse button for loading models from filesystem
+          const browseBtn = document.getElementById('browse-model-btn');
+          if (browseBtn) {
+            browseBtn.addEventListener('click', async () => {
+              const result = await window.electronAPI.dialog.openFile({
+                title: 'Select OBJ Model',
+                filters: [
+                  { name: 'OBJ Models', extensions: ['obj'] },
+                  { name: 'All Files', extensions: ['*'] }
+                ]
+              });
+
+              if (!result.canceled && result.filePaths.length > 0) {
+                const filePath = result.filePaths[0];
+                try {
+                  await viewer.loadModelFromFilePath(filePath);
+                  // Extract filename for display
+                  const fileName = filePath.split('/').pop() || filePath;
+                  console.log(`Loaded model: ${fileName}`);
+                } catch (error) {
+                  console.error('Failed to load model:', error);
+                }
+              }
             });
           }
 
