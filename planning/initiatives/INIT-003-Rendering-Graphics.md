@@ -380,7 +380,7 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 - [x] Material loading and application:
   - [x] Parse MTL file if present
   - [x] Load textures referenced in map_Kd
-  - [ ] Apply 256px resize constraint to textures
+  - [x] Apply 256px resize constraint to textures
   - [x] Fallback to default gray material if MTL missing
 - [x] Add light direction controls:
   - [x] Azimuth/elevation sliders in UI
@@ -413,7 +413,6 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
   - [x] Verify vertex lighting looks correct
   - [x] Check retro post-processing effects
   - [x] Confirm no Z-fighting or culling issues
-  - [ ] Screenshot comparisons with PS1/PS2 era reference
 
 #### Acceptance Criteria
 

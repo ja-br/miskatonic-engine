@@ -426,32 +426,48 @@ export class ModelViewer {
   private async loadTexture(url: string, name: string): Promise<BackendTextureHandle> {
     if (!this.backend) throw new Error('Backend not initialized');
 
+    const MAX_TEXTURE_SIZE = 256;
+
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        // Create canvas to get image data
+        // Calculate resized dimensions (max 256px, maintain aspect ratio)
+        let targetWidth = img.width;
+        let targetHeight = img.height;
+
+        if (img.width > MAX_TEXTURE_SIZE || img.height > MAX_TEXTURE_SIZE) {
+          const scale = Math.min(MAX_TEXTURE_SIZE / img.width, MAX_TEXTURE_SIZE / img.height);
+          targetWidth = Math.floor(img.width * scale);
+          targetHeight = Math.floor(img.height * scale);
+        }
+
+        // Create canvas at target size
         const canvas = document.createElement('canvas');
-        canvas.width = img.width;
-        canvas.height = img.height;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
           reject(new Error('Failed to get canvas context'));
           return;
         }
 
-        ctx.drawImage(img, 0, 0);
-        const imageData = ctx.getImageData(0, 0, img.width, img.height);
+        // Draw image scaled to target size
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
 
         const texture = this.backend!.createTexture(
           `texture-${name}`,
-          img.width,
-          img.height,
+          targetWidth,
+          targetHeight,
           new Uint8Array(imageData.data.buffer),
           { format: 'rgba8unorm' }
         );
 
-        console.log(`Loaded texture: ${name} (${img.width}x${img.height})`);
+        const resized = (img.width !== targetWidth || img.height !== targetHeight)
+          ? ` (resized from ${img.width}x${img.height})`
+          : '';
+        console.log(`Loaded texture: ${name} (${targetWidth}x${targetHeight})${resized}`);
         resolve(texture);
       };
       img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
