@@ -6,7 +6,17 @@
  * and performance overlay (FPS, GPU timings).
  */
 
-import { DebugVisualizationMode } from './shadows/ShadowDebugVisualizer';
+// Shadow debug visualization removed in Epic 3.4 (retro overhaul)
+// Kept as stub for backward compatibility with demo code
+export enum DebugVisualizationMode {
+  NONE = 'none',
+  ATLAS = 'atlas',
+  CASCADE_FRUSTUMS = 'cascades',
+  LIGHT_VOLUMES = 'volumes',
+  TILE_HEATMAP = 'heatmap',
+  DEPTH_MAP = 'depth',
+  PERFORMANCE_OVERLAY = 'perf',
+}
 
 /**
  * Quality tier configuration

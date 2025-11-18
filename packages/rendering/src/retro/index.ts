@@ -1,56 +1,16 @@
 /**
  * @miskatonic/rendering/retro
- * Epic 3.4: Retro Rendering Pipeline
- *
- * PlayStation 2 era rendering techniques for lo-fi/demake aesthetics
+ * Retro rendering systems - PS1/PS2 style graphics
  */
 
-// Post-processing
-export {
-  RetroPostProcessor,
-  type RetroPostProcessConfig,
-  DEFAULT_RETRO_POST_CONFIG,
-} from './RetroPostProcessor';
+// Retro lighting system
+export { RetroLightingSystem, type RetroLightingConfig, type FogConfig, type RetroLight } from './RetroLightingSystem';
 
-// Post-processing Integration (Epic 3.4 Phase 2)
-export {
-  addRetroPostProcessPass,
-  applyRetroPostProcess,
-  resizeRetroPostProcessor,
-  type RetroPostProcessPassConfig,
-} from './RetroPostProcessIntegration';
+// Retro post-processing
+export { RetroPostProcessor, type RetroPostConfig, type CRTYahConfig, type MaskType } from './RetroPostProcessor';
 
-// Lighting
-export {
-  RetroLighting,
-  FogMode,
-  type FogConfig,
-  type ContrastFogConfig,
-  type LightmapConfig,
-  type EnvironmentMapConfig,
-  type RetroLightingParams,
-  DEFAULT_RETRO_LIGHTING,
-  createGradientLightmap,
-} from './RetroLighting';
+// Retro materials
+export { RetroMaterial, type RetroMaterialConfig, type RetroMaterialType, type RetroFilterMode } from './RetroMaterial';
 
-// LOD System
-export {
-  RetroLODSystem,
-  type LODLevel,
-  type LODGroupConfig,
-  type LODSelection,
-  DEFAULT_LOD_DISTANCES,
-  calculateLODBias,
-} from './RetroLOD';
-
-// Materials
-export {
-  RetroMaterial,
-  RetroMaterialType,
-  TextureFilter,
-  RETRO_TEXTURE_CONSTRAINTS,
-  type RetroMaterialConfig,
-  DEFAULT_RETRO_MATERIAL,
-  applyTextureDithering,
-  downscaleToRetroResolution,
-} from './RetroMaterial';
+// Retro LOD system
+export { RetroLODSystem, type LODLevel, type LODGroup, type LODStats } from './RetroLODSystem';

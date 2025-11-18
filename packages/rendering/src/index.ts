@@ -4,7 +4,6 @@
  */
 
 // Core rendering classes
-export { Camera, OrbitControls } from './Camera';  // Standalone (legacy)
 export { CameraSystem } from './CameraSystem';      // ECS system (Epic 3.10)
 export { OrbitCameraController, FirstPersonCameraController } from './CameraControllers';
 export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
@@ -199,6 +198,24 @@ export * as retro from './retro';
 // Epic RENDERING-06: Builder patterns for ergonomic API
 export { VertexLayoutBuilder } from './builders/VertexLayoutBuilder';
 export { PipelineBuilder, type TopologyMode, type DepthCompare } from './builders/PipelineBuilder';
+
+// Epic 3.4: Retro Rendering Pipeline
+export {
+  RetroLightingSystem,
+  type RetroLightingConfig,
+  type FogConfig,
+  type RetroLight,
+  RetroPostProcessor,
+  type RetroPostConfig,
+  RetroMaterial,
+  type RetroMaterialConfig,
+  type RetroMaterialType,
+  type RetroFilterMode,
+  RetroLODSystem,
+  type LODLevel,
+  type LODGroup,
+  type LODStats,
+} from './retro';
 
 // Types and enums
 export {

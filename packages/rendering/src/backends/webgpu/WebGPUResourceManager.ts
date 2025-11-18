@@ -8,7 +8,6 @@ import type {
   BackendBufferHandle,
   BackendTextureHandle,
   BackendFramebufferHandle,
-  BackendSamplerHandle,
 } from '../IRendererBackend.js';
 import type { ShaderSource, BufferUsage, TextureFormat } from '../../types.js';
 import type { WebGPUContext, ModuleConfig, WebGPUShader, WebGPUBuffer, WebGPUTexture, WebGPUFramebuffer } from './WebGPUTypes.js';
@@ -158,60 +157,37 @@ export class WebGPUResourceManager {
     if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
 
     const gpuFormat = this.getWebGPUTextureFormat(format);
-    const bytesPerPixel = this.getBytesPerPixel(gpuFormat);
+
+    // Detect if this is a depth format
+    const isDepthFormat = gpuFormat.includes('depth');
+
+    // Calculate VRAM size (depth formats use different bytes per pixel)
+    const bytesPerPixel = isDepthFormat ? 2 : 4; // depth16unorm = 2 bytes, depth24plus = 4 bytes
     const textureSize = width * height * bytesPerPixel;
 
     if (!this.config.vramProfiler.allocate(id, VRAMCategory.TEXTURES, textureSize)) {
       throw new Error(`VRAM budget exceeded: cannot allocate ${textureSize} bytes for texture ${id}`);
     }
 
+    // Depth textures: only RENDER_ATTACHMENT
+    // Color textures: TEXTURE_BINDING (for sampling) + COPY_DST (for uploads) + RENDER_ATTACHMENT (for rendering to)
+    const usage = isDepthFormat
+      ? GPUTextureUsage.RENDER_ATTACHMENT
+      : GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT;
+
     const texture = this.ctx.device.createTexture({
       label: `Texture: ${id}`,
       size: { width, height },
       format: gpuFormat,
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      usage,
     });
 
-    if (data) {
-      // Validate dimensions
-      if (width <= 0 || height <= 0) {
-        throw new Error(
-          `Invalid texture dimensions: ${width}x${height} (must be positive integers). ` +
-          `Texture: '${id}'`
-        );
-      }
-
-      // Validate format compatibility
-      if (this.isCompressedFormat(gpuFormat)) {
-        throw new Error(
-          `Cannot upload data to compressed texture format '${format}'. ` +
-          `Compressed textures must be uploaded via copyBufferToTexture() with proper block alignment. ` +
-          `Use uncompressed formats (r8unorm, rgba8unorm, etc.) for direct uploads. ` +
-          `Texture: '${id}'`
-        );
-      }
-
-      // Calculate upload parameters
-      // NOTE: queue.writeTexture() does NOT require 256-byte alignment for bytesPerRow.
-      // The 256-byte alignment requirement ONLY applies to copyBufferToTexture().
-      // See: https://www.w3.org/TR/webgpu/#dom-gpuimagedatalayout-bytesperrow
-      const bytesPerRow = width * bytesPerPixel;
-      const expectedDataSize = bytesPerRow * height;
-
-      // Validate data buffer size
-      if (data.byteLength < expectedDataSize) {
-        throw new Error(
-          `Texture data buffer too small: expected ${expectedDataSize} bytes ` +
-          `for ${width}x${height} ${format} texture, got ${data.byteLength} bytes. ` +
-          `Each row requires ${bytesPerRow} bytes (${width} pixels × ${bytesPerPixel} bytes/pixel). ` +
-          `Texture: '${id}'`
-        );
-      }
-
+    // Only write data for color textures (depth textures have no initial data)
+    if (data && !isDepthFormat) {
       this.ctx.device.queue.writeTexture(
         { texture },
         data,
-        { bytesPerRow },
+        { bytesPerRow: width * 4 },
         { width, height }
       );
     }
@@ -232,6 +208,50 @@ export class WebGPUResourceManager {
     return { __brand: 'BackendTexture', id } as BackendTextureHandle;
   }
 
+  /**
+   * Create depth texture with backend-optimized format
+   * Uses the depth format selected during backend initialization
+   */
+  createDepthTexture(
+    id: string,
+    width: number,
+    height: number
+  ): BackendTextureHandle {
+    if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
+
+    const gpuFormat = this.config.depthFormat;
+
+    // Calculate VRAM size for depth texture
+    const bytesPerPixel = gpuFormat === 'depth16unorm' ? 2 : 4; // depth16unorm = 2 bytes, depth24plus = 4 bytes
+    const textureSize = width * height * bytesPerPixel;
+
+    if (!this.config.vramProfiler.allocate(id, VRAMCategory.TEXTURES, textureSize)) {
+      throw new Error(`VRAM budget exceeded: cannot allocate ${textureSize} bytes for depth texture ${id}`);
+    }
+
+    // Depth textures only need RENDER_ATTACHMENT usage
+    const texture = this.ctx.device.createTexture({
+      label: `Texture: ${id}`,
+      size: { width, height },
+      format: gpuFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+
+    const view = texture.createView();
+
+    this.textures.set(id, { id, texture, view, width, height, format: gpuFormat });
+
+    if (this.config.recoverySystem) {
+      this.config.recoverySystem.registerResource({
+        type: ResourceType.TEXTURE,
+        id,
+        creationParams: { width, height, format: gpuFormat },
+      } as TextureDescriptor);
+    }
+
+    return { __brand: 'BackendTexture', id } as BackendTextureHandle;
+  }
+
   destroyTexture(handle: BackendTextureHandle): void {
     const textureData = this.textures.get(handle.id);
     if (!textureData) return;
@@ -242,16 +262,22 @@ export class WebGPUResourceManager {
 
   createFramebuffer(
     id: string,
-    width: number,
-    height: number,
     colorAttachments: BackendTextureHandle[],
     depthAttachment?: BackendTextureHandle
   ): BackendFramebufferHandle {
     const colorViews: GPUTextureView[] = [];
+    let width = 0;
+    let height = 0;
+
     for (const handle of colorAttachments) {
       const tex = this.textures.get(handle.id);
       if (!tex) throw new Error(`Texture not found: ${handle.id}`);
       colorViews.push(tex.view);
+      // Get dimensions from first texture
+      if (width === 0) {
+        width = tex.texture.width;
+        height = tex.texture.height;
+      }
     }
 
     let depthView: GPUTextureView | undefined;
@@ -276,26 +302,14 @@ export class WebGPUResourceManager {
     this.framebuffers.delete(handle.id);
   }
 
-  createSampler(
-    id: string,
-    config: { minFilter?: string; magFilter?: string; wrapS?: string; wrapT?: string }
-  ): BackendSamplerHandle {
+  createSampler(config: { minFilter?: string; magFilter?: string; wrapS?: string; wrapT?: string }): GPUSampler {
     if (!this.ctx.device) throw new Error(WebGPUErrors.DEVICE_NOT_INITIALIZED);
-
-    const sampler = this.ctx.device.createSampler({
+    return this.ctx.device.createSampler({
       minFilter: config.minFilter === 'linear' ? 'linear' : 'nearest',
       magFilter: config.magFilter === 'linear' ? 'linear' : 'nearest',
       addressModeU: config.wrapS === 'repeat' ? 'repeat' : 'clamp-to-edge',
       addressModeV: config.wrapT === 'repeat' ? 'repeat' : 'clamp-to-edge',
-      label: `Sampler: ${id}`,
     });
-
-    this.samplers.set(id, sampler);
-    return { __brand: 'BackendSampler', id } as BackendSamplerHandle;
-  }
-
-  destroySampler(handle: BackendSamplerHandle): void {
-    this.samplers.delete(handle.id);
   }
 
   getShader(id: string): WebGPUShader | undefined {
@@ -314,165 +328,16 @@ export class WebGPUResourceManager {
     return this.framebuffers.get(id);
   }
 
-  getSampler(id: string): GPUSampler | undefined {
-    return this.samplers.get(id);
-  }
-
-  private getWebGPUTextureFormat(format: TextureFormat | GPUTextureFormat): GPUTextureFormat {
+  private getWebGPUTextureFormat(format: TextureFormat): GPUTextureFormat {
     const formatMap: Record<string, GPUTextureFormat> = {
       rgba8unorm: 'rgba8unorm',
       bgra8unorm: 'bgra8unorm',
       rgba16float: 'rgba16float',
       rgba32float: 'rgba32float',
-      depth16unorm: 'depth16unorm',  // Add support for depth16unorm
+      depth16unorm: 'depth16unorm',
       depth24plus: 'depth24plus',
-      'depth24plus-stencil8': 'depth24plus-stencil8',  // Add support for depth24plus-stencil8
-      r8unorm: 'r8unorm',
     };
-    return formatMap[format] || format as GPUTextureFormat || 'rgba8unorm';
-  }
-
-  /**
-   * Get bytes per pixel for a texture format
-   * Comprehensive coverage of all WebGPU texture formats
-   *
-   * @throws Error if format is not supported or requires special handling
-   */
-  private getBytesPerPixel(format: GPUTextureFormat): number {
-    switch (format) {
-      // 8-bit formats (1 byte per pixel)
-      case 'r8unorm':
-      case 'r8snorm':
-      case 'r8uint':
-      case 'r8sint':
-        return 1;
-
-      // 16-bit formats (2 bytes per pixel)
-      case 'r16uint':
-      case 'r16sint':
-      case 'r16float':
-      case 'rg8unorm':
-      case 'rg8snorm':
-      case 'rg8uint':
-      case 'rg8sint':
-        return 2;
-
-      // 32-bit formats (4 bytes per pixel)
-      case 'r32uint':
-      case 'r32sint':
-      case 'r32float':
-      case 'rg16uint':
-      case 'rg16sint':
-      case 'rg16float':
-      case 'rgba8unorm':
-      case 'rgba8unorm-srgb':
-      case 'rgba8snorm':
-      case 'rgba8uint':
-      case 'rgba8sint':
-      case 'bgra8unorm':
-      case 'bgra8unorm-srgb':
-      case 'rgb9e5ufloat':
-      case 'rgb10a2unorm':
-      case 'rg11b10ufloat':
-      case 'depth32float':
-      case 'depth24plus':
-      case 'depth24plus-stencil8':
-        return 4;
-
-      // 64-bit formats (8 bytes per pixel)
-      case 'rg32uint':
-      case 'rg32sint':
-      case 'rg32float':
-      case 'rgba16uint':
-      case 'rgba16sint':
-      case 'rgba16float':
-        return 8;
-
-      // 128-bit formats (16 bytes per pixel)
-      case 'rgba32uint':
-      case 'rgba32sint':
-      case 'rgba32float':
-        return 16;
-
-      // Special depth/stencil formats
-      case 'stencil8':
-        return 1;
-      case 'depth16unorm':
-        return 2;
-      case 'depth32float-stencil8':
-        return 5; // 4 bytes depth + 1 byte stencil
-
-      // Compressed formats - throw error, require special handling
-      case 'bc1-rgba-unorm':
-      case 'bc1-rgba-unorm-srgb':
-      case 'bc2-rgba-unorm':
-      case 'bc2-rgba-unorm-srgb':
-      case 'bc3-rgba-unorm':
-      case 'bc3-rgba-unorm-srgb':
-      case 'bc4-r-unorm':
-      case 'bc4-r-snorm':
-      case 'bc5-rg-unorm':
-      case 'bc5-rg-snorm':
-      case 'bc6h-rgb-ufloat':
-      case 'bc6h-rgb-float':
-      case 'bc7-rgba-unorm':
-      case 'bc7-rgba-unorm-srgb':
-      case 'etc2-rgb8unorm':
-      case 'etc2-rgb8unorm-srgb':
-      case 'etc2-rgb8a1unorm':
-      case 'etc2-rgb8a1unorm-srgb':
-      case 'etc2-rgba8unorm':
-      case 'etc2-rgba8unorm-srgb':
-      case 'eac-r11unorm':
-      case 'eac-r11snorm':
-      case 'eac-rg11unorm':
-      case 'eac-rg11snorm':
-      case 'astc-4x4-unorm':
-      case 'astc-4x4-unorm-srgb':
-      case 'astc-5x4-unorm':
-      case 'astc-5x4-unorm-srgb':
-      case 'astc-5x5-unorm':
-      case 'astc-5x5-unorm-srgb':
-      case 'astc-6x5-unorm':
-      case 'astc-6x5-unorm-srgb':
-      case 'astc-6x6-unorm':
-      case 'astc-6x6-unorm-srgb':
-      case 'astc-8x5-unorm':
-      case 'astc-8x5-unorm-srgb':
-      case 'astc-8x6-unorm':
-      case 'astc-8x6-unorm-srgb':
-      case 'astc-8x8-unorm':
-      case 'astc-8x8-unorm-srgb':
-      case 'astc-10x5-unorm':
-      case 'astc-10x5-unorm-srgb':
-      case 'astc-10x6-unorm':
-      case 'astc-10x6-unorm-srgb':
-      case 'astc-10x8-unorm':
-      case 'astc-10x8-unorm-srgb':
-      case 'astc-10x10-unorm':
-      case 'astc-10x10-unorm-srgb':
-      case 'astc-12x10-unorm':
-      case 'astc-12x10-unorm-srgb':
-      case 'astc-12x12-unorm':
-      case 'astc-12x12-unorm-srgb':
-        throw new Error(`Compressed texture format '${format}' requires block-based size calculation. Use getBlockSize() instead.`);
-
-      default:
-        throw new Error(`Unsupported texture format: ${format}. Add format to getBytesPerPixel() if needed.`);
-    }
-  }
-
-  /**
-   * Check if a texture format is compressed (block-based)
-   * Compressed formats require special handling and cannot be used with queue.writeTexture()
-   */
-  private isCompressedFormat(format: GPUTextureFormat): boolean {
-    return (
-      format.startsWith('bc') ||
-      format.startsWith('etc2') ||
-      format.startsWith('eac-') ||
-      format.startsWith('astc-')
-    );
+    return formatMap[format] || 'rgba8unorm';
   }
 
   /**

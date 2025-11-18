@@ -42,6 +42,15 @@ export interface BackendFactoryOptions {
    * Power preference
    */
   powerPreference?: 'default' | 'high-performance' | 'low-power';
+
+  /**
+   * Depth buffer format
+   * - depth24plus: 4 bytes/pixel, standard precision (default for compatibility)
+   * - depth16unorm: 2 bytes/pixel, reduced precision (50% VRAM savings)
+   * - depth24plus-stencil8: 4 bytes/pixel with stencil support
+   * @default 'depth24plus'
+   */
+  depthFormat?: 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8';
 }
 
 /**
@@ -128,6 +137,7 @@ export class BackendFactory {
       depth = true,
       stencil = false,
       powerPreference = 'high-performance',
+      depthFormat = 'depth24plus', // Default to standard format for compatibility
     } = options;
 
     const config: BackendConfig = {
@@ -137,6 +147,7 @@ export class BackendFactory {
       depth,
       stencil,
       powerPreference,
+      depthFormat, // Pass through depth format for VRAM optimization
     };
 
     try {

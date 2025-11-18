@@ -1,15 +1,12 @@
 /// <reference types="vite/client" />
 
-/**
- * Type declarations for Vite-specific imports
- */
-
-// Vite ?raw imports for shader files
+// Vite ?raw import for WGSL shader files
 declare module '*.wgsl?raw' {
   const content: string;
   export default content;
 }
 
+// Vite ?raw import for GLSL shader files
 declare module '*.glsl?raw' {
   const content: string;
   export default content;

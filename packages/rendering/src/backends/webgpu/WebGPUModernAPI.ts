@@ -28,7 +28,6 @@ export class WebGPUModernAPI {
     private getShader: (id: string) => WebGPUShader | undefined,
     private getBuffer: (id: string) => WebGPUBuffer | undefined,
     private getTexture: (id: string) => WebGPUTexture | undefined,
-    private getSampler: (id: string) => GPUSampler | undefined,
     private _config: ModuleConfig
   ) {}
 
@@ -81,11 +80,11 @@ export class WebGPUModernAPI {
 
     // Convert resources to WebGPU bind group entries
     const entries: GPUBindGroupEntry[] = resources.bindings.map(binding => {
-      const resource = binding.resource;
+      const res: any = binding.resource;
 
-      // Check for buffer
-      if ('__brand' in resource && resource.__brand === 'BackendBuffer') {
-        const bufferHandle = resource as BackendBufferHandle;
+      // Check for BackendBuffer
+      if ('__brand' in res && res.__brand === 'BackendBuffer') {
+        const bufferHandle = res as BackendBufferHandle;
         const bufferData = this.getBuffer(bufferHandle.id);
         if (!bufferData) {
           throw new Error(`Buffer ${bufferHandle.id} not found`);
@@ -96,22 +95,9 @@ export class WebGPUModernAPI {
         };
       }
 
-      // Check for sampler
-      if ('__brand' in resource && resource.__brand === 'BackendSampler') {
-        const samplerHandle = resource as import('../IRendererBackend').BackendSamplerHandle;
-        const sampler = this.getSampler(samplerHandle.id);
-        if (!sampler) {
-          throw new Error(`Sampler ${samplerHandle.id} not found`);
-        }
-        return {
-          binding: binding.binding,
-          resource: sampler,
-        };
-      }
-
-      // Check for BackendTextureHandle directly
-      if ('__brand' in resource && resource.__brand === 'BackendTexture') {
-        const textureHandle = resource as BackendTextureHandle;
+      // Check for BackendTexture
+      if ('__brand' in res && res.__brand === 'BackendTexture') {
+        const textureHandle = res as BackendTextureHandle;
         const textureData = this.getTexture(textureHandle.id);
         if (!textureData) {
           throw new Error(`Texture ${textureHandle.id} not found`);
@@ -122,9 +108,9 @@ export class WebGPUModernAPI {
         };
       }
 
-      // Check for texture (or combined texture+sampler for backward compat)
-      if ('texture' in resource) {
-        const textureBinding = resource as { texture: BackendTextureHandle; sampler?: any };
+      // Check for combined texture + sampler binding (legacy)
+      if (res?.texture) {
+        const textureBinding = res as { texture: BackendTextureHandle; sampler?: any };
         const textureData = this.getTexture(textureBinding.texture.id);
         if (!textureData) {
           throw new Error(`Texture ${textureBinding.texture.id} not found`);
@@ -135,7 +121,12 @@ export class WebGPUModernAPI {
         };
       }
 
-      throw new Error(`Unknown resource type for binding ${binding.binding}`);
+      // Raw GPU object (sampler, texture view, etc.)
+      // CRITICAL: This allows passing GPUSampler directly for post-processing
+      return {
+        binding: binding.binding,
+        resource: res as GPUBindingResource,
+      };
     });
 
     const bindGroup = this.ctx.device.createBindGroup({
@@ -210,12 +201,12 @@ export class WebGPUModernAPI {
         layout: pipelineLayout,
         vertex: {
           module: shader.module,
-          entryPoint: descriptor.vertexEntryPoint || 'vs_main',
+          entryPoint: 'vs_main',
           buffers: gpuVertexLayouts,
         },
         fragment: {
           module: shader.module,
-          entryPoint: descriptor.fragmentEntryPoint || 'fs_main',
+          entryPoint: 'fs_main',
           targets: [{
             format: descriptor.colorFormat,
             blend: descriptor.pipelineState.blend?.enabled ? {

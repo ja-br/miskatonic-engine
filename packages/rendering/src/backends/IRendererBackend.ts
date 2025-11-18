@@ -342,6 +342,21 @@ export interface IRendererBackend {
   ): BackendTextureHandle;
 
   /**
+   * Create depth texture with backend-optimized format
+   * Backend chooses optimal depth format (depth16unorm, depth24plus, etc.)
+   *
+   * @param id - Unique identifier for the depth texture
+   * @param width - Texture width in pixels
+   * @param height - Texture height in pixels
+   * @returns Opaque handle to the created depth texture
+   */
+  createDepthTexture(
+    id: string,
+    width: number,
+    height: number
+  ): BackendTextureHandle;
+
+  /**
    * Delete texture
    */
   deleteTexture(handle: BackendTextureHandle): void;
@@ -441,6 +456,31 @@ export interface IRendererBackend {
     workgroupsY: number,
     workgroupsZ: number
   ): void;
+
+  /**
+   * Begin render pass to specified target
+   * @param target - Framebuffer to render to, or null for swapchain
+   * @param clearColor - Optional clear color [r, g, b, a]
+   * @param clearDepth - Optional depth clear value
+   * @param clearStencil - Optional stencil clear value
+   * @param label - Debug label for GPU profiling
+   * @param requireDepth - Whether to attach depth buffer. Only applies when target=null (swapchain).
+   *                       Defaults to FALSE for safety. Set true for 3D scene rendering with depth testing.
+   *                       Ignored when target!=null (framebuffer controls its own depth attachment).
+   */
+  beginRenderPass(
+    target: BackendFramebufferHandle | null,
+    clearColor?: [number, number, number, number],
+    clearDepth?: number,
+    clearStencil?: number,
+    label?: string,
+    requireDepth?: boolean
+  ): void;
+
+  /**
+   * End current render pass
+   */
+  endRenderPass(): void;
 
   /**
    * Cleanup all resources
