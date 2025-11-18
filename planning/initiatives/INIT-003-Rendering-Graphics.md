@@ -267,7 +267,7 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 **Model Loading:**
 - [x] OBJ file parser (`loadOBJ`, `parseOBJ` functions) in Geometry.ts
 - [x] Support for v (vertex), vn (normal), vt (texture coord), f (face) directives
-- [ ] Support for MTL material file parsing (basic material properties only)
+- [x] Support for MTL material file parsing (basic material properties only)
 - [x] Automatic normal generation for models without normals (using face normals)
 - [x] Vertex/index buffer creation from loaded geometry (reuse GeometryData interface)
 - [x] Handle both Uint16Array and Uint32Array indices (based on vertex count >65535)
@@ -309,8 +309,8 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 **Test Model:**
 - [x] Use existing "Naked Snake" model in `models/Naked Snake/` directory
 - [x] Load Naked_Snake.obj (90KB, ~2-5K triangles estimated)
-- [ ] Load Naked_Snake.mtl for material definitions
-- [ ] Handle multiple texture files (Tex_*.png) with 256px resize if needed
+- [x] Load Naked_Snake.mtl for material definitions
+- [x] Handle multiple texture files (Tex_*.png) with 256px resize if needed
 - [x] Add fallback: if model missing, load a generated cube/sphere from Geometry.ts
 
 #### Implementation Phases
@@ -326,9 +326,9 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
   - [x] Fetch file content, handle network errors
   - [x] Call parseOBJ with fetched text
   - [x] Return GeometryData matching existing interface
-- [ ] Add `parseMTL(mtlText: string): MaterialData` for basic material support
-  - [ ] Parse Kd (diffuse), Ka (ambient), Ks (specular), map_Kd (texture path)
-  - [ ] Return simplified material properties
+- [x] Add `parseMTL(mtlText: string): MaterialData` for basic material support
+  - [x] Parse Kd (diffuse), Ka (ambient), Ks (specular), map_Kd (texture path)
+  - [x] Return simplified material properties
 - [x] Export new functions from rendering/src/index.ts
 
 **Phase 2: Model Viewer Application Setup**
@@ -377,9 +377,9 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
   - [x] Configure initial light direction (0.5, -0.7, 0.5)
   - [x] Set light color and intensity
   - [x] Connect to vertex shader uniforms
-- [ ] Material loading and application:
-  - [ ] Parse MTL file if present
-  - [ ] Load textures referenced in map_Kd
+- [x] Material loading and application:
+  - [x] Parse MTL file if present
+  - [x] Load textures referenced in map_Kd
   - [ ] Apply 256px resize constraint to textures
   - [x] Fallback to default gray material if MTL missing
 - [x] Add light direction controls:
