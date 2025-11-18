@@ -12,6 +12,7 @@ export {
   createPlane,
   loadOBJ,
   loadOBJWithMaterials,
+  loadOBJWithMaterialsFromContent,
   parseOBJ,
   parseOBJWithMaterials,
   parseMTL,

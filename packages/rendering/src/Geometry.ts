@@ -757,3 +757,40 @@ export async function loadOBJWithMaterials(url: string): Promise<ModelData> {
   };
 }
 
+/**
+ * Load OBJ model with materials from content (for file system loading via IPC)
+ * @param objText OBJ file content
+ * @param basePath Base directory path for resolving MTL and texture paths
+ * @param readFile Function to read files from the file system
+ * @returns ModelData with geometry, material groups, and material definitions
+ */
+export async function loadOBJWithMaterialsFromContent(
+  objText: string,
+  basePath: string,
+  readFile: (path: string) => Promise<string | null>
+): Promise<ModelData> {
+  const { geometry, materialGroups, mtlPath } = parseOBJWithMaterials(objText);
+
+  // Load MTL file if referenced
+  let materials = new Map<string, MaterialData>();
+  if (mtlPath) {
+    const mtlFullPath = basePath + mtlPath;
+    try {
+      const mtlText = await readFile(mtlFullPath);
+      if (mtlText) {
+        materials = parseMTL(mtlText);
+        console.log(`Loaded ${materials.size} materials from ${mtlPath}`);
+      }
+    } catch (error) {
+      console.warn(`Failed to load MTL file: ${mtlPath}`, error);
+    }
+  }
+
+  return {
+    geometry,
+    materialGroups,
+    materials,
+    mtlPath,
+  };
+}
+

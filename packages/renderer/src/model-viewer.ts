@@ -8,6 +8,7 @@ import {
   OrbitCameraController,
   CameraSystem,
   loadOBJWithMaterials,
+  loadOBJWithMaterialsFromContent,
   createPlane,
   createSphere,
   createCube,
@@ -996,6 +997,261 @@ export class ModelViewer {
 
     await this.loadModel(modelPath);
     console.log(`Switched to model: ${modelPath}`);
+  }
+
+  /**
+   * Load a model from a file system path (via IPC)
+   * Used for user-selected files from the file picker
+   */
+  async loadModelFromFile(filePath: string): Promise<void> {
+    if (!this.backend) return;
+
+    console.log(`Loading model from file: ${filePath}`);
+
+    // Clean up previous model resources
+    this.disposeModelResources();
+
+    // Model bounds for camera positioning
+    let modelCenterX = 0, modelCenterY = 2, modelCenterZ = 0;
+    let modelSize = 4;
+
+    try {
+      // Read the OBJ file via IPC
+      const objResult = await window.electronAPI.file.readArbitrary(filePath, 'utf-8');
+      if (!objResult.success || !objResult.data) {
+        throw new Error(objResult.error || 'Failed to read OBJ file');
+      }
+
+      // Get base path for resolving MTL and textures
+      const basePath = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+
+      // Create file reader function for IPC
+      const readFile = async (path: string): Promise<string | null> => {
+        const result = await window.electronAPI.file.readArbitrary(path, 'utf-8');
+        return result.success ? result.data || null : null;
+      };
+
+      // Parse OBJ with materials
+      const modelData = await loadOBJWithMaterialsFromContent(objResult.data, basePath, readFile);
+      console.log(`Loaded model from ${filePath}`);
+      console.log(`  ${modelData.materialGroups.length} material groups`);
+      console.log(`  ${modelData.materials.size} materials defined`);
+
+      // Process model data (similar to loadModel)
+      if (modelData.materialGroups.length > 0) {
+        let totalVertices = 0;
+        let totalTriangles = 0;
+
+        // Calculate bounding box across all material groups
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (const group of modelData.materialGroups) {
+          const positions = group.geometry.positions;
+          for (let i = 0; i < positions.length; i += 3) {
+            minX = Math.min(minX, positions[i]);
+            maxX = Math.max(maxX, positions[i]);
+            minY = Math.min(minY, positions[i + 1]);
+            maxY = Math.max(maxY, positions[i + 1]);
+            minZ = Math.min(minZ, positions[i + 2]);
+            maxZ = Math.max(maxZ, positions[i + 2]);
+          }
+        }
+
+        // Calculate center and size
+        modelCenterX = (minX + maxX) / 2;
+        modelCenterY = (minY + maxY) / 2;
+        modelCenterZ = (minZ + maxZ) / 2;
+        const sizeX = maxX - minX;
+        const sizeY = maxY - minY;
+        const sizeZ = maxZ - minZ;
+        modelSize = Math.max(sizeX, sizeY, sizeZ);
+
+        console.log(`Model bounds: center=(${modelCenterX.toFixed(2)}, ${modelCenterY.toFixed(2)}, ${modelCenterZ.toFixed(2)}), size=${modelSize.toFixed(2)}`);
+
+        let groupIndex = 0;
+        for (const group of modelData.materialGroups) {
+          const geometry = group.geometry;
+          const indexCount = Math.floor(geometry.indices.length / 3) * 3;
+          const vertexCount = geometry.positions.length / 3;
+
+          totalVertices += vertexCount;
+          totalTriangles += indexCount / 3;
+
+          // Interleave vertex data
+          const interleavedData = this.interleaveVertexData(geometry);
+
+          // Create GPU buffers with unique names (index to handle duplicate material names)
+          const vertexBuffer = this.backend.createBuffer(
+            `vertices-${groupIndex}-${group.materialName}`,
+            'vertex',
+            interleavedData,
+            'static_draw'
+          );
+          const indexBuffer = this.backend.createBuffer(
+            `indices-${groupIndex}-${group.materialName}`,
+            'index',
+            geometry.indices,
+            'static_draw'
+          );
+          groupIndex++;
+
+          // Determine index format from actual array type
+          const indexFormat = geometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
+
+          // Load texture for this material
+          let texture = this.dummyTexture;
+          const materialDef = modelData.materials.get(group.materialName);
+          if (materialDef?.texturePath) {
+            const texturePath = basePath + materialDef.texturePath;
+            const ext = texturePath.toLowerCase().split('.').pop();
+
+            // Skip unsupported texture formats
+            if (ext === 'dds' || ext === 'tga') {
+              console.warn(`Unsupported texture format: ${materialDef.texturePath}`);
+            } else {
+              try {
+                texture = await this.loadTextureFromFile(texturePath, `${groupIndex - 1}-${group.materialName}`);
+              } catch (error) {
+                console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
+              }
+            }
+          }
+
+          // Create bind group for this material
+          const bindGroup = this.backend.createBindGroup(this.materialBindGroupLayout, {
+            bindings: [
+              { binding: 0, resource: texture },
+              { binding: 1, resource: this.dummySampler },
+              { binding: 2, resource: this.materialBuffer },
+            ],
+          });
+
+          this.materialGroups.push({
+            materialName: group.materialName,
+            vertexBuffer,
+            indexBuffer,
+            indexCount,
+            indexFormat,
+            texture,
+            bindGroup,
+          });
+        }
+
+        this.modelVertexCount = totalVertices;
+        this.modelIndexCount = totalTriangles * 3;
+
+        console.log(`Model: ${totalVertices} vertices, ${totalTriangles} triangles in ${this.materialGroups.length} groups`);
+      }
+    } catch (error) {
+      console.warn('Failed to load model from file, using fallback sphere:', error);
+      const simpleGeometry = createSphere(2.0, 32, 24);
+
+      this.modelVertexCount = simpleGeometry.positions.length / 3;
+      this.modelIndexCount = Math.floor(simpleGeometry.indices.length / 3) * 3;
+      this.modelIndexFormat = simpleGeometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
+
+      const interleavedData = this.interleaveVertexData(simpleGeometry);
+
+      this.modelVertexBuffer = this.backend.createBuffer(
+        'model-vertices',
+        'vertex',
+        interleavedData,
+        'static_draw'
+      );
+      this.modelIndexBuffer = this.backend.createBuffer(
+        'model-indices',
+        'index',
+        simpleGeometry.indices,
+        'static_draw'
+      );
+
+      console.log(`Model: ${this.modelVertexCount} vertices, ${this.modelIndexCount / 3} triangles`);
+    }
+
+    // Update UI with model stats
+    this.updateModelStats();
+
+    // Reset camera to view the model properly based on its bounds
+    if (this.orbitController) {
+      // Set target to model center
+      this.targetY = modelCenterY;
+      // Distance based on model size (1.5x size for good framing)
+      const distance = Math.max(modelSize * 1.5, 5);
+      this.orbitController.reset(distance, 0, Math.PI / 6);
+      this.orbitController.setTarget(modelCenterX, modelCenterY, modelCenterZ);
+    }
+  }
+
+  /**
+   * Load a texture from a file system path (via IPC)
+   */
+  private async loadTextureFromFile(filePath: string, name: string): Promise<BackendTextureHandle> {
+    if (!this.backend) throw new Error('Backend not initialized');
+
+    const MAX_TEXTURE_SIZE = 256;
+
+    // Read the texture file as base64
+    const result = await window.electronAPI.file.readArbitrary(filePath, 'base64');
+    if (!result.success || !result.data) {
+      throw new Error(result.error || 'Failed to read texture file');
+    }
+
+    // Capture backend reference before async operation
+    const backend = this.backend;
+
+    // Create image from base64 data
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        if (!backend) {
+          reject(new Error('Backend disposed during texture load'));
+          return;
+        }
+
+        // Resize if needed
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_TEXTURE_SIZE || height > MAX_TEXTURE_SIZE) {
+          const scale = MAX_TEXTURE_SIZE / Math.max(width, height);
+          width = Math.floor(width * scale);
+          height = Math.floor(height * scale);
+        }
+
+        // Create canvas and draw image
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Get pixel data
+        const imageData = ctx.getImageData(0, 0, width, height);
+
+        // Create texture with pixel data
+        const texture = backend.createTexture(
+          `texture-${name}`,
+          width,
+          height,
+          new Uint8Array(imageData.data.buffer),
+          { format: 'rgba8unorm' }
+        );
+
+        console.log(`Loaded texture: ${name} (${width}x${height})`);
+        resolve(texture);
+      };
+
+      img.onerror = () => reject(new Error(`Failed to load texture: ${filePath}`));
+
+      // Determine MIME type from extension
+      const ext = filePath.toLowerCase().split('.').pop();
+      const mimeType = ext === 'png' ? 'image/png' :
+                       ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
+                       ext === 'bmp' ? 'image/bmp' : 'image/png';
+
+      img.src = `data:${mimeType};base64,${result.data}`;
+    });
   }
 
   /**
