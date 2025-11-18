@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'"
+    />
+    <title>Miskatonic Model Viewer</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+          Arial, sans-serif;
+        background: #000000;
+        color: #ffffff;
+        overflow: hidden;
+      }
+
+      #app {
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+      }
+
+      #canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      #stats {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 12px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        min-width: 200px;
+      }
+
+      #stats div {
+        margin-bottom: 4px;
+      }
+
+      #stats div:last-child {
+        margin-bottom: 0;
+      }
+
+      .stat-label {
+        color: #888;
+      }
+
+      .stat-value {
+        color: #0f0;
+        font-weight: bold;
+      }
+
+      #info {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: 'Courier New', monospace;
+      }
+
+      #info div {
+        margin-bottom: 6px;
+      }
+
+      #info div:last-child {
+        margin-bottom: 0;
+      }
+
+      .key {
+        display: inline-block;
+        background: #333;
+        padding: 2px 8px;
+        border-radius: 3px;
+        font-weight: bold;
+        margin-right: 6px;
+      }
+
+      .title {
+        font-size: 16px;
+        font-weight: bold;
+        color: #0f0;
+        margin-bottom: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="canvas"></canvas>
+
+      <div id="stats">
+        <div class="title">Model Viewer</div>
+        <div id="fps-counter">-- FPS</div>
+        <div id="vertex-count">Vertices: --</div>
+        <div id="triangle-count">Triangles: --</div>
+        <div id="vram-usage">VRAM: --</div>
+      </div>
+
+      <div id="info">
+        <div><span class="key">LMB Drag</span> Orbit camera</div>
+        <div><span class="key">Scroll</span> Zoom in/out</div>
+        <div><span class="key">R</span> Reset camera</div>
+      </div>
+    </div>
+
+    <script type="module">
+      import { ModelViewer } from './src/model-viewer.ts';
+
+      const canvas = document.getElementById('canvas');
+      const viewer = new ModelViewer(canvas);
+
+      async function init() {
+        const success = await viewer.initialize();
+        if (success) {
+          viewer.start();
+          console.log('Model Viewer started');
+        } else {
+          console.error('Failed to initialize Model Viewer');
+        }
+      }
+
+      init();
+
+      // Cleanup on page unload
+      window.addEventListener('beforeunload', () => {
+        viewer.stop();
+      });
+    </script>
+  </body>
+</html>
