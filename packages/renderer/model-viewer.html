@@ -39,171 +39,147 @@
         position: absolute;
         top: 10px;
         left: 10px;
-        background: rgba(0, 0, 0, 0.8);
-        padding: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
         border-radius: 4px;
-        font-family: 'Courier New', monospace;
-        font-size: 13px;
-        line-height: 1.6;
-        min-width: 200px;
-      }
-
-      #stats div {
-        margin-bottom: 4px;
-      }
-
-      #stats div:last-child {
-        margin-bottom: 0;
-      }
-
-      .stat-label {
-        color: #888;
-      }
-
-      .stat-value {
-        color: #0f0;
-        font-weight: bold;
+        font-family: monospace;
+        font-size: 12px;
+        line-height: 1.5;
       }
 
       #info {
         position: absolute;
         bottom: 10px;
         left: 10px;
-        background: rgba(0, 0, 0, 0.8);
-        padding: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
         border-radius: 4px;
-        font-size: 13px;
-        font-family: 'Courier New', monospace;
-      }
-
-      #info div {
-        margin-bottom: 6px;
-      }
-
-      #info div:last-child {
-        margin-bottom: 0;
-      }
-
-      .key {
-        display: inline-block;
-        background: #333;
-        padding: 2px 8px;
-        border-radius: 3px;
-        font-weight: bold;
-        margin-right: 6px;
-      }
-
-      .title {
-        font-size: 16px;
-        font-weight: bold;
-        color: #0f0;
-        margin-bottom: 10px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
+        font-size: 14px;
       }
 
       #controls {
         position: absolute;
         top: 10px;
         right: 10px;
-        background: rgba(0, 0, 0, 0.8);
-        padding: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
         border-radius: 4px;
-        font-family: 'Courier New', monospace;
-        font-size: 13px;
-        min-width: 220px;
-      }
-
-      #controls .title {
-        margin-bottom: 12px;
+        font-family: monospace;
+        font-size: 14px;
       }
 
       .control-group {
-        margin-bottom: 12px;
-        padding-bottom: 12px;
-        border-bottom: 1px solid #333;
+        margin-bottom: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       }
 
       .control-group:last-child {
         margin-bottom: 0;
-        padding-bottom: 0;
-        border-bottom: none;
       }
 
-      .control-label {
-        display: block;
-        color: #888;
-        margin-bottom: 6px;
-        font-size: 11px;
-        text-transform: uppercase;
-      }
-
-      .control-row {
+      .slider-container {
         display: flex;
         align-items: center;
-        margin-bottom: 8px;
+        gap: 10px;
       }
 
-      .control-row:last-child {
-        margin-bottom: 0;
-      }
-
-      .control-row label {
+      input[type="range"] {
         flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background: #333;
+        outline: none;
+        -webkit-appearance: none;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #0f0;
         cursor: pointer;
+        transition: background 0.2s;
       }
 
-      .control-row input[type="checkbox"] {
-        margin-right: 8px;
+      input[type="range"]::-webkit-slider-thumb:hover {
+        background: #0c0;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #0f0;
         cursor: pointer;
+        border: none;
+        transition: background 0.2s;
       }
 
-      .control-row input[type="range"] {
-        flex: 1;
-        margin-left: 8px;
+      input[type="range"]::-moz-range-thumb:hover {
+        background: #0c0;
       }
 
-      .slider-value {
-        width: 40px;
-        text-align: right;
-        color: #0f0;
-        font-size: 11px;
+      .slider-label {
+        color: #888;
+        font-size: 12px;
+        margin-bottom: 4px;
       }
 
       select {
-        width: 100%;
-        padding: 6px 8px;
-        background: #222;
+        background: #333;
         color: #fff;
-        border: 1px solid #444;
-        border-radius: 3px;
-        font-family: inherit;
-        font-size: 12px;
+        border: 1px solid #555;
+        padding: 8px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 14px;
         cursor: pointer;
+        width: 100%;
       }
 
       select:hover {
         border-color: #0f0;
+      }
+
+      .nav-link {
+        display: inline-block;
+        margin-top: 10px;
+        color: #4CAF50;
+        text-decoration: none;
+        font-size: 12px;
+      }
+
+      .nav-link:hover {
+        color: #6CC16C;
+        text-decoration: underline;
       }
     </style>
   </head>
   <body>
     <div id="app">
       <canvas id="canvas"></canvas>
-
       <div id="stats">
-        <div class="title">Model Viewer</div>
-        <div id="fps-counter">-- FPS</div>
-        <div id="vertex-count">Vertices: --</div>
-        <div id="triangle-count">Triangles: --</div>
-        <div id="vram-usage">VRAM: --</div>
+        <div style="font-weight: bold; margin-bottom: 8px; color: #0f0;">Model Viewer</div>
+        <div>FPS: <span id="fps-counter">0</span></div>
+        <div>Vertices: <span id="vertex-count">0</span></div>
+        <div>Triangles: <span id="triangle-count">0</span></div>
+        <div>VRAM: <span id="vram-usage">0.0 MB</span></div>
       </div>
-
+      <div id="info">
+        Miskatonic Engine - Model Viewer<br>
+        Mouse: Drag to rotate, Scroll to zoom<br>
+        Q/E or Up/Down: Raise/Lower view target<br>
+        R: Reset camera
+        <br><br>
+        <a href="/index.html" class="nav-link">← Back to Main Demo</a>
+      </div>
       <div id="controls">
-        <div class="title">Controls</div>
-
         <div class="control-group">
-          <span class="control-label">Model</span>
+          <div class="slider-label">Model</div>
           <select id="model-select">
             <option value="/models/Naked Snake/Naked_Snake.obj">Naked Snake</option>
             <option value="sphere">Generated Sphere</option>
@@ -211,49 +187,81 @@
           </select>
         </div>
 
-        <div class="control-group">
-          <span class="control-label">Post-Processing</span>
-          <div class="control-row">
-            <input type="checkbox" id="bloom-toggle" checked>
-            <label for="bloom-toggle">Bloom</label>
-          </div>
-          <div class="control-row">
-            <span>Intensity</span>
-            <input type="range" id="bloom-intensity" min="0" max="2" step="0.1" value="0.5">
-            <span class="slider-value" id="bloom-intensity-value">0.5</span>
+        <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+          <div class="slider-label">Bloom Threshold: <span id="bloom-threshold-value">0.80</span></div>
+          <div class="slider-container">
+            <input type="range" id="bloom-threshold-slider" min="0" max="100" value="80" step="1">
           </div>
         </div>
 
         <div class="control-group">
-          <div class="control-row">
-            <input type="checkbox" id="crt-toggle">
-            <label for="crt-toggle">CRT Effect</label>
-          </div>
-          <div class="control-row">
-            <span>Grain</span>
-            <input type="range" id="grain-amount" min="0" max="0.1" step="0.01" value="0.02">
-            <span class="slider-value" id="grain-value">0.02</span>
+          <div class="slider-label">Bloom Intensity: <span id="bloom-intensity-value">0.50</span></div>
+          <div class="slider-container">
+            <input type="range" id="bloom-intensity-slider" min="0" max="200" value="50" step="5">
           </div>
         </div>
 
         <div class="control-group">
-          <span class="control-label">Lighting</span>
-          <div class="control-row">
-            <span>Intensity</span>
-            <input type="range" id="light-intensity" min="0" max="3" step="0.1" value="1.2">
-            <span class="slider-value" id="light-intensity-value">1.2</span>
+          <div class="slider-label">Bloom Mip Levels: <span id="bloom-mip-levels-value">5</span></div>
+          <div class="slider-container">
+            <input type="range" id="bloom-mip-levels-slider" min="1" max="5" value="5" step="1">
           </div>
         </div>
-      </div>
 
-      <div id="info">
-        <div><span class="key">LMB Drag</span> Orbit camera</div>
-        <div><span class="key">Scroll</span> Zoom in/out</div>
-        <div><span class="key">Q/↑</span> Raise view target</div>
-        <div><span class="key">E/↓</span> Lower view target</div>
-        <div><span class="key">R</span> Reset camera</div>
-        <div style="margin-top: 12px; padding-top: 8px; border-top: 1px solid #444;">
-          <a href="/index.html" style="color: #0f0; text-decoration: none;">← Back to Main Demo</a>
+        <div class="control-group">
+          <div class="slider-label">Grain Amount: <span id="grain-amount-value">0.020</span></div>
+          <div class="slider-container">
+            <input type="range" id="grain-amount-slider" min="0" max="100" value="20" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Gamma: <span id="gamma-value">2.2</span></div>
+          <div class="slider-container">
+            <input type="range" id="gamma-slider" min="10" max="30" value="22" step="1">
+          </div>
+        </div>
+
+        <div class="control-group" style="border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 10px; margin-top: 10px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="crt-enabled-toggle" checked style="width: 16px; height: 16px; cursor: pointer;">
+            <span style="font-weight: bold; color: #0f0;">CRT Effect</span>
+          </label>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Color Overflow: <span id="color-overflow-value">0.30</span></div>
+          <div class="slider-container">
+            <input type="range" id="color-overflow-slider" min="0" max="100" value="30" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Scanlines: <span id="scanlines-value">0.50</span></div>
+          <div class="slider-container">
+            <input type="range" id="scanlines-slider" min="0" max="100" value="50" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Mask Intensity: <span id="mask-intensity-value">0.30</span></div>
+          <div class="slider-container">
+            <input type="range" id="mask-intensity-slider" min="0" max="100" value="30" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Curvature: <span id="curvature-value">0.03</span></div>
+          <div class="slider-container">
+            <input type="range" id="curvature-slider" min="0" max="20" value="3" step="1">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Vignette: <span id="vignette-value">0.20</span></div>
+          <div class="slider-container">
+            <input type="range" id="vignette-slider" min="0" max="100" value="20" step="5">
+          </div>
         </div>
       </div>
     </div>
@@ -269,57 +277,147 @@
         if (success) {
           viewer.start();
           console.log('Model Viewer started');
-          setupControls();
+
+          // Model selection
+          const modelSelect = document.getElementById('model-select');
+          if (modelSelect) {
+            modelSelect.addEventListener('change', async (e) => {
+              await viewer.loadModelByPath(e.target.value);
+            });
+          }
+
+          // Bloom parameter sliders
+          const bloomThresholdSlider = document.getElementById('bloom-threshold-slider');
+          const bloomThresholdValue = document.getElementById('bloom-threshold-value');
+          if (bloomThresholdSlider) {
+            bloomThresholdSlider.addEventListener('input', () => {
+              const value = parseInt(bloomThresholdSlider.value, 10) / 100;
+              viewer.retroPostProcessor.setBloomThreshold(value);
+              if (bloomThresholdValue) {
+                bloomThresholdValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const bloomIntensitySlider = document.getElementById('bloom-intensity-slider');
+          const bloomIntensityValue = document.getElementById('bloom-intensity-value');
+          if (bloomIntensitySlider) {
+            bloomIntensitySlider.addEventListener('input', () => {
+              const value = parseInt(bloomIntensitySlider.value, 10) / 100;
+              viewer.retroPostProcessor.setBloomIntensity(value);
+              if (bloomIntensityValue) {
+                bloomIntensityValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const grainAmountSlider = document.getElementById('grain-amount-slider');
+          const grainAmountValue = document.getElementById('grain-amount-value');
+          if (grainAmountSlider) {
+            grainAmountSlider.addEventListener('input', () => {
+              const value = parseInt(grainAmountSlider.value, 10) / 1000;
+              viewer.retroPostProcessor.setGrainAmount(value);
+              if (grainAmountValue) {
+                grainAmountValue.textContent = value.toFixed(3);
+              }
+            });
+          }
+
+          const gammaSlider = document.getElementById('gamma-slider');
+          const gammaValue = document.getElementById('gamma-value');
+          if (gammaSlider) {
+            gammaSlider.addEventListener('input', () => {
+              const value = parseInt(gammaSlider.value, 10) / 10;
+              viewer.retroPostProcessor.setGamma(value);
+              if (gammaValue) {
+                gammaValue.textContent = value.toFixed(1);
+              }
+            });
+          }
+
+          // CRT toggle
+          const crtEnabledToggle = document.getElementById('crt-enabled-toggle');
+          if (crtEnabledToggle) {
+            crtEnabledToggle.addEventListener('change', () => {
+              viewer.retroPostProcessor.setCRTEnabled(crtEnabledToggle.checked);
+            });
+          }
+
+          // CRT parameter sliders
+          const colorOverflowSlider = document.getElementById('color-overflow-slider');
+          const colorOverflowValue = document.getElementById('color-overflow-value');
+          if (colorOverflowSlider) {
+            colorOverflowSlider.addEventListener('input', () => {
+              const value = parseInt(colorOverflowSlider.value, 10) / 100;
+              viewer.retroPostProcessor.setColorOverflow(value);
+              if (colorOverflowValue) {
+                colorOverflowValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const scanlinesSlider = document.getElementById('scanlines-slider');
+          const scanlinesValue = document.getElementById('scanlines-value');
+          if (scanlinesSlider) {
+            scanlinesSlider.addEventListener('input', () => {
+              const value = parseInt(scanlinesSlider.value, 10) / 100;
+              viewer.retroPostProcessor.setScanlinesStrength(value);
+              if (scanlinesValue) {
+                scanlinesValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const maskIntensitySlider = document.getElementById('mask-intensity-slider');
+          const maskIntensityValue = document.getElementById('mask-intensity-value');
+          if (maskIntensitySlider) {
+            maskIntensitySlider.addEventListener('input', () => {
+              const value = parseInt(maskIntensitySlider.value, 10) / 100;
+              viewer.retroPostProcessor.setMaskIntensity(value);
+              if (maskIntensityValue) {
+                maskIntensityValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const curvatureSlider = document.getElementById('curvature-slider');
+          const curvatureValue = document.getElementById('curvature-value');
+          if (curvatureSlider) {
+            curvatureSlider.addEventListener('input', () => {
+              const value = parseInt(curvatureSlider.value, 10) / 100;
+              viewer.retroPostProcessor.setCurvatureAmount(value);
+              if (curvatureValue) {
+                curvatureValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const vignetteSlider = document.getElementById('vignette-slider');
+          const vignetteValue = document.getElementById('vignette-value');
+          if (vignetteSlider) {
+            vignetteSlider.addEventListener('input', () => {
+              const value = parseInt(vignetteSlider.value, 10) / 100;
+              viewer.retroPostProcessor.setVignetteAmount(value);
+              if (vignetteValue) {
+                vignetteValue.textContent = value.toFixed(2);
+              }
+            });
+          }
+
+          const bloomMipLevelsSlider = document.getElementById('bloom-mip-levels-slider');
+          const bloomMipLevelsValue = document.getElementById('bloom-mip-levels-value');
+          if (bloomMipLevelsSlider) {
+            bloomMipLevelsSlider.addEventListener('input', () => {
+              const value = parseInt(bloomMipLevelsSlider.value, 10);
+              viewer.retroPostProcessor.setBloomMipLevels(value);
+              if (bloomMipLevelsValue) {
+                bloomMipLevelsValue.textContent = value.toString();
+              }
+            });
+          }
         } else {
           console.error('Failed to initialize Model Viewer');
         }
-      }
-
-      function setupControls() {
-        // Model selection
-        const modelSelect = document.getElementById('model-select');
-        modelSelect.addEventListener('change', async (e) => {
-          await viewer.loadModelByPath(e.target.value);
-        });
-
-        // Bloom toggle
-        const bloomToggle = document.getElementById('bloom-toggle');
-        bloomToggle.addEventListener('change', (e) => {
-          viewer.setBloomEnabled(e.target.checked);
-        });
-
-        // Bloom intensity
-        const bloomIntensity = document.getElementById('bloom-intensity');
-        const bloomIntensityValue = document.getElementById('bloom-intensity-value');
-        bloomIntensity.addEventListener('input', (e) => {
-          const value = parseFloat(e.target.value);
-          bloomIntensityValue.textContent = value.toFixed(1);
-          viewer.setBloomIntensity(value);
-        });
-
-        // CRT toggle
-        const crtToggle = document.getElementById('crt-toggle');
-        crtToggle.addEventListener('change', (e) => {
-          viewer.setCRTEnabled(e.target.checked);
-        });
-
-        // Film grain
-        const grainAmount = document.getElementById('grain-amount');
-        const grainValue = document.getElementById('grain-value');
-        grainAmount.addEventListener('input', (e) => {
-          const value = parseFloat(e.target.value);
-          grainValue.textContent = value.toFixed(2);
-          viewer.setGrainAmount(value);
-        });
-
-        // Light intensity
-        const lightIntensity = document.getElementById('light-intensity');
-        const lightIntensityValue = document.getElementById('light-intensity-value');
-        lightIntensity.addEventListener('input', (e) => {
-          const value = parseFloat(e.target.value);
-          lightIntensityValue.textContent = value.toFixed(1);
-          viewer.setLightIntensity(value);
-        });
       }
 
       init();
