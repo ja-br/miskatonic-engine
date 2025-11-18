@@ -7,7 +7,7 @@ import {
   BackendFactory,
   OrbitCameraController,
   CameraSystem,
-  loadOBJ,
+  loadOBJWithMaterials,
   createPlane,
   createSphere,
   createCube,
@@ -24,6 +24,8 @@ import {
   type BackendSamplerHandle,
   type GeometryData,
   type DrawCommand,
+  type ModelData,
+  type MaterialGroup,
   OPAQUE_PIPELINE_STATE,
 } from '../../rendering/src';
 import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
@@ -68,12 +70,23 @@ export class ModelViewer {
   private sharedBindGroup!: BackendBindGroupHandle;
   private modelPipeline!: BackendPipelineHandle;
 
-  // Model geometry
+  // Model geometry (legacy single-material)
   private modelVertexBuffer!: BackendBufferHandle;
   private modelIndexBuffer!: BackendBufferHandle;
   private modelIndexCount: number = 0;
   private modelVertexCount: number = 0;
   private modelIndexFormat: 'uint16' | 'uint32' = 'uint16';
+
+  // Multi-material support
+  private materialGroups: {
+    materialName: string;
+    vertexBuffer: BackendBufferHandle;
+    indexBuffer: BackendBufferHandle;
+    indexCount: number;
+    indexFormat: 'uint16' | 'uint32';
+    texture: BackendTextureHandle;
+    bindGroup: BackendBindGroupHandle;
+  }[] = [];
 
   // Ground plane
   private groundVertexBuffer!: BackendBufferHandle;
@@ -246,60 +259,173 @@ export class ModelViewer {
 
     console.log(`Loading model: ${modelPath}`);
 
-    let modelData: GeometryData;
+    // Clear previous material groups
+    this.materialGroups = [];
+
+    let modelData: ModelData | null = null;
+    let simpleGeometry: GeometryData | null = null;
+
     try {
       if (modelPath === 'sphere') {
-        modelData = createSphere(2.0, 32, 24);
+        simpleGeometry = createSphere(2.0, 32, 24);
         console.log('Generated sphere');
       } else if (modelPath === 'cube') {
-        modelData = createCube(3.0);
+        simpleGeometry = createCube(3.0);
         console.log('Generated cube');
       } else {
-        // Load OBJ file
-        modelData = await loadOBJ(modelPath);
+        // Load OBJ file with materials
+        modelData = await loadOBJWithMaterials(modelPath);
         console.log(`Loaded model from ${modelPath}`);
+        console.log(`  ${modelData.materialGroups.length} material groups`);
+        console.log(`  ${modelData.materials.size} materials defined`);
       }
     } catch (error) {
       console.warn('Failed to load model, using fallback sphere:', error);
-      modelData = createSphere(2.0, 32, 24);
+      simpleGeometry = createSphere(2.0, 32, 24);
     }
 
-    // Store stats - use actual index count (complete triangles only, ignoring padding)
-    this.modelVertexCount = modelData.positions.length / 3;
-    // The indices array may be padded for WebGPU 4-byte alignment, so use only complete triangles
-    this.modelIndexCount = Math.floor(modelData.indices.length / 3) * 3;
+    // Create pipeline first (needed for bind groups)
+    this.createPipeline();
 
-    // Determine correct index format based on maximum index value, not vertex count
-    const maxIndex = this.modelIndexCount > 0
-      ? Math.max(...Array.from(modelData.indices).slice(0, this.modelIndexCount))
-      : 0;
-    this.modelIndexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
+    if (modelData && modelData.materialGroups.length > 0) {
+      // Multi-material model
+      const basePath = modelPath.substring(0, modelPath.lastIndexOf('/') + 1);
+      let totalVertices = 0;
+      let totalTriangles = 0;
 
-    console.log(`Model: ${this.modelVertexCount} vertices, ${this.modelIndexCount / 3} triangles`);
-    console.log(`Index format: ${this.modelIndexFormat} (max index: ${maxIndex})`);
+      for (const group of modelData.materialGroups) {
+        const geometry = group.geometry;
+        const indexCount = Math.floor(geometry.indices.length / 3) * 3;
+        const vertexCount = geometry.positions.length / 3;
 
-    // Interleave vertex data (position, normal, uv, color)
-    const interleavedData = this.interleaveVertexData(modelData);
+        totalVertices += vertexCount;
+        totalTriangles += indexCount / 3;
 
-    // Create GPU buffers
-    this.modelVertexBuffer = this.backend.createBuffer(
-      'model-vertices',
-      'vertex',
-      interleavedData,
-      'static_draw'
-    );
-    this.modelIndexBuffer = this.backend.createBuffer(
-      'model-indices',
-      'index',
-      modelData.indices,
-      'static_draw'
-    );
+        // Interleave vertex data
+        const interleavedData = this.interleaveVertexData(geometry);
+
+        // Create GPU buffers
+        const vertexBuffer = this.backend.createBuffer(
+          `vertices-${group.materialName}`,
+          'vertex',
+          interleavedData,
+          'static_draw'
+        );
+        const indexBuffer = this.backend.createBuffer(
+          `indices-${group.materialName}`,
+          'index',
+          geometry.indices,
+          'static_draw'
+        );
+
+        // Determine index format
+        const maxIndex = indexCount > 0
+          ? Math.max(...Array.from(geometry.indices).slice(0, indexCount))
+          : 0;
+        const indexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
+
+        // Load texture for this material
+        let texture = this.dummyTexture;
+        const materialDef = modelData.materials.get(group.materialName);
+        if (materialDef?.texturePath) {
+          const textureUrl = basePath + materialDef.texturePath;
+          try {
+            texture = await this.loadTexture(textureUrl, group.materialName);
+          } catch (error) {
+            console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
+          }
+        }
+
+        // Create bind group for this material
+        const bindGroup = this.backend.createBindGroup(this.materialBindGroupLayout, {
+          bindings: [
+            { binding: 0, resource: texture },
+            { binding: 1, resource: this.dummySampler },
+            { binding: 2, resource: this.materialBuffer },
+          ],
+        });
+
+        this.materialGroups.push({
+          materialName: group.materialName,
+          vertexBuffer,
+          indexBuffer,
+          indexCount,
+          indexFormat,
+          texture,
+          bindGroup,
+        });
+      }
+
+      this.modelVertexCount = totalVertices;
+      this.modelIndexCount = totalTriangles * 3;
+
+      console.log(`Model: ${totalVertices} vertices, ${totalTriangles} triangles in ${this.materialGroups.length} groups`);
+    } else if (simpleGeometry) {
+      // Simple single-material geometry (sphere/cube/fallback)
+      this.modelVertexCount = simpleGeometry.positions.length / 3;
+      this.modelIndexCount = Math.floor(simpleGeometry.indices.length / 3) * 3;
+
+      const maxIndex = this.modelIndexCount > 0
+        ? Math.max(...Array.from(simpleGeometry.indices).slice(0, this.modelIndexCount))
+        : 0;
+      this.modelIndexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
+
+      const interleavedData = this.interleaveVertexData(simpleGeometry);
+
+      this.modelVertexBuffer = this.backend.createBuffer(
+        'model-vertices',
+        'vertex',
+        interleavedData,
+        'static_draw'
+      );
+      this.modelIndexBuffer = this.backend.createBuffer(
+        'model-indices',
+        'index',
+        simpleGeometry.indices,
+        'static_draw'
+      );
+
+      console.log(`Model: ${this.modelVertexCount} vertices, ${this.modelIndexCount / 3} triangles`);
+    }
 
     // Update UI with model stats
     this.updateModelStats();
+  }
 
-    // Create pipeline
-    this.createPipeline();
+  private async loadTexture(url: string, name: string): Promise<BackendTextureHandle> {
+    if (!this.backend) throw new Error('Backend not initialized');
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        // Create canvas to get image data
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, img.width, img.height);
+
+        const texture = this.backend!.createTexture(
+          `texture-${name}`,
+          img.width,
+          img.height,
+          new Uint8Array(imageData.data.buffer),
+          { format: 'rgba8unorm' }
+        );
+
+        console.log(`Loaded texture: ${name} (${img.width}x${img.height})`);
+        resolve(texture);
+      };
+      img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
+      img.src = url;
+    });
   }
 
   private updateModelStats(): void {
@@ -674,25 +800,50 @@ export class ModelViewer {
       label: 'ground-plane',
     };
 
-    const modelCommand: DrawCommand = {
-      pipeline: this.modelPipeline,
-      bindGroups: new Map([
-        [0, this.sharedBindGroup],
-        [1, this.materialBindGroup],
-        [2, this.lightBindGroup],
-      ]),
-      geometry: {
-        type: 'indexed',
-        vertexBuffers: new Map([[0, this.modelVertexBuffer]]),
-        indexBuffer: this.modelIndexBuffer,
-        indexFormat: this.modelIndexFormat,
-        indexCount: this.modelIndexCount,
-      },
-      label: 'model',
-    };
-
     this.backend.executeDrawCommand(groundCommand);
-    this.backend.executeDrawCommand(modelCommand);
+
+    // Draw model - either multi-material or single
+    if (this.materialGroups.length > 0) {
+      // Multi-material: one draw call per material group
+      for (const group of this.materialGroups) {
+        const materialCommand: DrawCommand = {
+          pipeline: this.modelPipeline,
+          bindGroups: new Map([
+            [0, this.sharedBindGroup],
+            [1, group.bindGroup],
+            [2, this.lightBindGroup],
+          ]),
+          geometry: {
+            type: 'indexed',
+            vertexBuffers: new Map([[0, group.vertexBuffer]]),
+            indexBuffer: group.indexBuffer,
+            indexFormat: group.indexFormat,
+            indexCount: group.indexCount,
+          },
+          label: `model-${group.materialName}`,
+        };
+        this.backend.executeDrawCommand(materialCommand);
+      }
+    } else {
+      // Single material fallback
+      const modelCommand: DrawCommand = {
+        pipeline: this.modelPipeline,
+        bindGroups: new Map([
+          [0, this.sharedBindGroup],
+          [1, this.materialBindGroup],
+          [2, this.lightBindGroup],
+        ]),
+        geometry: {
+          type: 'indexed',
+          vertexBuffers: new Map([[0, this.modelVertexBuffer]]),
+          indexBuffer: this.modelIndexBuffer,
+          indexFormat: this.modelIndexFormat,
+          indexCount: this.modelIndexCount,
+        },
+        label: 'model',
+      };
+      this.backend.executeDrawCommand(modelCommand);
+    }
 
     // End scene render pass (rendering to intermediate texture is complete)
     this.backend.endRenderPass();

@@ -11,10 +11,14 @@ export {
   createSphere,
   createPlane,
   loadOBJ,
+  loadOBJWithMaterials,
   parseOBJ,
+  parseOBJWithMaterials,
   parseMTL,
   type GeometryData,
   type MaterialData,
+  type MaterialGroup,
+  type ModelData,
 } from './Geometry';
 
 // Epic 3.15: Light Component & Integration

@@ -14,10 +14,33 @@ export interface GeometryData {
  * Basic material properties from MTL files
  */
 export interface MaterialData {
+  name: string;
   diffuse: [number, number, number]; // Kd
   ambient: [number, number, number]; // Ka
   specular: [number, number, number]; // Ks
   texturePath?: string; // map_Kd
+}
+
+/**
+ * Geometry data split by material
+ */
+export interface MaterialGroup {
+  materialName: string;
+  geometry: GeometryData;
+}
+
+/**
+ * Complete model data with materials
+ */
+export interface ModelData {
+  /** All geometry combined (for simple rendering) */
+  geometry: GeometryData;
+  /** Geometry split by material (for textured rendering) */
+  materialGroups: MaterialGroup[];
+  /** Material definitions */
+  materials: Map<string, MaterialData>;
+  /** MTL file path referenced in OBJ */
+  mtlPath?: string;
 }
 
 /**
@@ -453,14 +476,11 @@ function generateNormals(positions: number[], indices: number[], normals: number
 /**
  * Parse MTL (Material Template Library) file
  * @param mtlText MTL file content as string
- * @returns MaterialData with basic material properties
+ * @returns Map of material name to MaterialData
  */
-export function parseMTL(mtlText: string): MaterialData {
-  const material: MaterialData = {
-    diffuse: [0.8, 0.8, 0.8],
-    ambient: [0.2, 0.2, 0.2],
-    specular: [1.0, 1.0, 1.0],
-  };
+export function parseMTL(mtlText: string): Map<string, MaterialData> {
+  const materials = new Map<string, MaterialData>();
+  let currentMaterial: MaterialData | null = null;
 
   const lines = mtlText.split('\n');
 
@@ -471,33 +491,269 @@ export function parseMTL(mtlText: string): MaterialData {
     const parts = trimmed.split(/\s+/);
     const type = parts[0];
 
-    if (type === 'Kd') {
-      // Diffuse color
-      material.diffuse = [
-        parseFloat(parts[1]),
-        parseFloat(parts[2]),
-        parseFloat(parts[3]),
-      ];
-    } else if (type === 'Ka') {
-      // Ambient color
-      material.ambient = [
-        parseFloat(parts[1]),
-        parseFloat(parts[2]),
-        parseFloat(parts[3]),
-      ];
-    } else if (type === 'Ks') {
-      // Specular color
-      material.specular = [
-        parseFloat(parts[1]),
-        parseFloat(parts[2]),
-        parseFloat(parts[3]),
-      ];
-    } else if (type === 'map_Kd') {
-      // Diffuse texture map
-      material.texturePath = parts[1];
+    if (type === 'newmtl') {
+      // Start new material
+      currentMaterial = {
+        name: parts[1],
+        diffuse: [0.8, 0.8, 0.8],
+        ambient: [0.2, 0.2, 0.2],
+        specular: [1.0, 1.0, 1.0],
+      };
+      materials.set(parts[1], currentMaterial);
+    } else if (currentMaterial) {
+      if (type === 'Kd') {
+        currentMaterial.diffuse = [
+          parseFloat(parts[1]),
+          parseFloat(parts[2]),
+          parseFloat(parts[3]),
+        ];
+      } else if (type === 'Ka') {
+        currentMaterial.ambient = [
+          parseFloat(parts[1]),
+          parseFloat(parts[2]),
+          parseFloat(parts[3]),
+        ];
+      } else if (type === 'Ks') {
+        currentMaterial.specular = [
+          parseFloat(parts[1]),
+          parseFloat(parts[2]),
+          parseFloat(parts[3]),
+        ];
+      } else if (type === 'map_Kd') {
+        currentMaterial.texturePath = parts[1];
+      }
     }
   }
 
-  return material;
+  return materials;
+}
+
+/**
+ * Parse OBJ file and split geometry by material
+ * @param objText OBJ file content as string
+ * @returns Object with combined geometry and material groups
+ */
+export function parseOBJWithMaterials(objText: string): { geometry: GeometryData; materialGroups: MaterialGroup[]; mtlPath?: string } {
+  // Temporary arrays for raw OBJ data
+  const tempPositions: number[] = [];
+  const tempNormals: number[] = [];
+  const tempUVs: number[] = [];
+
+  // Material groups: materialName -> face data
+  const materialFaces = new Map<string, string[][]>();
+  let currentMaterial = 'default';
+  let mtlPath: string | undefined;
+
+  const lines = objText.split('\n');
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const parts = trimmed.split(/\s+/);
+    const type = parts[0];
+
+    if (type === 'v') {
+      tempPositions.push(
+        parseFloat(parts[1]),
+        parseFloat(parts[2]),
+        parseFloat(parts[3])
+      );
+    } else if (type === 'vn') {
+      tempNormals.push(
+        parseFloat(parts[1]),
+        parseFloat(parts[2]),
+        parseFloat(parts[3])
+      );
+    } else if (type === 'vt') {
+      tempUVs.push(
+        parseFloat(parts[1]),
+        parseFloat(parts[2])
+      );
+    } else if (type === 'mtllib') {
+      mtlPath = parts[1];
+    } else if (type === 'usemtl') {
+      currentMaterial = parts[1];
+      if (!materialFaces.has(currentMaterial)) {
+        materialFaces.set(currentMaterial, []);
+      }
+    } else if (type === 'f') {
+      const faceVertices = parts.slice(1);
+      if (!materialFaces.has(currentMaterial)) {
+        materialFaces.set(currentMaterial, []);
+      }
+      materialFaces.get(currentMaterial)!.push(faceVertices);
+    }
+  }
+
+  // Process each material group
+  const materialGroups: MaterialGroup[] = [];
+  const allPositions: number[] = [];
+  const allNormals: number[] = [];
+  const allUVs: number[] = [];
+  const allIndices: number[] = [];
+  let globalVertexIndex = 0;
+
+  for (const [materialName, faces] of materialFaces) {
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+    const vertexMap = new Map<string, number>();
+    let vertexIndex = 0;
+
+    for (const faceVertices of faces) {
+      // Fan triangulation
+      triangleLoop: for (let i = 1; i < faceVertices.length - 1; i++) {
+        const v1 = faceVertices[0];
+        const v2 = faceVertices[i];
+        const v3 = faceVertices[i + 1];
+
+        // Validate
+        for (const v of [v1, v2, v3]) {
+          const vertParts = v.split('/');
+          const posIdx = parseInt(vertParts[0]) - 1;
+          if (posIdx < 0 || posIdx >= tempPositions.length / 3) {
+            continue triangleLoop;
+          }
+        }
+
+        // Process vertices
+        for (const v of [v1, v2, v3]) {
+          let idx = vertexMap.get(v);
+
+          if (idx === undefined) {
+            const vertParts = v.split('/');
+            const posIdx = parseInt(vertParts[0]) - 1;
+            const uvIdx = vertParts[1] ? parseInt(vertParts[1]) - 1 : -1;
+            const normIdx = vertParts[2] ? parseInt(vertParts[2]) - 1 : -1;
+
+            positions.push(
+              tempPositions[posIdx * 3],
+              tempPositions[posIdx * 3 + 1],
+              tempPositions[posIdx * 3 + 2]
+            );
+
+            if (normIdx >= 0 && normIdx < tempNormals.length / 3) {
+              normals.push(
+                tempNormals[normIdx * 3],
+                tempNormals[normIdx * 3 + 1],
+                tempNormals[normIdx * 3 + 2]
+              );
+            } else {
+              normals.push(0, 1, 0);
+            }
+
+            if (uvIdx >= 0 && uvIdx < tempUVs.length / 2) {
+              uvs.push(
+                tempUVs[uvIdx * 2],
+                1.0 - tempUVs[uvIdx * 2 + 1]
+              );
+            } else {
+              uvs.push(0, 0);
+            }
+
+            idx = vertexIndex++;
+            vertexMap.set(v, idx);
+          }
+
+          indices.push(idx);
+        }
+      }
+    }
+
+    if (indices.length > 0) {
+      // Create indices array
+      const vertexCount = positions.length / 3;
+      let indicesArray: Uint16Array | Uint32Array;
+      if (vertexCount > 65535) {
+        indicesArray = new Uint32Array(indices);
+      } else {
+        const paddedLength = indices.length % 2 === 0 ? indices.length : indices.length + 1;
+        indicesArray = new Uint16Array(paddedLength);
+        indicesArray.set(indices);
+      }
+
+      materialGroups.push({
+        materialName,
+        geometry: {
+          positions: new Float32Array(positions),
+          normals: new Float32Array(normals),
+          uvs: new Float32Array(uvs),
+          indices: indicesArray,
+        },
+      });
+
+      // Add to combined geometry
+      for (let i = 0; i < indices.length; i++) {
+        allIndices.push(indices[i] + globalVertexIndex);
+      }
+      allPositions.push(...positions);
+      allNormals.push(...normals);
+      allUVs.push(...uvs);
+      globalVertexIndex += vertexCount;
+    }
+  }
+
+  // Create combined geometry
+  const totalVertexCount = allPositions.length / 3;
+  let combinedIndices: Uint16Array | Uint32Array;
+  if (totalVertexCount > 65535) {
+    combinedIndices = new Uint32Array(allIndices);
+  } else {
+    const paddedLength = allIndices.length % 2 === 0 ? allIndices.length : allIndices.length + 1;
+    combinedIndices = new Uint16Array(paddedLength);
+    combinedIndices.set(allIndices);
+  }
+
+  return {
+    geometry: {
+      positions: new Float32Array(allPositions),
+      normals: new Float32Array(allNormals),
+      uvs: new Float32Array(allUVs),
+      indices: combinedIndices,
+    },
+    materialGroups,
+    mtlPath,
+  };
+}
+
+/**
+ * Load OBJ model with materials from URL
+ * @param url URL to OBJ file
+ * @returns ModelData with geometry, material groups, and material definitions
+ */
+export async function loadOBJWithMaterials(url: string): Promise<ModelData> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load OBJ file: ${response.statusText}`);
+  }
+
+  const objText = await response.text();
+  const { geometry, materialGroups, mtlPath } = parseOBJWithMaterials(objText);
+
+  // Load MTL file if referenced
+  let materials = new Map<string, MaterialData>();
+  if (mtlPath) {
+    const basePath = url.substring(0, url.lastIndexOf('/') + 1);
+    const mtlUrl = basePath + mtlPath;
+    try {
+      const mtlResponse = await fetch(mtlUrl);
+      if (mtlResponse.ok) {
+        const mtlText = await mtlResponse.text();
+        materials = parseMTL(mtlText);
+        console.log(`Loaded ${materials.size} materials from ${mtlPath}`);
+      }
+    } catch (error) {
+      console.warn(`Failed to load MTL file: ${mtlPath}`, error);
+    }
+  }
+
+  return {
+    geometry,
+    materialGroups,
+    materials,
+    mtlPath,
+  };
 }
 
