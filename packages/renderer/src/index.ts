@@ -114,6 +114,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // CRT toggle
+    const crtEnabledToggle = document.getElementById('crt-enabled-toggle') as HTMLInputElement;
+    if (crtEnabledToggle) {
+      crtEnabledToggle.addEventListener('change', () => {
+        demo.retroPostProcessor.setCRTEnabled(crtEnabledToggle.checked);
+      });
+    }
+
     // CRT parameter sliders
     const colorOverflowSlider = document.getElementById('color-overflow-slider') as HTMLInputElement;
     const colorOverflowValue = document.getElementById('color-overflow-value');

@@ -412,7 +412,7 @@ export class RetroPostProcessor {
 
     // 5. Create CRT intermediate texture (if CRT enabled)
     // CRT pass needs a texture to render composite output to, then applies CRT effect to swapchain
-    if (this.config.crt) {
+    if (this.config.crt?.enabled) {
       console.log(`[RetroPostProcessor] Creating CRT intermediate texture: ${displayWidth}x${displayHeight}`);
       this.compositeTexture = this.backend.createTexture(
         'retro-post-composite-output',
@@ -465,7 +465,7 @@ export class RetroPostProcessor {
     });
 
     // Load CRT shader (if CRT configured)
-    if (this.config.crt) {
+    if (this.config.crt?.enabled) {
       this.crtShader = this.backend.createShader('retro-crt-yah', {
         vertex: crtYahWGSL,
         fragment: crtYahWGSL,
@@ -559,7 +559,7 @@ export class RetroPostProcessor {
     });
 
     // CRT Shader (if configured)
-    if (this.config.crt) {
+    if (this.config.crt?.enabled) {
       // @group(0): texture_2d + sampler (input texture - composite output)
       this.crtTextureLayout = this.backend.createBindGroupLayout({
         entries: [
@@ -678,7 +678,7 @@ export class RetroPostProcessor {
     //   ... (13 more f32 params)   // 52 bytes
     //   _padding: vec3<f32>,       // 12 bytes
     // }
-    if (this.config.crt) {
+    if (this.config.crt?.enabled) {
       const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
       crtParamsData[0] = this.displayWidth;
       crtParamsData[1] = this.displayHeight;
@@ -834,7 +834,7 @@ export class RetroPostProcessor {
     });
 
     // CRT Pipeline (if configured)
-    if (this.config.crt && this.crtShader && this.crtTextureLayout && this.crtParamsLayout) {
+    if (this.config.crt?.enabled && this.crtShader && this.crtTextureLayout && this.crtParamsLayout) {
       this.crtPipeline = this.backend.createRenderPipeline({
         label: 'retro-crt-yah',
         shader: this.crtShader,
@@ -864,29 +864,29 @@ export class RetroPostProcessor {
    * Returns final composited texture
    */
   apply(sceneTexture: BackendTextureHandle): BackendTextureHandle {
-    console.log('[POST] Starting apply()');
+    // console.log('[POST] Starting apply()');
     // Pass 1: Extract bright pixels
     this.bloomExtractPass(sceneTexture);
-    console.log('[POST] Bloom extract pass complete');
+    // console.log('[POST] Bloom extract pass complete');
 
     // Pass 2a: Downsample mip pyramid (Extract → Mip0 → Mip1)
     this.bloomDownsamplePass();
-    console.log('[POST] Bloom downsample pass complete');
+    // console.log('[POST] Bloom downsample pass complete');
 
     // Pass 2b: Upsample with additive blending (Mip1 → Mip0 → Extract)
     this.bloomUpsamplePass();
-    console.log('[POST] Bloom upsample pass complete');
+    // console.log('[POST] Bloom upsample pass complete');
 
     // NOTE: Old blur pass removed, replaced with mip pyramid downsample/upsample
     // this.bloomBlurPass();
 
     // Pass 3: Composite (bloom + tonemap + LUT + dither + grain)
     const result = this.compositePass(sceneTexture);
-    console.log('[POST] Composite pass complete, returning:', !!result);
+    // console.log('[POST] Composite pass complete, returning:', !!result);
 
     // Pass 4: CRT effect (if enabled)
     if (this.config.crt && this.config.crt.enabled) {
-      console.log('[POST] Applying CRT-Yah effect');
+      // console.log('[POST] Applying CRT-Yah effect');
       this.crtPass();
     }
 
@@ -1792,6 +1792,53 @@ export class RetroPostProcessor {
    */
   setColorLUT(texture: BackendTextureHandle | undefined): void {
     this.config.colorLUT = texture;
+  }
+
+  /**
+   * Enable or disable CRT effect at runtime
+   *
+   * When enabling: Allocates CRT intermediate texture and framebuffer
+   * When disabling: Deallocates texture and framebuffer to free VRAM (~24 MB)
+   *
+   * Note: Shader, pipeline, and layouts remain loaded for fast re-enable
+   */
+  setCRTEnabled(enabled: boolean): void {
+    if (!this.config.crt) return;
+
+    const wasEnabled = this.config.crt.enabled;
+    this.config.crt.enabled = enabled;
+
+    // If enabling and texture doesn't exist, allocate it
+    if (enabled && !wasEnabled) {
+      if (!this.compositeTexture) {
+        // Allocate at current display size
+        this.compositeTexture = this.backend.createTexture(
+          'retro-post-composite-output',
+          this.displayWidth,
+          this.displayHeight,
+          null,
+          { format: 'bgra8unorm' as any }
+        );
+
+        this.compositeFramebuffer = this.backend.createFramebuffer(
+          'retro-post-composite-fb',
+          [this.compositeTexture],
+          undefined // No depth attachment for post-processing
+        );
+      }
+    }
+
+    // If disabling, deallocate to free VRAM
+    if (!enabled && wasEnabled) {
+      if (this.compositeTexture) {
+        this.backend.deleteTexture(this.compositeTexture);
+        this.compositeTexture = null;
+      }
+      if (this.compositeFramebuffer) {
+        this.backend.deleteFramebuffer(this.compositeFramebuffer);
+        this.compositeFramebuffer = null;
+      }
+    }
   }
 
   /**

@@ -40,6 +40,40 @@ export class WebGPURenderPassManager {
   }
 
   /**
+   * Ensure depth texture exists at the correct size (lazy allocation)
+   * Only allocates when actually needed, saving VRAM for post-processing-only renderers
+   */
+  private ensureDepthTexture(width: number, height: number): void {
+    if (!this.ctx.device) return;
+
+    // Check if depth texture exists and is the correct size
+    const needsRecreate = !this.depthTexture ||
+                          this.depthTexture.width !== width ||
+                          this.depthTexture.height !== height;
+
+    if (needsRecreate) {
+      // Deallocate old texture if it exists
+      if (this.depthTexture) {
+        this.vramProfiler.deallocate('depth-texture');
+        this.depthTexture.destroy();
+      }
+
+      // Allocate new texture at current size
+      const bytesPerPixel = this.getDepthFormatBytes();
+      const newSize = width * height * bytesPerPixel;
+      this.vramProfiler.allocate('depth-texture', VRAMCategory.TEXTURES, newSize);
+      this.depthTextureSize = newSize;
+
+      this.depthTexture = this.ctx.device.createTexture({
+        size: { width, height },
+        format: this.depthFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      this.depthTextureView = this.depthTexture.createView();
+    }
+  }
+
+  /**
    * Begin render pass - extracted from WebGPUBackend.ts lines 560-582
    */
   beginRenderPass(
@@ -102,8 +136,11 @@ export class WebGPURenderPassManager {
 
       // Conditionally attach depth buffer based on requireDepth flag
       if (requireDepth === true) {
+        // Lazy-allocate depth texture at canvas size
+        this.ensureDepthTexture(this.ctx.canvas.width, this.ctx.canvas.height);
+
         if (!this.depthTextureView) {
-          throw new Error('Depth attachment requested but depth texture not initialized. Call initializeDepthTexture() first.');
+          throw new Error('Depth attachment requested but depth texture failed to initialize.');
         }
         depthAttachment = {
           view: this.depthTextureView,
@@ -147,6 +184,7 @@ export class WebGPURenderPassManager {
 
   /**
    * Resize - extracted from WebGPUBackend.ts lines 767-782
+   * Now uses lazy depth allocation - depth texture recreated on-demand during render pass
    */
   resize(width: number, height: number): void {
     if (!this.ctx.canvas || !this.ctx.device) return;
@@ -154,24 +192,15 @@ export class WebGPURenderPassManager {
     this.ctx.canvas.width = width;
     this.ctx.canvas.height = height;
 
-    // Recreate depth texture with new size
+    // Deallocate existing depth texture (if any) since it's now the wrong size
+    // It will be lazily recreated at the new size when next needed via ensureDepthTexture()
     if (this.depthTexture) {
       this.vramProfiler.deallocate('depth-texture');
       this.depthTexture.destroy();
+      this.depthTexture = null;
+      this.depthTextureView = null;
+      this.depthTextureSize = 0;
     }
-
-    const bytesPerPixel = this.getDepthFormatBytes();
-    const newSize = width * height * bytesPerPixel;
-    const depthCategory = VRAMCategory.TEXTURES;
-    this.vramProfiler.allocate('depth-texture', depthCategory, newSize);
-    this.depthTextureSize = newSize;
-
-    this.depthTexture = this.ctx.device.createTexture({
-      size: { width, height },
-      format: this.depthFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    this.depthTextureView = this.depthTexture.createView();
   }
 
   /**

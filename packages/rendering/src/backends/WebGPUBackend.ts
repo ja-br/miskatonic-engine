@@ -172,7 +172,8 @@ export class WebGPUBackend implements IRendererBackend {
 
       const moduleConfig = this.createModuleConfig();
       this.initializeModulesInternal(moduleConfig);
-      this.renderPassMgr.initializeDepthTexture(this.ctx.canvas.width, this.ctx.canvas.height);
+      // Depth texture now uses lazy allocation - created on-demand when needed
+      // this.renderPassMgr.initializeDepthTexture(this.ctx.canvas.width, this.ctx.canvas.height);
 
       return true;
     } catch (error) {
