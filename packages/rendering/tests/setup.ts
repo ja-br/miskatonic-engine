@@ -30,6 +30,28 @@ if (typeof globalThis.localStorage === 'undefined') {
   };
 }
 
+// Mock document for canvas creation in high-level API tests
+if (typeof globalThis.document === 'undefined') {
+  const mockCanvas = {
+    getContext: () => null,
+    width: 800,
+    height: 600,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  };
+
+  // @ts-expect-error - Mocking browser API
+  globalThis.document = {
+    createElement: (tag: string) => {
+      if (tag === 'canvas') {
+        return mockCanvas;
+      }
+      return {};
+    },
+    getElementById: () => null,
+  };
+}
+
 // Register Camera component (Epic 3.10)
 ComponentRegistry.register(Camera, [
   // Projection type and settings
