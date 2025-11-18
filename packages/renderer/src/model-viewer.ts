@@ -433,10 +433,10 @@ export class ModelViewer {
     const triangleEl = document.getElementById('triangle-count');
 
     if (vertexEl) {
-      vertexEl.textContent = `Vertices: ${this.modelVertexCount.toLocaleString()}`;
+      vertexEl.textContent = this.modelVertexCount.toLocaleString();
     }
     if (triangleEl) {
-      triangleEl.textContent = `Triangles: ${(this.modelIndexCount / 3).toLocaleString()}`;
+      triangleEl.textContent = (this.modelIndexCount / 3).toLocaleString();
     }
   }
 
@@ -879,7 +879,7 @@ export class ModelViewer {
       // Update FPS
       const fpsEl = document.getElementById('fps-counter');
       if (fpsEl) {
-        fpsEl.textContent = `${fps} FPS (${avgFrameTime.toFixed(2)}ms)`;
+        fpsEl.textContent = `${fps} (${avgFrameTime.toFixed(2)}ms)`;
       }
 
       // Update VRAM usage
@@ -887,7 +887,7 @@ export class ModelViewer {
         const vramStats = this.backend.getVRAMStats();
         const vramEl = document.getElementById('vram-usage');
         if (vramEl) {
-          vramEl.textContent = `VRAM: ${(vramStats.totalUsed / 1024 / 1024).toFixed(2)} MB`;
+          vramEl.textContent = `${(vramStats.totalUsed / 1024 / 1024).toFixed(2)} MB`;
         }
       }
 
