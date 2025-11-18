@@ -246,6 +246,162 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 
 ---
 
+### Epic 3.6: Static Model Viewer
+**Priority:** P2
+**Dependencies:** Epic 3.4 (Retro Rendering Pipeline), Epic 3.5 (Object Culling)
+**Status:** 🚧 IN PROGRESS (November 18, 2025)
+**Philosophy:** Validate retro rendering pipeline with real-world 3D models
+
+**Purpose:** Create a dedicated model viewer to test and validate how actual 3D assets render using the retro pipeline. This is a testing/validation tool, not a game feature.
+
+**Scope:**
+- Static model display (no physics simulation)
+- Camera controls (orbit, pan, zoom)
+- Same debug UI as dice demo (FPS, VRAM, culling stats, post-processing controls)
+- OBJ model loading from `models/` directory
+- Retro lighting and post-processing validation
+
+#### Core Requirements
+
+**Model Loading:**
+- [ ] OBJ file parser (`loadOBJ`, `parseOBJ` functions)
+- [ ] Support for positions, normals, UVs
+- [ ] Automatic normal generation for models without normals
+- [ ] Vertex/index buffer creation from loaded geometry
+- [ ] Handle both Uint16Array and Uint32Array indices (based on vertex count)
+
+**Scene Setup:**
+- [ ] Single static model display (no instancing)
+- [ ] OrbitCameraController for model inspection
+- [ ] Ground plane for spatial reference
+- [ ] Basic directional light setup (vertex lighting)
+- [ ] Model positioned at origin, camera positioned for full view
+
+**Camera Controls:**
+- [ ] Orbit rotation (left mouse drag)
+- [ ] Pan (right mouse drag or Shift+left drag)
+- [ ] Zoom (mouse wheel)
+- [ ] Reset camera to default view (keyboard shortcut)
+- [ ] Camera position/rotation displayed in debug UI
+
+**Debug UI & Controls:**
+- [ ] Same UI as dice demo (FPS, frame time, VRAM usage)
+- [ ] Culling statistics (if model has multiple parts)
+- [ ] Post-processing toggles (bloom, CRT, fog, etc.)
+- [ ] Light direction controls
+- [ ] Model info display (vertex count, triangle count, VRAM usage)
+
+**Rendering Integration:**
+- [ ] Use existing retro shaders (simple-lambert.wgsl for basic lighting)
+- [ ] Apply same post-processing as dice demo
+- [ ] Vertex lighting validation
+- [ ] Texture loading support (if model has textures, 256px max)
+- [ ] Material system integration
+
+**Test Model:**
+- [ ] Create or source test model in `models/` directory
+- [ ] Model should have normals and UVs
+- [ ] Mid-complexity (1K-10K triangles ideal for testing)
+- [ ] Document model source/license
+
+#### Implementation Phases
+
+**Phase 1: OBJ Loader**
+- [ ] Implement `loadOBJ(url)` function in Geometry.ts
+- [ ] Implement `parseOBJ(objText)` parser
+- [ ] Support v (vertex), vn (normal), vt (texture coord), f (face) lines
+- [ ] Triangulate polygons (fan triangulation for convex faces)
+- [ ] Export from rendering package index.ts
+
+**Phase 2: Model Viewer Application**
+- [ ] Create new viewer entry point (separate from dice demo)
+- [ ] Set up WebGPU backend and retro renderer
+- [ ] Load test model from `models/` directory
+- [ ] Create OrbitCameraController
+- [ ] Basic rendering loop with model display
+
+**Phase 3: Debug UI Integration**
+- [ ] Copy debug UI from dice demo
+- [ ] Remove physics-specific stats
+- [ ] Add model-specific stats (vertex/triangle count)
+- [ ] Add camera position display
+- [ ] Integrate post-processing controls
+
+**Phase 4: Lighting & Materials**
+- [ ] Set up vertex lighting (simple directional light)
+- [ ] Apply simple-lambert.wgsl shader
+- [ ] Test with different light directions
+- [ ] Validate normals are correct (smooth shading)
+- [ ] Optional: Add light direction controls to UI
+
+**Phase 5: Validation & Polish**
+- [ ] Test with multiple models (different complexity levels)
+- [ ] Verify retro aesthetic matches expectations
+- [ ] Performance validation (60 FPS minimum)
+- [ ] Screenshot comparison with reference renders
+- [ ] Document findings and recommendations
+
+#### Acceptance Criteria
+
+**Functional:**
+- ✅ Loads OBJ models from `models/` directory without errors
+- ✅ Model displays with correct geometry and normals
+- ✅ Camera controls work smoothly (orbit, pan, zoom)
+- ✅ Debug UI shows accurate stats
+- ✅ Post-processing effects apply correctly
+- ✅ Vertex lighting produces expected results
+
+**Visual Quality:**
+- ✅ Model normals appear smooth (no faceted shading artifacts)
+- ✅ Retro aesthetic is evident (vertex lighting, low-res textures)
+- ✅ Post-processing (bloom, CRT) works as expected
+- ✅ No Z-fighting or depth buffer issues
+- ✅ Consistent with PS1/PS2 era visual style
+
+**Performance:**
+- ✅ 60 FPS minimum for models up to 10K triangles
+- ✅ VRAM usage is reasonable (<10MB for typical model)
+- ✅ Load time <1 second for typical OBJ file
+- ✅ No memory leaks during model loading/unloading
+
+**Code Quality:**
+- ✅ OBJ parser handles malformed files gracefully
+- ✅ No dependencies on physics system
+- ✅ Clean separation from dice demo code
+- ✅ Reuses existing rendering infrastructure
+- ✅ No code duplication with dice demo
+
+#### Files to Create/Modify
+
+**New Files:**
+- `packages/rendering/src/Geometry.ts` - Add `loadOBJ()` and `parseOBJ()`
+- `packages/renderer/src/model-viewer.ts` - New model viewer entry point
+- `packages/renderer/model-viewer.html` - UI for model viewer
+- `models/test-model.obj` - Test model for validation
+
+**Modified Files:**
+- `packages/rendering/src/index.ts` - Export OBJ loading functions
+- `package.json` - Add model-viewer dev script (if needed)
+
+#### Out of Scope
+
+**Not Included:**
+- ❌ **NO glTF/GLB support** - OBJ only for now
+- ❌ **NO animation system** - Static models only
+- ❌ **NO physics simulation** - Pure visual testing
+- ❌ **NO texture baking tools** - Use pre-made textures
+- ❌ **NO model editing** - Display only, not an editor
+- ❌ **NO multi-model scenes** - Single model at a time
+- ❌ **NO skeletal animation** - Static geometry only
+
+**Deferred to Future Epics:**
+- Multiple model loading (scene composition)
+- Texture painting/editing tools
+- Model export functionality
+- Advanced material editing UI
+
+---
+
 ### Epic 3.18: Shadow Quality (Phase 3)
 **Priority:** P2
 **Dependencies:** Epic 3.17
