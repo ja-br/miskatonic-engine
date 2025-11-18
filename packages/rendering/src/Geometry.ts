@@ -677,6 +677,11 @@ export function parseOBJWithMaterials(objText: string): { geometry: GeometryData
         indicesArray.set(indices);
       }
 
+      // Generate normals if none were specified in the OBJ file
+      if (tempNormals.length === 0 && positions.length > 0) {
+        generateNormals(positions, indices, normals);
+      }
+
       materialGroups.push({
         materialName,
         geometry: {

@@ -199,9 +199,6 @@ export class ModelViewer {
       // Load model
       await this.loadModel();
 
-      // Create ground plane
-      this.createGroundPlane();
-
       console.log('Model Viewer initialized successfully');
       return true;
     } catch (error) {
@@ -879,26 +876,6 @@ export class ModelViewer {
 
     // Select pipeline based on wireframe mode
     const activePipeline = this.wireframeEnabled ? this.wireframePipeline : this.modelPipeline;
-
-    // Create and execute draw commands
-    const groundCommand: DrawCommand = {
-      pipeline: activePipeline,
-      bindGroups: new Map([
-        [0, this.sharedBindGroup],
-        [1, this.materialBindGroup],
-        [2, this.lightBindGroup],
-      ]),
-      geometry: {
-        type: 'indexed',
-        vertexBuffers: new Map([[0, this.groundVertexBuffer]]),
-        indexBuffer: this.groundIndexBuffer,
-        indexFormat: 'uint16',
-        indexCount: this.groundIndexCount,
-      },
-      label: 'ground-plane',
-    };
-
-    this.backend.executeDrawCommand(groundCommand);
 
     // Draw model - either multi-material or single
     if (this.materialGroups.length > 0) {
