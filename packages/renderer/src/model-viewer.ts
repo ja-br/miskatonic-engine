@@ -257,13 +257,37 @@ export class ModelViewer {
     console.log('Retro post-processor initialized');
   }
 
+  private disposeModelResources(): void {
+    if (!this.backend) return;
+
+    // Dispose multi-material group resources
+    for (const group of this.materialGroups) {
+      this.backend.deleteBuffer(group.vertexBuffer);
+      this.backend.deleteBuffer(group.indexBuffer);
+      if (group.texture !== this.dummyTexture) {
+        this.backend.deleteTexture(group.texture);
+      }
+    }
+    this.materialGroups = [];
+
+    // Dispose single-material model resources
+    if (this.modelVertexBuffer) {
+      this.backend.deleteBuffer(this.modelVertexBuffer);
+      this.modelVertexBuffer = null as unknown as BackendBufferHandle;
+    }
+    if (this.modelIndexBuffer) {
+      this.backend.deleteBuffer(this.modelIndexBuffer);
+      this.modelIndexBuffer = null as unknown as BackendBufferHandle;
+    }
+  }
+
   private async loadModel(modelPath: string = '/models/Naked Snake/Naked_Snake.obj'): Promise<void> {
     if (!this.backend) return;
 
     console.log(`Loading model: ${modelPath}`);
 
-    // Clear previous material groups
-    this.materialGroups = [];
+    // Clean up previous model resources
+    this.disposeModelResources();
 
     let modelData: ModelData | null = null;
     let simpleGeometry: GeometryData | null = null;
