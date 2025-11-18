@@ -265,143 +265,143 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
 #### Core Requirements
 
 **Model Loading:**
-- [ ] OBJ file parser (`loadOBJ`, `parseOBJ` functions) in Geometry.ts
-- [ ] Support for v (vertex), vn (normal), vt (texture coord), f (face) directives
+- [x] OBJ file parser (`loadOBJ`, `parseOBJ` functions) in Geometry.ts
+- [x] Support for v (vertex), vn (normal), vt (texture coord), f (face) directives
 - [ ] Support for MTL material file parsing (basic material properties only)
-- [ ] Automatic normal generation for models without normals (using face normals)
-- [ ] Vertex/index buffer creation from loaded geometry (reuse GeometryData interface)
-- [ ] Handle both Uint16Array and Uint32Array indices (based on vertex count >65535)
-- [ ] Error handling for malformed OBJ files (missing faces, invalid indices)
-- [ ] Validate indices are within vertex array bounds
+- [x] Automatic normal generation for models without normals (using face normals)
+- [x] Vertex/index buffer creation from loaded geometry (reuse GeometryData interface)
+- [x] Handle both Uint16Array and Uint32Array indices (based on vertex count >65535)
+- [x] Error handling for malformed OBJ files (missing faces, invalid indices)
+- [x] Validate indices are within vertex array bounds
 - [ ] Handle different face winding orders (CW/CCW detection and normalization)
 
 **Scene Setup:**
-- [ ] Single static model display (no instancing, reuse DrawCommand patterns from demo.ts)
-- [ ] Use existing OrbitCameraController from rendering/src/CameraControllers.ts
-- [ ] Ground plane using createPlane() from Geometry.ts (10x10 units, white/gray checkerboard)
-- [ ] Reuse RetroLightingSystem from demo.ts with single directional light
+- [x] Single static model display (no instancing, reuse DrawCommand patterns from demo.ts)
+- [x] Use existing OrbitCameraController from rendering/src/CameraControllers.ts
+- [x] Ground plane using createPlane() from Geometry.ts (10x10 units, white/gray checkerboard)
+- [x] Reuse RetroLightingSystem from demo.ts with single directional light
 - [ ] Calculate model bounding box to auto-position camera at optimal distance
 - [ ] Center model at origin, apply scale if needed to fit in view frustum
 
 **Camera Controls:**
-- [ ] Orbit rotation using existing OrbitCameraController.rotate() (left mouse drag)
+- [x] Orbit rotation using existing OrbitCameraController.rotate() (left mouse drag)
 - [ ] Add pan() method to OrbitCameraController for target movement (right mouse drag)
-- [ ] Zoom using existing OrbitCameraController.zoom() (mouse wheel)
-- [ ] Reset camera to default view (R key - reset distance, azimuth, elevation)
+- [x] Zoom using existing OrbitCameraController.zoom() (mouse wheel)
+- [x] Reset camera to default view (R key - reset distance, azimuth, elevation)
 - [ ] Display camera state in debug UI (distance, azimuth, elevation, target position)
 
 **Debug UI & Controls:**
-- [ ] Copy stats display from demo.ts (FPS counter, frame time graph, VRAM usage)
-- [ ] Reuse RetroPostProcessor UI controls (bloom, CRT, fog toggles from demo)
-- [ ] Add model-specific stats section (vertex count, triangle count, draw calls)
+- [x] Copy stats display from demo.ts (FPS counter, frame time graph, VRAM usage)
+- [x] Reuse RetroPostProcessor UI controls (bloom, CRT, fog toggles from demo)
+- [x] Add model-specific stats section (vertex count, triangle count, draw calls)
 - [ ] Add light direction sliders (azimuth, elevation) updating RetroLightingSystem
 - [ ] Add wireframe toggle using WIREFRAME_PIPELINE_STATE from PipelineStateDescriptor
 - [ ] Display loaded texture info if MTL file references textures
 
 **Rendering Integration:**
-- [ ] Load simple-lambert.wgsl shader from retro/shaders/ directory
-- [ ] Reuse RetroPostProcessor from demo.ts (bloom, CRT, fog effects)
-- [ ] Create vertex buffer with position, normal, uv attributes (matching shader layout)
+- [x] Load simple-lambert.wgsl shader from retro/shaders/ directory
+- [x] Reuse RetroPostProcessor from demo.ts (bloom, CRT, fog effects)
+- [x] Create vertex buffer with position, normal, uv attributes (matching shader layout)
 - [ ] If MTL file present, parse diffuse texture path and load with 256px constraint
 - [ ] Use RetroMaterial class for material properties (diffuse, ambient, specular)
-- [ ] Apply vertex lighting via RetroLightingSystem (no per-pixel lighting)
+- [x] Apply vertex lighting via RetroLightingSystem (no per-pixel lighting)
 
 **Test Model:**
-- [ ] Use existing "Naked Snake" model in `models/Naked Snake/` directory
-- [ ] Load Naked_Snake.obj (90KB, ~2-5K triangles estimated)
+- [x] Use existing "Naked Snake" model in `models/Naked Snake/` directory
+- [x] Load Naked_Snake.obj (90KB, ~2-5K triangles estimated)
 - [ ] Load Naked_Snake.mtl for material definitions
 - [ ] Handle multiple texture files (Tex_*.png) with 256px resize if needed
-- [ ] Add fallback: if model missing, load a generated cube/sphere from Geometry.ts
+- [x] Add fallback: if model missing, load a generated cube/sphere from Geometry.ts
 
 #### Implementation Phases
 
 **Phase 1: OBJ Loader Implementation**
-- [ ] Add `parseOBJ(objText: string): GeometryData` to Geometry.ts
-  - [ ] Parse v/vn/vt/f directives with regex or line-by-line parsing
-  - [ ] Build vertex arrays (positions, normals, uvs) from parsed data
-  - [ ] Handle f directive formats: "f v1 v2 v3", "f v1/vt1 v2/vt2 v3/vt3", "f v1/vt1/vn1"
-  - [ ] Triangulate quads/polygons using fan triangulation from first vertex
-  - [ ] Generate normals if missing using cross product of face edges
-- [ ] Add `loadOBJ(url: string): Promise<GeometryData>` async wrapper
-  - [ ] Fetch file content, handle network errors
-  - [ ] Call parseOBJ with fetched text
-  - [ ] Return GeometryData matching existing interface
+- [x] Add `parseOBJ(objText: string): GeometryData` to Geometry.ts
+  - [x] Parse v/vn/vt/f directives with regex or line-by-line parsing
+  - [x] Build vertex arrays (positions, normals, uvs) from parsed data
+  - [x] Handle f directive formats: "f v1 v2 v3", "f v1/vt1 v2/vt2 v3/vt3", "f v1/vt1/vn1"
+  - [x] Triangulate quads/polygons using fan triangulation from first vertex
+  - [x] Generate normals if missing using cross product of face edges
+- [x] Add `loadOBJ(url: string): Promise<GeometryData>` async wrapper
+  - [x] Fetch file content, handle network errors
+  - [x] Call parseOBJ with fetched text
+  - [x] Return GeometryData matching existing interface
 - [ ] Add `parseMTL(mtlText: string): MaterialData` for basic material support
   - [ ] Parse Kd (diffuse), Ka (ambient), Ks (specular), map_Kd (texture path)
   - [ ] Return simplified material properties
-- [ ] Export new functions from rendering/src/index.ts
+- [x] Export new functions from rendering/src/index.ts
 
 **Phase 2: Model Viewer Application Setup**
-- [ ] Create `packages/renderer/src/model-viewer.ts` entry point
-  - [ ] Copy WebGPU initialization from demo.ts
-  - [ ] Initialize BackendFactory with WebGPU backend
-  - [ ] Create ECS World, TransformSystem, CameraSystem
-  - [ ] Setup canvas resize handler
-- [ ] Create `packages/renderer/model-viewer.html`
-  - [ ] Copy base HTML structure from index.html
-  - [ ] Add model selector dropdown for future models
-  - [ ] Include debug UI divs (stats, controls)
-- [ ] Initialize scene components:
-  - [ ] Create camera entity with Transform and Camera components
-  - [ ] Initialize OrbitCameraController with camera entity
-  - [ ] Setup mouse event handlers (drag, wheel, keyboard)
-  - [ ] Create ground plane geometry using createPlane()
-- [ ] Load and display model:
-  - [ ] Load Naked_Snake.obj using loadOBJ()
-  - [ ] Create GPU buffers from GeometryData
-  - [ ] Setup simple-lambert.wgsl pipeline
-  - [ ] Initialize RetroLightingSystem
-  - [ ] Start render loop with requestAnimationFrame
+- [x] Create `packages/renderer/src/model-viewer.ts` entry point
+  - [x] Copy WebGPU initialization from demo.ts
+  - [x] Initialize BackendFactory with WebGPU backend
+  - [x] Create ECS World, TransformSystem, CameraSystem
+  - [x] Setup canvas resize handler
+- [x] Create `packages/renderer/model-viewer.html`
+  - [x] Copy base HTML structure from index.html
+  - [x] Add model selector dropdown for future models
+  - [x] Include debug UI divs (stats, controls)
+- [x] Initialize scene components:
+  - [x] Create camera entity with Transform and Camera components
+  - [x] Initialize OrbitCameraController with camera entity
+  - [x] Setup mouse event handlers (drag, wheel, keyboard)
+  - [x] Create ground plane geometry using createPlane()
+- [x] Load and display model:
+  - [x] Load Naked_Snake.obj using loadOBJ()
+  - [x] Create GPU buffers from GeometryData
+  - [x] Setup simple-lambert.wgsl pipeline
+  - [x] Initialize RetroLightingSystem
+  - [x] Start render loop with requestAnimationFrame
 
 **Phase 3: Debug UI & Camera Enhancement**
 - [ ] Enhance OrbitCameraController with pan functionality:
   - [ ] Add `pan(deltaX: number, deltaY: number)` method
   - [ ] Update target position based on camera's right/up vectors
   - [ ] Maintain orbit center during pan operations
-- [ ] Copy and adapt debug UI from demo.ts:
-  - [ ] FPS counter and frame time graph
-  - [ ] VRAM usage from VRAMProfiler
-  - [ ] Remove dice count, physics stats
-  - [ ] Add model stats: vertex count, triangle count, texture count
-- [ ] Add camera info display:
+- [x] Copy and adapt debug UI from demo.ts:
+  - [x] FPS counter and frame time graph
+  - [x] VRAM usage from VRAMProfiler
+  - [x] Remove dice count, physics stats
+  - [x] Add model stats: vertex count, triangle count, texture count
+- [x] Add camera info display:
   - [ ] Distance, azimuth, elevation values
   - [ ] Target position (x, y, z)
-  - [ ] Reset button (R key handler)
-- [ ] Integrate RetroPostProcessor controls:
-  - [ ] Copy bloom, CRT, fog toggles from demo
-  - [ ] Add sliders for bloom threshold, fog density
-  - [ ] Wire up to RetroPostProcessor instance
+  - [x] Reset button (R key handler)
+- [x] Integrate RetroPostProcessor controls:
+  - [x] Copy bloom, CRT, fog toggles from demo
+  - [x] Add sliders for bloom threshold, fog density
+  - [x] Wire up to RetroPostProcessor instance
 
 **Phase 4: Lighting, Materials & Error Handling**
-- [ ] Setup RetroLightingSystem with directional light:
-  - [ ] Configure initial light direction (0.5, -0.7, 0.5)
-  - [ ] Set light color and intensity
-  - [ ] Connect to vertex shader uniforms
+- [x] Setup RetroLightingSystem with directional light:
+  - [x] Configure initial light direction (0.5, -0.7, 0.5)
+  - [x] Set light color and intensity
+  - [x] Connect to vertex shader uniforms
 - [ ] Material loading and application:
   - [ ] Parse MTL file if present
   - [ ] Load textures referenced in map_Kd
   - [ ] Apply 256px resize constraint to textures
-  - [ ] Fallback to default gray material if MTL missing
+  - [x] Fallback to default gray material if MTL missing
 - [ ] Add light direction controls:
   - [ ] Azimuth/elevation sliders in UI
   - [ ] Update RetroLightingSystem on change
   - [ ] Visual feedback with light direction indicator
-- [ ] Error handling:
-  - [ ] Graceful fallback for missing OBJ file (show cube)
-  - [ ] Handle malformed OBJ data (skip invalid faces)
+- [x] Error handling:
+  - [x] Graceful fallback for missing OBJ file (show cube)
+  - [x] Handle malformed OBJ data (skip invalid faces)
   - [ ] Texture load failures (use checkerboard pattern)
   - [ ] Display error messages in UI console
 
 **Phase 5: Testing & Performance Validation**
-- [ ] Create unit tests for OBJ parser:
-  - [ ] Test parseOBJ with valid/invalid data
-  - [ ] Test triangulation of quads
-  - [ ] Test normal generation
-  - [ ] Test index validation and bounds checking
-  - [ ] Achieve >80% code coverage for new code
-- [ ] Integration testing:
-  - [ ] Load Naked Snake model successfully
-  - [ ] Verify vertex/normal/uv data integrity
+- [x] Create unit tests for OBJ parser:
+  - [x] Test parseOBJ with valid/invalid data
+  - [x] Test triangulation of quads
+  - [x] Test normal generation
+  - [x] Test index validation and bounds checking
+  - [x] Achieve >80% code coverage for new code
+- [x] Integration testing:
+  - [x] Load Naked Snake model successfully
+  - [x] Verify vertex/normal/uv data integrity
   - [ ] Test with additional OBJ files if available
   - [ ] Validate against reference renders
 - [ ] Performance benchmarks:
@@ -409,10 +409,10 @@ Test Configuration: 2924x2194 resolution (Retina display), CRT effects enabled
   - [ ] Profile VRAM usage per model
   - [ ] Ensure 60 FPS minimum on target hardware
   - [ ] Check for memory leaks during model switching
-- [ ] Visual validation:
-  - [ ] Verify vertex lighting looks correct
-  - [ ] Check retro post-processing effects
-  - [ ] Confirm no Z-fighting or culling issues
+- [x] Visual validation:
+  - [x] Verify vertex lighting looks correct
+  - [x] Check retro post-processing effects
+  - [x] Confirm no Z-fighting or culling issues
   - [ ] Screenshot comparisons with PS1/PS2 era reference
 
 #### Acceptance Criteria
