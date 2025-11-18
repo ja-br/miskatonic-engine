@@ -9,6 +9,8 @@ import {
   CameraSystem,
   loadOBJ,
   createPlane,
+  createSphere,
+  createCube,
   RetroLightingSystem,
   RetroPostProcessor,
   type RetroLight,
@@ -87,6 +89,13 @@ export class ModelViewer {
 
   // Camera target (adjustable with Q/E keys)
   private targetY: number = 2;
+
+  // Post-processing state
+  private bloomEnabled: boolean = true;
+  private bloomIntensity: number = 0.5;
+  private crtEnabled: boolean = false;
+  private grainAmount: number = 0.02;
+  private lightIntensity: number = 1.2;
 
   // Event listener references for cleanup
   private mousedownHandler: ((e: MouseEvent) => void) | null = null;
@@ -199,20 +208,26 @@ export class ModelViewer {
     console.log('Shader compiled successfully');
   }
 
-  private async loadModel(): Promise<void> {
+  private async loadModel(modelPath: string = '/models/Naked Snake/Naked_Snake.obj'): Promise<void> {
     if (!this.backend) return;
 
-    console.log('Loading model...');
+    console.log(`Loading model: ${modelPath}`);
 
     let modelData: GeometryData;
     try {
-      // Try to load Naked Snake model
-      modelData = await loadOBJ('/models/Naked Snake/Naked_Snake.obj');
-      console.log('Loaded Naked Snake model');
+      if (modelPath === 'sphere') {
+        modelData = createSphere(2.0, 32, 24);
+        console.log('Generated sphere');
+      } else if (modelPath === 'cube') {
+        modelData = createCube(3.0);
+        console.log('Generated cube');
+      } else {
+        // Load OBJ file
+        modelData = await loadOBJ(modelPath);
+        console.log(`Loaded model from ${modelPath}`);
+      }
     } catch (error) {
       console.warn('Failed to load model, using fallback sphere:', error);
-      // Fallback to generated sphere
-      const { createSphere } = await import('../../rendering/src/Geometry');
       modelData = createSphere(2.0, 32, 24);
     }
 
@@ -702,5 +717,73 @@ export class ModelViewer {
       this.backend.dispose();
       this.backend = null;
     }
+  }
+
+  // Public control methods for UI
+
+  /**
+   * Load a model by path (OBJ file) or generate a primitive
+   */
+  async loadModelByPath(modelPath: string): Promise<void> {
+    if (!this.backend) return;
+
+    // Clean up old model buffers
+    // Note: WebGPU buffers don't need explicit cleanup, they're garbage collected
+
+    await this.loadModel(modelPath);
+    console.log(`Switched to model: ${modelPath}`);
+  }
+
+  /**
+   * Enable or disable bloom effect
+   */
+  setBloomEnabled(enabled: boolean): void {
+    this.bloomEnabled = enabled;
+    console.log(`Bloom ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Set bloom intensity (0.0 - 2.0)
+   */
+  setBloomIntensity(intensity: number): void {
+    this.bloomIntensity = Math.max(0, Math.min(2, intensity));
+    console.log(`Bloom intensity: ${this.bloomIntensity}`);
+  }
+
+  /**
+   * Enable or disable CRT effect
+   */
+  setCRTEnabled(enabled: boolean): void {
+    this.crtEnabled = enabled;
+    console.log(`CRT effect ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * Set film grain amount (0.0 - 0.1)
+   */
+  setGrainAmount(amount: number): void {
+    this.grainAmount = Math.max(0, Math.min(0.1, amount));
+    console.log(`Grain amount: ${this.grainAmount}`);
+  }
+
+  /**
+   * Set light intensity and update the lighting system
+   */
+  setLightIntensity(intensity: number): void {
+    this.lightIntensity = Math.max(0, Math.min(3, intensity));
+
+    // Update the directional light
+    const retroLights: RetroLight[] = [
+      {
+        type: 'directional',
+        position: [0, 10, 0],
+        color: [1.0, 0.95, 0.9],
+        intensity: this.lightIntensity,
+        direction: [0.5, -1.0, -0.5],
+      },
+    ];
+    this.retroLighting.setLights(retroLights);
+
+    console.log(`Light intensity: ${this.lightIntensity}`);
   }
 }
