@@ -326,10 +326,8 @@
               if (!result.canceled && result.filePaths.length > 0) {
                 const filePath = result.filePaths[0];
                 try {
-                  await viewer.loadModelFromFilePath(filePath);
-                  // Extract filename for display
-                  const fileName = filePath.split('/').pop() || filePath;
-                  console.log(`Loaded model: ${fileName}`);
+                  // Use file:// URL to load via same path as built-in models
+                  await viewer.loadModelByPath('file://' + filePath);
                 } catch (error) {
                   console.error('Failed to load model:', error);
                 }
