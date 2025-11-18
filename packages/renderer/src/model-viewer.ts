@@ -867,8 +867,8 @@ export class ModelViewer {
         };
         this.backend.executeDrawCommand(materialCommand);
       }
-    } else {
-      // Single material fallback
+    } else if (this.modelVertexBuffer && this.modelIndexBuffer) {
+      // Single material fallback - only if buffers exist
       const modelCommand: DrawCommand = {
         pipeline: this.modelPipeline,
         bindGroups: new Map([
@@ -887,6 +887,7 @@ export class ModelViewer {
       };
       this.backend.executeDrawCommand(modelCommand);
     }
+    // If neither condition is true, skip model rendering (loading in progress)
 
     // End scene render pass (rendering to intermediate texture is complete)
     this.backend.endRenderPass();
