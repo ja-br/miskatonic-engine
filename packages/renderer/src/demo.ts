@@ -60,6 +60,8 @@ export class Demo {
   private lastFrameTime: number = 0;
   private frameTimeHistory: number[] = [];
   private resizeHandler: (() => void) | null = null;
+  private lastDiceCount: number = 0;
+  private vramDebugLogged: boolean = false;
 
   // ECS World and Systems
   private world: World;
@@ -259,7 +261,7 @@ export class Demo {
     if (!this.backend) return;
 
     // Epic 3.4: Load retro rendering WGSL shader (simple-lambert-instanced)
-    console.log('Loading retro WGSL shader for WebGPU backend');
+    console.log('Loading Miskatonic WGSL shader for WebGPU backend');
     const wgslSourceInstanced = await import('../../rendering/src/retro/shaders/simple-lambert-instanced.wgsl?raw').then(m => m.default);
 
     // Create shader handles (instanced only - retro rendering uses instanced rendering exclusively)
@@ -272,7 +274,7 @@ export class Demo {
       fragment: wgslSourceInstanced,
     });
 
-    console.log('Retro WGSL shader compiled successfully (vertex lighting)');
+    console.log('Miskatonic WGSL shader compiled successfully (vertex lighting)');
 
     // Epic 3.4: Create bind group layouts for retro rendering
     // @group(0) - Camera uniforms: mat4 viewProj (64 bytes) + vec3 position (12 bytes) + padding (4 bytes) = 80 bytes
@@ -959,13 +961,13 @@ export class Demo {
 
     // Epic 3.14: Begin frame
     this.backend.beginFrame();
-    console.log('[RENDER] Frame started');
+    // console.log('[RENDER] Frame started');
 
     // Epic 3.4: Render to post-processor's intermediate texture (NOT swapchain)
     const sceneFramebuffer = this.retroPostProcessor.getSceneFramebuffer();
-    console.log('[RENDER] Got scene framebuffer:', !!sceneFramebuffer);
+    // console.log('[RENDER] Got scene framebuffer:', !!sceneFramebuffer);
     this.backend.beginRenderPass(sceneFramebuffer, [0.05, 0.05, 0.08, 1.0], 1.0, 0, 'Scene Render Pass');
-    console.log('[RENDER] Began scene render pass');
+    // console.log('[RENDER] Began scene render pass');
 
     // Helper function to get die color based on number of sides
     const getDieColor = (sides: number): [number, number, number] => {
@@ -1021,7 +1023,7 @@ export class Demo {
         }
       }
 
-      console.log('[RENDER] Cube instances:', cubeInstances.length, 'Sphere instances:', sphereInstances.length);
+      // console.log('[RENDER] Cube instances:', cubeInstances.length, 'Sphere instances:', sphereInstances.length);
 
       // Render cube instances
       if (cubeInstances.length > 0) {
@@ -1036,7 +1038,7 @@ export class Demo {
           viewProjMatrix,
           cameraTransform
         );
-        console.log('[RENDER] Cube mesh rendered:', rendered);
+        // console.log('[RENDER] Cube mesh rendered:', rendered);
         if (rendered) {
           drawCallCount++;
           instanceGroupCount++;
@@ -1057,7 +1059,7 @@ export class Demo {
           viewProjMatrix,
           cameraTransform
         );
-        console.log('[RENDER] Sphere mesh rendered:', rendered);
+        // console.log('[RENDER] Sphere mesh rendered:', rendered);
         if (rendered) {
           drawCallCount++;
           instanceGroupCount++;
@@ -1071,19 +1073,19 @@ export class Demo {
 
     // Epic 3.4: End scene render pass (rendering to intermediate texture is complete)
     this.backend.endRenderPass();
-    console.log('[RENDER] Ended scene render pass');
+    // console.log('[RENDER] Ended scene render pass');
 
     // Epic 3.4: Apply post-processing effects (bloom + grain + dither) and composite to swapchain
     const sceneTexture = this.retroPostProcessor.getSceneTexture();
-    console.log('[RENDER] Got scene texture:', !!sceneTexture);
+    // console.log('[RENDER] Got scene texture:', !!sceneTexture);
     this.retroPostProcessor.updateTime(deltaTime);
-    console.log('[RENDER] Applying post-processor...');
+    // console.log('[RENDER] Applying post-processor...');
     this.retroPostProcessor.apply(sceneTexture);
 
     // Epic 3.14: End frame
     const t6 = performance.now();
     this.backend.endFrame();
-    console.log('[RENDER] Frame ended');
+    // console.log('[RENDER] Frame ended');
     const t7 = performance.now();
 
     // Release all pooled matrices back to pool (eliminates per-frame allocations)
@@ -1125,6 +1127,25 @@ export class Demo {
       const vramStats = this.backend.getVRAMStats();
       const vramMB = vramStats.totalUsed / (1024 * 1024);
       const vramUsagePercent = vramStats.utilizationPercent;
+
+      // Debug VRAM allocations when dice cleared
+      if (diceCount === 0 && this.lastDiceCount > 0 && !this.vramDebugLogged) {
+        console.log('='.repeat(80));
+        console.log('[VRAM DEBUG] Allocations after clearing dice:');
+        const profiler = this.backend.getVRAMProfiler();
+        const allocations = profiler.getLargestAllocations(50); // Top 50 by size
+        console.table(allocations.map(a => ({
+          name: a.id,
+          category: a.category,
+          mb: (a.bytes / 1024 / 1024).toFixed(2)
+        })));
+        console.log('='.repeat(80));
+        this.vramDebugLogged = true;
+      }
+      if (diceCount > 0) {
+        this.vramDebugLogged = false; // Reset flag when dice are added
+      }
+      this.lastDiceCount = diceCount;
 
       // Count allocations from VRAM profiler
       let bufferCount = 0;

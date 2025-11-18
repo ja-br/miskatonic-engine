@@ -64,7 +64,7 @@ export class InstanceBufferManager {
 
     // Re-create buffer if capacity changed (resize occurred)
     if (gpuBuffer && gpuBuffer.capacity !== capacity) {
-      console.log(`[InstanceBufferManager] Capacity changed: ${gpuBuffer.capacity} -> ${capacity}, re-creating buffer`);
+      // console.log(`[InstanceBufferManager] Capacity changed: ${gpuBuffer.capacity} -> ${capacity}, re-creating buffer`);
       this.backend.deleteBuffer(gpuBuffer.handle);
       this.gpuBuffers.delete(instanceBuffer);
       gpuBuffer = undefined;
@@ -73,7 +73,7 @@ export class InstanceBufferManager {
     // Create new buffer if needed
     if (!gpuBuffer) {
       const id = `instance_buffer_${this.nextBufferId++}`;
-      console.log(`[InstanceBufferManager] Creating NEW GPU buffer: ${id}, capacity=${capacity}`);
+      // console.log(`[InstanceBufferManager] Creating NEW GPU buffer: ${id}, capacity=${capacity}`);
       const handle = this.backend.createBuffer(
         id,
         'vertex',
