@@ -52,7 +52,7 @@ export class ModelViewer {
 
   // Retro rendering
   private retroLighting!: RetroLightingSystem;
-  private retroPostProcessor!: RetroPostProcessor;
+  public retroPostProcessor!: RetroPostProcessor;
   private lightBindGroupLayout!: BackendBindGroupLayoutHandle;
   private lightBindGroup!: BackendBindGroupHandle;
   private materialBindGroupLayout!: BackendBindGroupLayoutHandle;
@@ -206,6 +206,39 @@ export class ModelViewer {
     });
 
     console.log('Shader compiled successfully');
+
+    // Initialize retro post-processor (same as demo.ts)
+    this.retroPostProcessor = new RetroPostProcessor(
+      this.backend,
+      {
+        bloomThreshold: 0.8,
+        bloomIntensity: this.bloomIntensity,
+        bloomMipLevels: 5,
+        grainAmount: this.grainAmount,
+        gamma: 2.2,
+        ditherPattern: 0,
+        internalResolution: { width: 640, height: 480 },  // PS1-style fixed resolution
+        crt: {
+          enabled: this.crtEnabled,
+          masterIntensity: 1.0,
+          brightness: 0.0,
+          contrast: 0.0,
+          saturation: 1.0,
+          scanlinesStrength: 0.50,
+          beamWidthMin: 0.8,
+          beamWidthMax: 1.0,
+          beamShape: 0.7,
+          maskIntensity: 0.30,
+          maskType: 'aperture-grille',
+          curvatureAmount: 0.03,
+          vignetteAmount: 0.20,
+          cornerRadius: 0.05,
+          colorOverflow: 0.3,
+        },
+      }
+    );
+    this.retroPostProcessor.resize(this.canvas.width, this.canvas.height);
+    console.log('Retro post-processor initialized');
   }
 
   private async loadModel(modelPath: string = '/models/Naked Snake/Naked_Snake.obj'): Promise<void> {
@@ -538,6 +571,11 @@ export class ModelViewer {
     if (this.backend) {
       this.backend.resize(this.canvas.width, this.canvas.height);
     }
+
+    // Resize post-processor render targets
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.resize(this.canvas.width, this.canvas.height);
+    }
   }
 
   start(): void {
@@ -588,10 +626,13 @@ export class ModelViewer {
 
     this.backend.updateBuffer(this.sharedUniformBuffer, uniformData);
 
-    // Begin frame and render pass
+    // Begin frame
     this.backend.beginFrame();
+
+    // Render to post-processor's intermediate texture (NOT swapchain)
+    const sceneFramebuffer = this.retroPostProcessor.getSceneFramebuffer();
     this.backend.beginRenderPass(
-      null,                           // null = swapchain
+      sceneFramebuffer,               // render to intermediate texture
       [0.1, 0.1, 0.15, 1.0],         // clear color (dark blue-gray)
       1.0,                            // clear depth
       undefined,                      // stencil
@@ -637,8 +678,15 @@ export class ModelViewer {
     this.backend.executeDrawCommand(groundCommand);
     this.backend.executeDrawCommand(modelCommand);
 
-    // End render pass and frame
+    // End scene render pass (rendering to intermediate texture is complete)
     this.backend.endRenderPass();
+
+    // Apply post-processing effects and composite to swapchain
+    const sceneTexture = this.retroPostProcessor.getSceneTexture();
+    this.retroPostProcessor.updateTime(deltaTime);
+    this.retroPostProcessor.apply(sceneTexture);
+
+    // End frame
     this.backend.endFrame();
 
     // Update FPS
@@ -713,6 +761,11 @@ export class ModelViewer {
       this.keydownHandler = null;
     }
 
+    // Dispose retro post-processor
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.dispose();
+    }
+
     if (this.backend) {
       this.backend.dispose();
       this.backend = null;
@@ -739,7 +792,10 @@ export class ModelViewer {
    */
   setBloomEnabled(enabled: boolean): void {
     this.bloomEnabled = enabled;
-    console.log(`Bloom ${enabled ? 'enabled' : 'disabled'}`);
+    // When disabled, set intensity to 0; otherwise use current intensity
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.setBloomIntensity(enabled ? this.bloomIntensity : 0);
+    }
   }
 
   /**
@@ -747,7 +803,9 @@ export class ModelViewer {
    */
   setBloomIntensity(intensity: number): void {
     this.bloomIntensity = Math.max(0, Math.min(2, intensity));
-    console.log(`Bloom intensity: ${this.bloomIntensity}`);
+    if (this.retroPostProcessor && this.bloomEnabled) {
+      this.retroPostProcessor.setBloomIntensity(this.bloomIntensity);
+    }
   }
 
   /**
@@ -755,7 +813,9 @@ export class ModelViewer {
    */
   setCRTEnabled(enabled: boolean): void {
     this.crtEnabled = enabled;
-    console.log(`CRT effect ${enabled ? 'enabled' : 'disabled'}`);
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.setCRTEnabled(enabled);
+    }
   }
 
   /**
@@ -763,7 +823,9 @@ export class ModelViewer {
    */
   setGrainAmount(amount: number): void {
     this.grainAmount = Math.max(0, Math.min(0.1, amount));
-    console.log(`Grain amount: ${this.grainAmount}`);
+    if (this.retroPostProcessor) {
+      this.retroPostProcessor.setGrainAmount(this.grainAmount);
+    }
   }
 
   /**
