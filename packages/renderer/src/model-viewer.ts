@@ -414,6 +414,13 @@ export class ModelViewer {
 
     // Update UI with model stats
     this.updateModelStats();
+
+    // Reset camera to default view for new model
+    if (this.orbitController) {
+      this.targetY = 2;
+      this.orbitController.reset(10, 0, Math.PI / 6);
+      this.orbitController.setTarget(0, this.targetY, 0);
+    }
   }
 
   private async loadTexture(url: string, name: string): Promise<BackendTextureHandle> {
