@@ -6,7 +6,16 @@
 // Core rendering classes
 export { CameraSystem } from './CameraSystem';      // ECS system (Epic 3.10)
 export { OrbitCameraController, FirstPersonCameraController } from './CameraControllers';
-export { createCube, createSphere, createPlane, type GeometryData } from './Geometry';
+export {
+  createCube,
+  createSphere,
+  createPlane,
+  loadOBJ,
+  parseOBJ,
+  parseMTL,
+  type GeometryData,
+  type MaterialData,
+} from './Geometry';
 
 // Epic 3.15: Light Component & Integration
 export { LightCollection, LightType, type LightData } from './LightCollection';
