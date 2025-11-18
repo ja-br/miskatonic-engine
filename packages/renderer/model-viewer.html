@@ -303,7 +303,13 @@
           const modelSelect = document.getElementById('model-select');
           if (modelSelect) {
             modelSelect.addEventListener('change', async (e) => {
-              await viewer.loadModelByPath(e.target.value);
+              const path = e.target.value;
+              // User-loaded models have absolute paths, built-in models start with /models/
+              if (path.startsWith('/Users/') || path.startsWith('/home/') || path.match(/^[A-Z]:\\/)) {
+                await viewer.loadModelFromFile(path);
+              } else {
+                await viewer.loadModelByPath(path);
+              }
             });
           }
 
@@ -324,6 +330,30 @@
                 try {
                   // Load via IPC file reading
                   await viewer.loadModelFromFile(filePath);
+
+                  // Add to dropdown if not already present
+                  const select = document.getElementById('model-select');
+                  if (select) {
+                    // Check if already in dropdown
+                    let found = false;
+                    for (const opt of select.options) {
+                      if (opt.value === filePath) {
+                        found = true;
+                        select.value = filePath;
+                        break;
+                      }
+                    }
+
+                    // Add new option
+                    if (!found) {
+                      const fileName = filePath.split('/').pop().replace('.obj', '');
+                      const option = document.createElement('option');
+                      option.value = filePath;
+                      option.textContent = fileName + ' (loaded)';
+                      select.appendChild(option);
+                      select.value = filePath;
+                    }
+                  }
                 } catch (error) {
                   console.error('Failed to load model:', error);
                 }
