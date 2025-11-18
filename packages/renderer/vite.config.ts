@@ -11,6 +11,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         phase0: path.resolve(__dirname, 'phase0-validation.html'),
+        modelViewer: path.resolve(__dirname, 'model-viewer.html'),
       },
       external: [
         // Exclude ShaderLoader (Node.js-only) from browser bundle

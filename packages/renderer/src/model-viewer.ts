@@ -18,6 +18,8 @@ import {
   type BackendBindGroupHandle,
   type BackendBindGroupLayoutHandle,
   type BackendPipelineHandle,
+  type BackendTextureHandle,
+  type BackendSamplerHandle,
   type GeometryData,
   OPAQUE_PIPELINE_STATE,
 } from '../../rendering/src';
@@ -28,6 +30,7 @@ export class ModelViewer {
   // Constants
   private static readonly VERTEX_STRIDE = 48; // position (3) + normal (3) + uv (2) + color (4) = 12 floats = 48 bytes
   private static readonly CAMERA_UNIFORM_FLOATS = 20; // mat4 viewProj (16) + vec3 position (3) + padding (1)
+  private static readonly MATERIAL_UNIFORM_FLOATS = 8; // vec4 albedo + vec4 padding
 
   // Canvas and backend
   private canvas: HTMLCanvasElement;
@@ -46,14 +49,14 @@ export class ModelViewer {
 
   // Retro rendering
   private retroLighting!: RetroLightingSystem;
-  public retroPostProcessor!: RetroPostProcessor;
+  private retroPostProcessor!: RetroPostProcessor;
   private lightBindGroupLayout!: BackendBindGroupLayoutHandle;
   private lightBindGroup!: BackendBindGroupHandle;
   private materialBindGroupLayout!: BackendBindGroupLayoutHandle;
   private materialBindGroup!: BackendBindGroupHandle;
   private materialBuffer!: BackendBufferHandle;
-  private dummyTexture!: any;
-  private dummySampler!: any;
+  private dummyTexture!: BackendTextureHandle;
+  private dummySampler!: BackendSamplerHandle;
 
   // Shader and pipeline
   private modelShader!: BackendShaderHandle;
@@ -67,6 +70,7 @@ export class ModelViewer {
   private modelIndexBuffer!: BackendBufferHandle;
   private modelIndexCount: number = 0;
   private modelVertexCount: number = 0;
+  private modelIndexFormat: 'uint16' | 'uint32' = 'uint16';
 
   // Ground plane
   private groundVertexBuffer!: BackendBufferHandle;
@@ -79,6 +83,13 @@ export class ModelViewer {
   private lastFrameTime: number = 0;
   private frameTimeHistory: number[] = [];
   private startTime: number = 0;
+
+  // Event listener references for cleanup
+  private mousedownHandler: ((e: MouseEvent) => void) | null = null;
+  private mousemoveHandler: ((e: MouseEvent) => void) | null = null;
+  private mouseupHandler: (() => void) | null = null;
+  private wheelHandler: ((e: WheelEvent) => void) | null = null;
+  private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -205,9 +216,16 @@ export class ModelViewer {
     this.modelVertexCount = modelData.positions.length / 3;
     this.modelIndexCount = modelData.indices.length;
 
-    console.log(`Model: ${this.modelVertexCount} vertices, ${this.modelIndexCount / 3} triangles`);
+    // Determine correct index format based on maximum index value, not vertex count
+    const maxIndex = modelData.indices.length > 0
+      ? Math.max(...Array.from(modelData.indices))
+      : 0;
+    this.modelIndexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
 
-    // Interleave vertex data (position, normal, uv)
+    console.log(`Model: ${this.modelVertexCount} vertices, ${this.modelIndexCount / 3} triangles`);
+    console.log(`Index format: ${this.modelIndexFormat} (max index: ${maxIndex})`);
+
+    // Interleave vertex data (position, normal, uv, color)
     const interleavedData = this.interleaveVertexData(modelData);
 
     // Create GPU buffers
@@ -224,8 +242,23 @@ export class ModelViewer {
       'static_draw'
     );
 
+    // Update UI with model stats
+    this.updateModelStats();
+
     // Create pipeline
     this.createPipeline();
+  }
+
+  private updateModelStats(): void {
+    const vertexEl = document.getElementById('vertex-count');
+    const triangleEl = document.getElementById('triangle-count');
+
+    if (vertexEl) {
+      vertexEl.textContent = `Vertices: ${this.modelVertexCount.toLocaleString()}`;
+    }
+    if (triangleEl) {
+      triangleEl.textContent = `Triangles: ${(this.modelIndexCount / 3).toLocaleString()}`;
+    }
   }
 
   private createGroundPlane(): void {
@@ -330,11 +363,12 @@ export class ModelViewer {
     });
 
     // Create material uniform buffer
-    const materialData = new Float32Array(8); // vec4 albedo + vec4 padding
-    materialData[0] = 1.0; // R
-    materialData[1] = 1.0; // G
-    materialData[2] = 1.0; // B
-    materialData[3] = 1.0; // A
+    const materialData = new Float32Array(ModelViewer.MATERIAL_UNIFORM_FLOATS);
+    materialData[0] = 1.0; // R - albedo
+    materialData[1] = 1.0; // G - albedo
+    materialData[2] = 1.0; // B - albedo
+    materialData[3] = 1.0; // A - albedo
+    // materialData[4-7] are padding (initialized to 0)
     this.materialBuffer = this.backend.createBuffer(
       'material-uniform',
       'uniform',
@@ -377,15 +411,16 @@ export class ModelViewer {
     let lastX = 0;
     let lastY = 0;
 
-    this.canvas.addEventListener('mousedown', (e) => {
+    // Store handler references for cleanup
+    this.mousedownHandler = (e: MouseEvent) => {
       if (e.button === 0) { // Left button
         isDragging = true;
         lastX = e.clientX;
         lastY = e.clientY;
       }
-    });
+    };
 
-    this.canvas.addEventListener('mousemove', (e) => {
+    this.mousemoveHandler = (e: MouseEvent) => {
       if (isDragging && this.orbitController) {
         const deltaX = e.clientX - lastX;
         const deltaY = e.clientY - lastY;
@@ -393,21 +428,21 @@ export class ModelViewer {
         lastX = e.clientX;
         lastY = e.clientY;
       }
-    });
+    };
 
-    this.canvas.addEventListener('mouseup', () => {
+    this.mouseupHandler = () => {
       isDragging = false;
-    });
+    };
 
-    this.canvas.addEventListener('wheel', (e) => {
+    this.wheelHandler = (e: WheelEvent) => {
       e.preventDefault();
       if (this.orbitController) {
         this.orbitController.zoom(e.deltaY * 0.01);
       }
-    });
+    };
 
     // Reset camera on 'R' key
-    window.addEventListener('keydown', (e) => {
+    this.keydownHandler = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
         if (this.orbitController && this.cameraEntity) {
           this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 10);
@@ -415,7 +450,14 @@ export class ModelViewer {
           console.log('Camera reset');
         }
       }
-    });
+    };
+
+    // Register event listeners
+    this.canvas.addEventListener('mousedown', this.mousedownHandler);
+    this.canvas.addEventListener('mousemove', this.mousemoveHandler);
+    this.canvas.addEventListener('mouseup', this.mouseupHandler);
+    this.canvas.addEventListener('wheel', this.wheelHandler);
+    window.addEventListener('keydown', this.keydownHandler);
   }
 
   private resizeCanvas(): void {
@@ -496,9 +538,7 @@ export class ModelViewer {
 
     // Draw model
     this.backend.setVertexBuffer(this.modelVertexBuffer);
-    this.backend.setIndexBuffer(this.modelIndexBuffer,
-      this.modelVertexCount > 65535 ? 'uint32' : 'uint16'
-    );
+    this.backend.setIndexBuffer(this.modelIndexBuffer, this.modelIndexFormat);
     this.backend.drawIndexed(this.modelIndexCount);
 
     // End frame
@@ -517,14 +557,24 @@ export class ModelViewer {
       this.frameTimeHistory.shift();
     }
 
-    if (currentTime - this.lastFpsUpdate >= 500) {
+    // Update stats every 1 second (aligned with demo.ts throttling)
+    if (currentTime - this.lastFpsUpdate >= 1000) {
       const fps = Math.round(this.frameCount / ((currentTime - this.lastFpsUpdate) / 1000));
       const avgFrameTime = this.frameTimeHistory.reduce((a, b) => a + b, 0) / this.frameTimeHistory.length;
 
-      // Update UI
+      // Update FPS
       const fpsEl = document.getElementById('fps-counter');
       if (fpsEl) {
         fpsEl.textContent = `${fps} FPS (${avgFrameTime.toFixed(2)}ms)`;
+      }
+
+      // Update VRAM usage
+      if (this.backend) {
+        const vramStats = this.backend.getVRAMStats();
+        const vramEl = document.getElementById('vram-usage');
+        if (vramEl) {
+          vramEl.textContent = `VRAM: ${(vramStats.totalUsed / 1024 / 1024).toFixed(2)} MB`;
+        }
       }
 
       this.frameCount = 0;
@@ -540,6 +590,28 @@ export class ModelViewer {
 
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);
+    }
+
+    // Clean up event listeners
+    if (this.mousedownHandler) {
+      this.canvas.removeEventListener('mousedown', this.mousedownHandler);
+      this.mousedownHandler = null;
+    }
+    if (this.mousemoveHandler) {
+      this.canvas.removeEventListener('mousemove', this.mousemoveHandler);
+      this.mousemoveHandler = null;
+    }
+    if (this.mouseupHandler) {
+      this.canvas.removeEventListener('mouseup', this.mouseupHandler);
+      this.mouseupHandler = null;
+    }
+    if (this.wheelHandler) {
+      this.canvas.removeEventListener('wheel', this.wheelHandler);
+      this.wheelHandler = null;
+    }
+    if (this.keydownHandler) {
+      window.removeEventListener('keydown', this.keydownHandler);
+      this.keydownHandler = null;
     }
 
     if (this.backend) {
