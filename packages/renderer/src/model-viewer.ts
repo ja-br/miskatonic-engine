@@ -93,7 +93,7 @@ export class ModelViewer {
   // Post-processing state
   private bloomEnabled: boolean = true;
   private bloomIntensity: number = 0.5;
-  private crtEnabled: boolean = false;
+  private crtEnabled: boolean = true;  // Match HTML checkbox default
   private grainAmount: number = 0.02;
   private lightIntensity: number = 1.2;
 
