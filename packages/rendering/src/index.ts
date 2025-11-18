@@ -24,6 +24,25 @@ export {
   BatchLightCuller,
   type LightCullingStats,
 } from './culling';
+
+// Epic 3.5: Lightweight Object Culling
+export {
+  ObjectCuller,
+  type ObjectCullerConfig,
+  type CullResult,
+  type CullStats,
+  SortOrder,
+  SpatialGrid,
+  type SpatialGridConfig,
+  type SpatialObject,
+  OccluderVolumeManager,
+  type OccluderVolume,
+  OcclusionResult,
+  SoftwareOcclusionTest,
+  type SoftwareOcclusionConfig,
+  type DepthOccluder,
+  DepthOcclusionResult,
+} from './culling';
 export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
 
 // Epic 3.8: GPU Memory Management

@@ -23,6 +23,13 @@ import {
   type BackendBindGroupHandle,
   type BackendBindGroupLayoutHandle,
   type BackendPipelineHandle,
+  // Epic 3.5: Object Culling
+  ObjectCuller,
+  BoundingSphere,
+  BoundingBox,
+  type SpatialObject,
+  type CullResult,
+  SortOrder,
 } from '../../rendering/src';
 import {
   PhysicsWorld,
@@ -86,6 +93,10 @@ export class Demo {
   public retroPostProcessor!: RetroPostProcessor;
   private lightBindGroupLayout!: BackendBindGroupLayoutHandle;
   private lightBindGroup!: BackendBindGroupHandle;
+
+  // Epic 3.5: Object Culling System
+  private objectCuller!: ObjectCuller;
+  private spatialObjectMap: Map<EntityId, { spatial: SpatialObject; boundingSphere: BoundingSphere }> = new Map();
 
   // GPU instancing infrastructure (double-buffered)
   private instanceBufferManager!: InstanceBufferManager;
@@ -245,6 +256,17 @@ export class Demo {
 
       // Initialize physics world
       await this.initializePhysics();
+
+      // Epic 3.5: Initialize object culler
+      this.objectCuller = new ObjectCuller({
+        spatialGrid: {
+          bounds: new BoundingBox(-100, -10, -100, 100, 100, 100),
+          cellsPerAxis: 16, // 16x16x16 = 4096 cells
+        },
+        enableStats: true,
+        sortOrder: SortOrder.NEAR_TO_FAR,
+      });
+      console.log('Object culler initialized (16x16x16 grid, bounds: [-100,-10,-100] to [100,100,100])');
 
       console.log('Renderer initialized successfully');
       console.log('Backend:', this.backend.name);
@@ -954,6 +976,10 @@ export class Demo {
     // Get view-projection matrix from ECS camera
     const aspectRatio = this.canvas.width / this.canvas.height;
     const viewProjMatrix = this.cameraSystem.getViewProjectionMatrix(this.cameraEntity, aspectRatio);
+    if (!viewProjMatrix) {
+      console.warn('Failed to get view-projection matrix');
+      return;
+    }
 
     // Get camera position from Transform component
     const cameraTransform = this.world.getComponent(this.cameraEntity, Transform);
@@ -993,7 +1019,28 @@ export class Demo {
     const diceEntities = this.world.executeQuery(this.diceQuery!);
     const tDiceLoopStart = performance.now();
 
+    // Epic 3.5: Culling timing and stats (initialized outside for FPS display)
+    let tCullStart = performance.now();
+    let tCullEnd = tCullStart;
+    let cullVisible = 0;
+    let cullCulled = 0;
+
     if (this.physicsWorld && diceEntities.length > 0) {
+      // Epic 3.5: Update object culler with current dice positions and perform culling
+      tCullStart = performance.now();
+      this.updateObjectCuller();
+
+      // Epic 3.5: Perform culling (pass matrix and camera position directly)
+      const cullResult = this.objectCuller.cull(viewProjMatrix, cameraTransform);
+      tCullEnd = performance.now();
+
+      // Epic 3.5: Capture culling stats for display
+      cullVisible = cullResult.length;
+      cullCulled = diceEntities.length - cullVisible;
+
+      // Create Set of visible entity IDs for fast lookup (O(1) instead of O(n))
+      const visibleEntities = new Set(cullResult.map(result => result.object.id));
+
       // Epic 3.4: Update camera uniform buffer for retro rendering
       // Camera struct: mat4 viewProj (16 floats) + vec3 position (3 floats) + padding (1 float) = 20 floats (80 bytes)
       const uniformData = new Float32Array(Demo.CAMERA_UNIFORM_FLOATS);
@@ -1009,6 +1056,8 @@ export class Demo {
       const sphereInstances: Array<{ entity: EntityId; transform: Transform; diceEntity: DiceEntity }> = [];
 
       for (const { entity, components } of diceEntities) {
+        // Epic 3.5: Skip culled (off-screen) objects
+        if (!visibleEntities.has(entity)) continue;
         const transform = components.get(Transform);
         const diceEntity = components.get(DiceEntity);
 
@@ -1164,12 +1213,20 @@ export class Demo {
         sync: (t2 - t1).toFixed(2),
         ecs: (t3 - t2).toFixed(2),
         diceLoop: (tDiceLoopEnd - tDiceLoopStart).toFixed(2),
+        cull: (tCullEnd - tCullStart).toFixed(2),
         sort: (t5 - t4).toFixed(2),
         gpuEncode: (t7 - t6).toFixed(2)
       };
 
+      // Epic 3.5: Culling statistics
+      const cullStats = {
+        visible: cullVisible,
+        culled: cullCulled
+      };
+
       // Calculate total CPU time
-      const totalCpu = (t1 - t0) + (t2 - t1) + (t3 - t2) + (tDiceLoopEnd - tDiceLoopStart) + (t5 - t4) + (t7 - t6);
+      const totalCpu = (t1 - t0) + (t2 - t1) + (t3 - t2) + (tDiceLoopEnd - tDiceLoopStart) +
+                       (tCullEnd - tCullStart) + (t5 - t4) + (t7 - t6);
 
       // Estimate GPU execution time (frame time - CPU time)
       const gpuExec = Math.max(0, avgFrameTime - totalCpu);
@@ -1189,7 +1246,8 @@ export class Demo {
         textureCount,
         cpuTiming,
         undefined, // resourcePoolStats removed (was tracking obsolete per-object uniform buffer pool)
-        gpuExec
+        gpuExec,
+        cullStats
       );
       this.frameCount = 0;
       this.lastFpsUpdate = now;
@@ -1339,6 +1397,13 @@ export class Demo {
       const diceEntity = components.get(DiceEntity);
 
       if (diceEntity) {
+        // Epic 3.5: Remove from object culler and spatial map (prevent memory leak)
+        const spatialData = this.spatialObjectMap.get(entity);
+        if (spatialData) {
+          this.objectCuller.removeObject(spatialData.spatial);
+          this.spatialObjectMap.delete(entity);
+        }
+
         // IMPORTANT: Remove ECS entity FIRST, then physics body
         // This prevents race conditions where physics sync tries to access removed bodies
         this.world.destroyEntity(entity);
@@ -1440,9 +1505,10 @@ export class Demo {
     vramUsagePercent: number,
     bufferCount: number,
     textureCount: number,
-    cpuTiming?: { physics: string; sync: string; ecs: string; diceLoop: string; sort: string; gpuEncode: string },
+    cpuTiming?: { physics: string; sync: string; ecs: string; diceLoop: string; cull: string; sort: string; gpuEncode: string },
     resourcePoolStats?: { poolSize: number; used: number },
-    gpuExec?: number
+    gpuExec?: number,
+    cullStats?: { visible: number; culled: number }
   ): void {
     // Basic performance metrics
     const fpsEl = document.getElementById('fps');
@@ -1477,6 +1543,7 @@ export class Demo {
       const cpuSyncEl = document.getElementById('cpu-sync');
       const cpuEcsEl = document.getElementById('cpu-ecs');
       const cpuLoopEl = document.getElementById('cpu-loop');
+      const cpuCullEl = document.getElementById('cpu-cull');
       const cpuSortEl = document.getElementById('cpu-sort');
       const cpuGpuEl = document.getElementById('cpu-gpu');
       const cpuTotalEl = document.getElementById('cpu-total');
@@ -1485,14 +1552,32 @@ export class Demo {
       if (cpuSyncEl) cpuSyncEl.textContent = cpuTiming.sync;
       if (cpuEcsEl) cpuEcsEl.textContent = cpuTiming.ecs;
       if (cpuLoopEl) cpuLoopEl.textContent = cpuTiming.diceLoop;
+      if (cpuCullEl) cpuCullEl.textContent = cpuTiming.cull;
       if (cpuSortEl) cpuSortEl.textContent = cpuTiming.sort;
       if (cpuGpuEl) cpuGpuEl.textContent = cpuTiming.gpuEncode;
 
       // Calculate total CPU time
       const totalCpu = parseFloat(cpuTiming.physics) + parseFloat(cpuTiming.sync) +
                        parseFloat(cpuTiming.ecs) + parseFloat(cpuTiming.diceLoop) +
-                       parseFloat(cpuTiming.sort) + parseFloat(cpuTiming.gpuEncode);
+                       parseFloat(cpuTiming.cull) + parseFloat(cpuTiming.sort) +
+                       parseFloat(cpuTiming.gpuEncode);
       if (cpuTotalEl) cpuTotalEl.textContent = totalCpu.toFixed(2);
+    }
+
+    // Epic 3.5: Culling statistics
+    if (cullStats) {
+      const cullVisibleEl = document.getElementById('cull-visible');
+      const cullCulledEl = document.getElementById('cull-culled');
+      const cullReductionEl = document.getElementById('cull-reduction');
+
+      if (cullVisibleEl) cullVisibleEl.textContent = cullStats.visible.toString();
+      if (cullCulledEl) cullCulledEl.textContent = cullStats.culled.toString();
+
+      if (cullReductionEl) {
+        const total = cullStats.visible + cullStats.culled;
+        const reduction = total > 0 ? (cullStats.culled / total) * 100 : 0;
+        cullReductionEl.textContent = reduction.toFixed(1);
+      }
     }
 
     // GPU execution time (estimate from frame time - CPU total)
@@ -1580,6 +1665,11 @@ export class Demo {
     const remainingEntities = Array.from(this.world.executeQuery(verifyQuery));
     console.log(`[RESET] After removal, ${remainingEntities.length} dice entities remain`);
 
+    // Epic 3.5: Clear object culler and spatial map (prevent memory leak)
+    this.objectCuller.clear();
+    this.spatialObjectMap.clear();
+    console.log('[RESET] Object culler and spatial map cleared');
+
     // Epic 3.4: Clear and resize instance buffers to minimum capacity to free VRAM
     const minCapacity = 128;
     console.log(`[RESET] Clearing and resizing instance buffers to minimum capacity: ${minCapacity}`);
@@ -1613,6 +1703,76 @@ export class Demo {
       const query = this.world.query().with(DiceEntity).build();
       const actualDiceCount = Array.from(this.world.executeQuery(query)).length;
       diceCountEl.textContent = `${actualDiceCount} dice total`;
+    }
+  }
+
+  /**
+   * Epic 3.5: Calculate correct bounding sphere radius for die type
+   * Uses actual physics collision shape dimensions to prevent pop-in/pop-out
+   */
+  private getDieBoundingSphereRadius(sides: number): number {
+    switch (sides) {
+      case 4:  return 0.4;  // D4: SPHERE radius 0.4
+      case 6:  return Math.sqrt(0.5 * 0.5 + 0.5 * 0.5 + 0.5 * 0.5);  // D6: BOX diagonal ≈ 0.866
+      case 8:  return 0.5;  // D8: SPHERE radius 0.5
+      case 10: return Math.sqrt(0.45 * 0.45 + 0.5 * 0.5);  // D10: CYLINDER ≈ 0.673
+      case 12: return 0.55;  // D12: SPHERE radius 0.55
+      case 20: return 0.6;  // D20: SPHERE radius 0.6
+      default:
+        console.warn(`Unknown die type: ${sides}, using default radius 0.5`);
+        return 0.5;
+    }
+  }
+
+  /**
+   * Epic 3.5: Update frustum culler with current dice positions
+   * PERFORMANCE: Reuses BoundingSphere objects, skips sleeping bodies
+   */
+  private updateObjectCuller(): void {
+    if (!this.physicsWorld || !this.diceQuery) return;
+
+    const diceEntities = this.world.executeQuery(this.diceQuery);
+
+    for (const { entity, components } of diceEntities) {
+      const diceEntity = components.get(DiceEntity);
+      if (!diceEntity) continue;
+
+      // Get or create spatial data for this entity
+      let spatialData = this.spatialObjectMap.get(entity);
+      if (!spatialData) {
+        // First time seeing this entity - create spatial object
+        const radius = this.getDieBoundingSphereRadius(diceEntity.sides);
+        const boundingSphere = new BoundingSphere(0, 0, 0, radius);
+        const spatial: SpatialObject = {
+          id: entity,
+          boundingSphere: boundingSphere
+        };
+        this.objectCuller.addObject(spatial);
+
+        spatialData = { spatial, boundingSphere };
+        this.spatialObjectMap.set(entity, spatialData);
+      }
+
+      // OPTIMIZATION: Only update position if body is awake
+      if (this.physicsWorld.isSleeping(diceEntity.bodyHandle)) {
+        continue;
+      }
+
+      // Update position (reuses existing BoundingSphere - NO ALLOCATION)
+      try {
+        const position = this.physicsWorld.getPosition(diceEntity.bodyHandle);
+        if (position) {
+          spatialData.boundingSphere.x = position.x;
+          spatialData.boundingSphere.y = position.y;
+          spatialData.boundingSphere.z = position.z;
+          // Radius never changes, no need to update
+
+          // Notify spatial grid of position change
+          this.objectCuller.updateObject(spatialData.spatial);
+        }
+      } catch (e) {
+        // Body might have been removed, will be cleaned up in removal phase
+      }
     }
   }
 
