@@ -492,31 +492,44 @@ export class ModelViewer {
   private setupCameraControls(): void {
     if (!this.orbitController) return;
 
-    let isDragging = false;
+    let isRotating = false;
+    let isPanning = false;
     let lastX = 0;
     let lastY = 0;
 
     // Store handler references for cleanup
     this.mousedownHandler = (e: MouseEvent) => {
-      if (e.button === 0) { // Left button
-        isDragging = true;
+      if (e.button === 0) { // Left button - rotate
+        isRotating = true;
         lastX = e.clientX;
         lastY = e.clientY;
+      } else if (e.button === 2) { // Right button - pan
+        isPanning = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        e.preventDefault();
       }
     };
 
     this.mousemoveHandler = (e: MouseEvent) => {
-      if (isDragging && this.orbitController) {
-        const deltaX = e.clientX - lastX;
-        const deltaY = e.clientY - lastY;
+      if (!this.orbitController) return;
+
+      const deltaX = e.clientX - lastX;
+      const deltaY = e.clientY - lastY;
+
+      if (isRotating) {
         this.orbitController.rotate(deltaX * 0.01, deltaY * 0.01);
-        lastX = e.clientX;
-        lastY = e.clientY;
+      } else if (isPanning) {
+        this.orbitController.pan(-deltaX, deltaY);
       }
+
+      lastX = e.clientX;
+      lastY = e.clientY;
     };
 
     this.mouseupHandler = () => {
-      isDragging = false;
+      isRotating = false;
+      isPanning = false;
     };
 
     this.wheelHandler = (e: WheelEvent) => {
@@ -530,9 +543,9 @@ export class ModelViewer {
     this.keydownHandler = (e: KeyboardEvent) => {
       // Reset camera on 'R' key
       if (e.key === 'r' || e.key === 'R') {
-        if (this.orbitController && this.cameraEntity) {
+        if (this.orbitController) {
           this.targetY = 2;
-          this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 10);
+          this.orbitController.reset(10, 0, Math.PI / 6);
           this.orbitController.setTarget(0, this.targetY, 0);
           console.log('Camera reset');
         }
@@ -552,6 +565,9 @@ export class ModelViewer {
         }
       }
     };
+
+    // Prevent context menu on right-click
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Register event listeners
     this.canvas.addEventListener('mousedown', this.mousedownHandler);
@@ -833,19 +849,39 @@ export class ModelViewer {
    */
   setLightIntensity(intensity: number): void {
     this.lightIntensity = Math.max(0, Math.min(3, intensity));
+    this.updateLight();
+  }
 
-    // Update the directional light
+  // Light direction state (spherical coordinates)
+  private lightAzimuth: number = Math.PI / 4;  // 45 degrees
+  private lightElevation: number = Math.PI / 4; // 45 degrees
+
+  /**
+   * Set light direction using spherical coordinates
+   * @param azimuth - Horizontal angle in radians (0 = +X, PI/2 = +Z)
+   * @param elevation - Vertical angle in radians (0 = horizontal, PI/2 = straight down)
+   */
+  setLightDirection(azimuth: number, elevation: number): void {
+    this.lightAzimuth = azimuth;
+    this.lightElevation = elevation;
+    this.updateLight();
+  }
+
+  private updateLight(): void {
+    // Convert spherical to cartesian direction
+    const dirX = Math.cos(this.lightElevation) * Math.sin(this.lightAzimuth);
+    const dirY = -Math.sin(this.lightElevation); // Negative because light points down
+    const dirZ = Math.cos(this.lightElevation) * Math.cos(this.lightAzimuth);
+
     const retroLights: RetroLight[] = [
       {
         type: 'directional',
         position: [0, 10, 0],
         color: [1.0, 0.95, 0.9],
         intensity: this.lightIntensity,
-        direction: [0.5, -1.0, -0.5],
+        direction: [dirX, dirY, dirZ],
       },
     ];
     this.retroLighting.setLights(retroLights);
-
-    console.log(`Light intensity: ${this.lightIntensity}`);
   }
 }

@@ -68,6 +68,59 @@ export class OrbitCameraController {
   }
 
   /**
+   * Pan camera (move target point)
+   * @param deltaX - Horizontal pan delta (screen space)
+   * @param deltaY - Vertical pan delta (screen space)
+   */
+  pan(deltaX: number, deltaY: number): void {
+    // Calculate camera's right and up vectors based on current orientation
+    // Right vector is perpendicular to view direction in XZ plane
+    const rightX = Math.cos(this.azimuth);
+    const rightZ = Math.sin(this.azimuth);
+
+    // Up vector in world space (simplified - just Y axis for orbit camera)
+    // For more accurate pan, we'd use the camera's actual up vector
+    const upX = -Math.cos(this.elevation) * Math.sin(this.azimuth);
+    const upY = Math.sin(this.elevation);
+    const upZ = Math.cos(this.elevation) * Math.cos(this.azimuth);
+
+    // Scale pan amount based on distance (further = larger movements)
+    const panScale = this.distance * 0.002;
+
+    // Move target in camera-relative directions
+    this.targetX += (rightX * deltaX + upX * deltaY) * panScale;
+    this.targetY += upY * deltaY * panScale;
+    this.targetZ += (rightZ * deltaX + upZ * deltaY) * panScale;
+
+    this.updatePosition();
+  }
+
+  /**
+   * Reset camera to default view
+   */
+  reset(distance: number = 10, azimuth: number = 0, elevation: number = Math.PI / 6): void {
+    this.distance = distance;
+    this.azimuth = azimuth;
+    this.elevation = elevation;
+    this.targetX = 0;
+    this.targetY = 0;
+    this.targetZ = 0;
+    this.updatePosition();
+  }
+
+  /**
+   * Get current camera state
+   */
+  getState(): { distance: number; azimuth: number; elevation: number; target: [number, number, number] } {
+    return {
+      distance: this.distance,
+      azimuth: this.azimuth,
+      elevation: this.elevation,
+      target: [this.targetX, this.targetY, this.targetZ]
+    };
+  }
+
+  /**
    * Update camera position based on orbit parameters
    */
   private updatePosition(): void {

@@ -171,7 +171,7 @@
       </div>
       <div id="info">
         Miskatonic Engine - Model Viewer<br>
-        Mouse: Drag to rotate, Scroll to zoom<br>
+        Left drag: Rotate, Right drag: Pan, Scroll: Zoom<br>
         Q/E or Up/Down: Raise/Lower view target<br>
         R: Reset camera
         <br><br>
@@ -185,6 +185,27 @@
             <option value="sphere">Generated Sphere</option>
             <option value="cube">Generated Cube</option>
           </select>
+        </div>
+
+        <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+          <div class="slider-label">Light Azimuth: <span id="light-azimuth-value">45°</span></div>
+          <div class="slider-container">
+            <input type="range" id="light-azimuth-slider" min="0" max="360" value="45" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Light Elevation: <span id="light-elevation-value">45°</span></div>
+          <div class="slider-container">
+            <input type="range" id="light-elevation-slider" min="0" max="90" value="45" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Light Intensity: <span id="light-intensity-value">1.2</span></div>
+          <div class="slider-container">
+            <input type="range" id="light-intensity-slider" min="0" max="300" value="120" step="10">
+          </div>
         </div>
 
         <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
@@ -283,6 +304,53 @@
           if (modelSelect) {
             modelSelect.addEventListener('change', async (e) => {
               await viewer.loadModelByPath(e.target.value);
+            });
+          }
+
+          // Light direction sliders
+          const lightAzimuthSlider = document.getElementById('light-azimuth-slider');
+          const lightAzimuthValue = document.getElementById('light-azimuth-value');
+          const lightElevationSlider = document.getElementById('light-elevation-slider');
+          const lightElevationValue = document.getElementById('light-elevation-value');
+
+          const updateLightDirection = () => {
+            const azimuthDeg = lightAzimuthSlider ? parseInt(lightAzimuthSlider.value, 10) : 45;
+            const elevationDeg = lightElevationSlider ? parseInt(lightElevationSlider.value, 10) : 45;
+            const azimuthRad = (azimuthDeg * Math.PI) / 180;
+            const elevationRad = (elevationDeg * Math.PI) / 180;
+            viewer.setLightDirection(azimuthRad, elevationRad);
+          };
+
+          if (lightAzimuthSlider) {
+            lightAzimuthSlider.addEventListener('input', () => {
+              const value = parseInt(lightAzimuthSlider.value, 10);
+              if (lightAzimuthValue) {
+                lightAzimuthValue.textContent = `${value}°`;
+              }
+              updateLightDirection();
+            });
+          }
+
+          if (lightElevationSlider) {
+            lightElevationSlider.addEventListener('input', () => {
+              const value = parseInt(lightElevationSlider.value, 10);
+              if (lightElevationValue) {
+                lightElevationValue.textContent = `${value}°`;
+              }
+              updateLightDirection();
+            });
+          }
+
+          // Light intensity slider
+          const lightIntensitySlider = document.getElementById('light-intensity-slider');
+          const lightIntensityValue = document.getElementById('light-intensity-value');
+          if (lightIntensitySlider) {
+            lightIntensitySlider.addEventListener('input', () => {
+              const value = parseInt(lightIntensitySlider.value, 10) / 100;
+              viewer.setLightIntensity(value);
+              if (lightIntensityValue) {
+                lightIntensityValue.textContent = value.toFixed(1);
+              }
             });
           }
 
