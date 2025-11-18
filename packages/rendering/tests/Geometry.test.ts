@@ -184,34 +184,34 @@ describe('Geometry', () => {
       expect(plane.indices.length % 2).toBe(0);
     });
 
-    it('should create plane at Z=0 with forward-facing normals', () => {
+    it('should create horizontal plane at Y=0 with upward-facing normals', () => {
       const plane = createPlane(10, 10, 4, 4);
 
-      // All Z positions should be 0 (plane is in XY plane)
-      for (let i = 2; i < plane.positions.length; i += 3) {
+      // All Y positions should be 0 (horizontal plane in XZ)
+      for (let i = 1; i < plane.positions.length; i += 3) {
         expect(plane.positions[i]).toBe(0);
       }
 
-      // All normals should point forward (+Z direction)
+      // All normals should point up (+Y direction)
       for (let i = 0; i < plane.normals.length; i += 3) {
         expect(plane.normals[i]).toBe(0);
-        expect(plane.normals[i + 1]).toBe(0);
-        expect(plane.normals[i + 2]).toBe(1);
+        expect(plane.normals[i + 1]).toBe(1);
+        expect(plane.normals[i + 2]).toBe(0);
       }
     });
 
     it('should scale plane dimensions correctly', () => {
       const width = 20;
-      const height = 15;
-      const plane = createPlane(width, height, 2, 2);
+      const depth = 15;
+      const plane = createPlane(width, depth, 2, 2);
 
       const halfWidth = width / 2;
-      const halfHeight = height / 2;
+      const halfDepth = depth / 2;
 
-      // Check bounds (plane is in XY plane)
+      // Check bounds (horizontal plane in XZ)
       for (let i = 0; i < plane.positions.length; i += 3) {
-        expect(Math.abs(plane.positions[i])).toBeLessThanOrEqual(halfWidth + 0.001);
-        expect(Math.abs(plane.positions[i + 1])).toBeLessThanOrEqual(halfHeight + 0.001);
+        expect(Math.abs(plane.positions[i])).toBeLessThanOrEqual(halfWidth + 0.001);     // X
+        expect(Math.abs(plane.positions[i + 2])).toBeLessThanOrEqual(halfDepth + 0.001); // Z
       }
     });
 

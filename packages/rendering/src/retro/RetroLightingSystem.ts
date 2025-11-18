@@ -109,19 +109,21 @@ export class RetroLightingSystem {
       return;
     }
 
-    // Pack lights into GPU format with CORRECT WGSL storage buffer alignment
-    // CRITICAL: Storage buffers use 4-byte alignment for vec3<f32>, NOT 16-byte!
-    // (Uniform buffers use 16-byte alignment, storage buffers do NOT)
+    // Pack lights into GPU format with WGSL alignment rules
+    // Note: vec3<f32> has alignment 16 in WGSL, but the packing here works because:
+    // - After position (12 bytes), type_ (4 bytes) fills to 16-byte boundary
+    // - After color (12 bytes), intensity (4 bytes) fills to 16-byte boundary
+    // - After direction (12 bytes), range (4 bytes) fills to 16-byte boundary
     //
     // struct Light {
-    //   position: vec3<f32>,    // offset 0 (align 4, size 12) → bytes 0-11
-    //   type_: u32,             // offset 12 (align 4, size 4) → bytes 12-15
-    //   color: vec3<f32>,       // offset 16 (align 4, size 12) → bytes 16-27
-    //   intensity: f32,         // offset 28 (align 4, size 4) → bytes 28-31
-    //   direction: vec3<f32>,   // offset 32 (align 4, size 12) → bytes 32-43
-    //   range: f32,             // offset 44 (align 4, size 4) → bytes 44-47
+    //   position: vec3<f32>,    // offset 0 (align 16, size 12) -> bytes 0-11
+    //   type_: u32,             // offset 12 (align 4, size 4)  -> bytes 12-15
+    //   color: vec3<f32>,       // offset 16 (align 16, size 12) -> bytes 16-27
+    //   intensity: f32,         // offset 28 (align 4, size 4)  -> bytes 28-31
+    //   direction: vec3<f32>,   // offset 32 (align 16, size 12) -> bytes 32-43
+    //   range: f32,             // offset 44 (align 4, size 4)  -> bytes 44-47
     // }
-    // Total: 48 bytes per light (12 floats) - natural C-style packing, NO padding
+    // Total: 48 bytes per light (12 floats)
     const LIGHT_STRUCT_SIZE_BYTES = 48;
     const stride = LIGHT_STRUCT_SIZE_BYTES / 4; // 12 floats
     const buffer = new Float32Array(this.lights.length * stride);
@@ -136,6 +138,8 @@ export class RetroLightingSystem {
       buffer[offset + 2] = light.position[2];
 
       // Type (u32) at offset 12 (immediately after position)
+      // Note: We store as float but the shader interprets as u32
+      // This works because 0.0f bit pattern = 0u and we only check == 0u
       buffer[offset + 3] = light.type === 'directional' ? 0.0 : 1.0;
 
       // Color (vec3<f32>) at offset 16 (immediately after type)
@@ -170,17 +174,16 @@ export class RetroLightingSystem {
 
     // Create or update buffer
     if (this.lightBuffer) {
-      // Update existing buffer
-      // TODO: Add update method to backend
-      this.backend.deleteBuffer(this.lightBuffer);
+      // Update existing buffer in-place to preserve bind group references
+      this.backend.updateBuffer(this.lightBuffer, buffer);
+    } else {
+      this.lightBuffer = this.backend.createBuffer(
+        'retro_lights',
+        'storage',
+        buffer,
+        'dynamic_draw'
+      );
     }
-
-    this.lightBuffer = this.backend.createBuffer(
-      'retro_lights',
-      'storage',
-      buffer,
-      'dynamic_draw'
-    );
   }
 
   /**

@@ -28,6 +28,7 @@ import {
   type ModelData,
   type MaterialGroup,
   OPAQUE_PIPELINE_STATE,
+  WIREFRAME_PIPELINE_STATE,
 } from '../../rendering/src';
 import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
 import * as Mat4 from '../../ecs/src/math/Mat4';
@@ -62,6 +63,7 @@ export class ModelViewer {
   private materialBindGroup!: BackendBindGroupHandle;
   private materialBuffer!: BackendBufferHandle;
   private dummyTexture!: BackendTextureHandle;
+  private checkerboardTexture!: BackendTextureHandle;
   private dummySampler!: BackendSamplerHandle;
 
   // Shader and pipeline
@@ -70,6 +72,8 @@ export class ModelViewer {
   private sharedUniformBuffer!: BackendBufferHandle;
   private sharedBindGroup!: BackendBindGroupHandle;
   private modelPipeline!: BackendPipelineHandle;
+  private wireframePipeline!: BackendPipelineHandle;
+  private wireframeEnabled: boolean = false;
 
   // Model geometry (legacy single-material)
   private modelVertexBuffer!: BackendBufferHandle;
@@ -110,6 +114,10 @@ export class ModelViewer {
   private crtEnabled: boolean = true;  // Match HTML checkbox default
   private grainAmount: number = 0.02;
   private lightIntensity: number = 1.2;
+
+  // Light direction state (spherical coordinates)
+  private lightAzimuth: number = Math.PI / 4;  // 45 degrees
+  private lightElevation: number = Math.PI / 4; // 45 degrees
 
   // Event listener references for cleanup
   private mousedownHandler: ((e: MouseEvent) => void) | null = null;
@@ -160,17 +168,8 @@ export class ModelViewer {
         enableFog: false,
       });
 
-      // Setup directional light
-      const retroLights: RetroLight[] = [
-        {
-          type: 'directional',
-          position: [0, 10, 0],
-          color: [1.0, 0.95, 0.9],
-          intensity: 1.2,
-          direction: [0.5, -1.0, -0.5],
-        },
-      ];
-      this.retroLighting.setLights(retroLights);
+      // Setup directional light using initial spherical coordinates
+      this.updateLight();
 
       // Resize backend to match canvas
       this.backend.resize(this.canvas.width, this.canvas.height);
@@ -356,6 +355,7 @@ export class ModelViewer {
             texture = await this.loadTexture(textureUrl, group.materialName);
           } catch (error) {
             console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
+            texture = this.checkerboardTexture; // Use checkerboard for failed textures
           }
         }
 
@@ -592,6 +592,38 @@ export class ModelViewer {
       }
     );
 
+    // Create 8x8 magenta/black checkerboard texture for failed textures
+    const checkerSize = 8;
+    const checkerData = new Uint8Array(checkerSize * checkerSize * 4);
+    for (let y = 0; y < checkerSize; y++) {
+      for (let x = 0; x < checkerSize; x++) {
+        const offset = (y * checkerSize + x) * 4;
+        const isWhite = (x + y) % 2 === 0;
+        if (isWhite) {
+          // Magenta for visibility
+          checkerData[offset + 0] = 255; // R
+          checkerData[offset + 1] = 0;   // G
+          checkerData[offset + 2] = 255; // B
+          checkerData[offset + 3] = 255; // A
+        } else {
+          // Black
+          checkerData[offset + 0] = 0;   // R
+          checkerData[offset + 1] = 0;   // G
+          checkerData[offset + 2] = 0;   // B
+          checkerData[offset + 3] = 255; // A
+        }
+      }
+    }
+    this.checkerboardTexture = this.backend.createTexture(
+      'checkerboard-texture',
+      checkerSize,
+      checkerSize,
+      checkerData,
+      {
+        format: 'rgba8unorm',
+      }
+    );
+
     // Create sampler
     this.dummySampler = this.backend.createSampler('dummy-sampler', {
       magFilter: 'linear',
@@ -654,6 +686,25 @@ export class ModelViewer {
       }],
       bindGroupLayouts: [this.bindGroupLayout, this.materialBindGroupLayout, this.lightBindGroupLayout],
       pipelineState: OPAQUE_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth16unorm',
+    });
+
+    // Create wireframe pipeline
+    this.wireframePipeline = this.backend.createRenderPipeline({
+      shader: this.modelShader,
+      vertexLayouts: [{
+        arrayStride: ModelViewer.VERTEX_STRIDE,
+        stepMode: 'vertex',
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },  // position
+          { shaderLocation: 1, offset: 12, format: 'float32x3' }, // normal
+          { shaderLocation: 2, offset: 24, format: 'float32x2' }, // uv
+          { shaderLocation: 3, offset: 32, format: 'float32x4' }, // color (ambient)
+        ],
+      }],
+      bindGroupLayouts: [this.bindGroupLayout, this.materialBindGroupLayout, this.lightBindGroupLayout],
+      pipelineState: WIREFRAME_PIPELINE_STATE,
       colorFormat: 'bgra8unorm',
       depthFormat: 'depth16unorm',
     });
@@ -826,9 +877,12 @@ export class ModelViewer {
       true                            // requireDepth = true for 3D rendering
     );
 
+    // Select pipeline based on wireframe mode
+    const activePipeline = this.wireframeEnabled ? this.wireframePipeline : this.modelPipeline;
+
     // Create and execute draw commands
     const groundCommand: DrawCommand = {
-      pipeline: this.modelPipeline,
+      pipeline: activePipeline,
       bindGroups: new Map([
         [0, this.sharedBindGroup],
         [1, this.materialBindGroup],
@@ -851,7 +905,7 @@ export class ModelViewer {
       // Multi-material: one draw call per material group
       for (const group of this.materialGroups) {
         const materialCommand: DrawCommand = {
-          pipeline: this.modelPipeline,
+          pipeline: activePipeline,
           bindGroups: new Map([
             [0, this.sharedBindGroup],
             [1, group.bindGroup],
@@ -871,7 +925,7 @@ export class ModelViewer {
     } else if (this.modelVertexBuffer && this.modelIndexBuffer) {
       // Single material fallback - only if buffers exist
       const modelCommand: DrawCommand = {
-        pipeline: this.modelPipeline,
+        pipeline: activePipeline,
         bindGroups: new Map([
           [0, this.sharedBindGroup],
           [1, this.materialBindGroup],
@@ -933,6 +987,43 @@ export class ModelViewer {
         const vramEl = document.getElementById('vram-usage');
         if (vramEl) {
           vramEl.textContent = `${(vramStats.totalUsed / 1024 / 1024).toFixed(2)} MB`;
+        }
+      }
+
+      // Update texture count
+      const textureEl = document.getElementById('texture-count');
+      if (textureEl) {
+        // Count textures loaded for the model (excluding dummy and checkerboard textures)
+        const textureCount = this.materialGroups.filter(
+          g => g.texture !== this.dummyTexture && g.texture !== this.checkerboardTexture
+        ).length;
+        textureEl.textContent = textureCount.toString();
+      }
+
+      // Update camera state
+      if (this.orbitController) {
+        const state = this.orbitController.getState();
+
+        const distEl = document.getElementById('camera-distance');
+        if (distEl) {
+          distEl.textContent = state.distance.toFixed(1);
+        }
+
+        const azEl = document.getElementById('camera-azimuth');
+        if (azEl) {
+          // Convert radians to degrees
+          azEl.textContent = `${((state.azimuth * 180 / Math.PI) % 360).toFixed(0)}°`;
+        }
+
+        const elevEl = document.getElementById('camera-elevation');
+        if (elevEl) {
+          // Convert radians to degrees
+          elevEl.textContent = `${(state.elevation * 180 / Math.PI).toFixed(0)}°`;
+        }
+
+        const targetEl = document.getElementById('camera-target');
+        if (targetEl) {
+          targetEl.textContent = `${state.target[0].toFixed(1)}, ${state.target[1].toFixed(1)}, ${state.target[2].toFixed(1)}`;
         }
       }
 
@@ -1103,17 +1194,25 @@ export class ModelViewer {
           let texture = this.dummyTexture;
           const materialDef = modelData.materials.get(group.materialName);
           if (materialDef?.texturePath) {
-            const texturePath = basePath + materialDef.texturePath;
+            // Handle absolute Windows paths in MTL files (common in downloaded models)
+            let textureFileName = materialDef.texturePath;
+            if (textureFileName.match(/^[A-Z]:\\/)) {
+              // Extract just the filename from Windows absolute path
+              textureFileName = textureFileName.split('\\').pop() || textureFileName;
+            }
+            const texturePath = basePath + textureFileName;
             const ext = texturePath.toLowerCase().split('.').pop();
 
             // Skip unsupported texture formats
             if (ext === 'dds' || ext === 'tga') {
               console.warn(`Unsupported texture format: ${materialDef.texturePath}`);
+              texture = this.checkerboardTexture; // Use checkerboard for unsupported formats
             } else {
               try {
                 texture = await this.loadTextureFromFile(texturePath, `${groupIndex - 1}-${group.materialName}`);
               } catch (error) {
-                console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
+                console.warn(`Failed to load texture ${textureFileName}:`, error);
+                texture = this.checkerboardTexture; // Use checkerboard for failed textures
               }
             }
           }
@@ -1255,6 +1354,14 @@ export class ModelViewer {
   }
 
   /**
+   * Enable or disable wireframe rendering
+   */
+  setWireframe(enabled: boolean): void {
+    this.wireframeEnabled = enabled;
+    console.log(`Wireframe mode: ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
    * Enable or disable bloom effect
    */
   setBloomEnabled(enabled: boolean): void {
@@ -1303,10 +1410,6 @@ export class ModelViewer {
     this.updateLight();
   }
 
-  // Light direction state (spherical coordinates)
-  private lightAzimuth: number = Math.PI / 4;  // 45 degrees
-  private lightElevation: number = Math.PI / 4; // 45 degrees
-
   /**
    * Set light direction using spherical coordinates
    * @param azimuth - Horizontal angle in radians (0 = +X, PI/2 = +Z)
@@ -1320,9 +1423,12 @@ export class ModelViewer {
 
   private updateLight(): void {
     // Convert spherical to cartesian direction
-    const dirX = Math.cos(this.lightElevation) * Math.sin(this.lightAzimuth);
-    const dirY = -Math.sin(this.lightElevation); // Negative because light points down
-    const dirZ = Math.cos(this.lightElevation) * Math.cos(this.lightAzimuth);
+    // This produces the direction the light is POINTING (toward origin from light source)
+    // Azimuth 0 = light from +X, so direction points toward -X
+    // Azimuth 90 = light from +Z, so direction points toward -Z
+    const dirX = -Math.cos(this.lightElevation) * Math.cos(this.lightAzimuth);
+    const dirY = -Math.sin(this.lightElevation);
+    const dirZ = -Math.cos(this.lightElevation) * Math.sin(this.lightAzimuth);
 
     const retroLights: RetroLight[] = [
       {

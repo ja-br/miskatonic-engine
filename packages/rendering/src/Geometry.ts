@@ -178,9 +178,9 @@ export function createSphere(
  */
 export function createPlane(
   width: number = 1.0,
-  height: number = 1.0,
+  depth: number = 1.0,
   widthSegments: number = 1,
-  heightSegments: number = 1
+  depthSegments: number = 1
 ): GeometryData {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -188,34 +188,36 @@ export function createPlane(
   const indices: number[] = [];
 
   const widthHalf = width / 2;
-  const heightHalf = height / 2;
+  const depthHalf = depth / 2;
 
   const gridX = widthSegments;
-  const gridY = heightSegments;
+  const gridZ = depthSegments;
 
   const segmentWidth = width / gridX;
-  const segmentHeight = height / gridY;
+  const segmentDepth = depth / gridZ;
 
-  // Generate vertices
-  for (let iy = 0; iy <= gridY; iy++) {
-    const y = iy * segmentHeight - heightHalf;
+  // Generate vertices for HORIZONTAL floor plane (XZ plane with Y=0)
+  for (let iz = 0; iz <= gridZ; iz++) {
+    const z = iz * segmentDepth - depthHalf;
 
     for (let ix = 0; ix <= gridX; ix++) {
       const x = ix * segmentWidth - widthHalf;
 
-      positions.push(x, y, 0);
-      normals.push(0, 0, 1);
-      uvs.push(ix / gridX, 1 - iy / gridY);
+      // Horizontal plane: positions in XZ plane, Y=0
+      positions.push(x, 0, z);
+      // Normals pointing UP (+Y)
+      normals.push(0, 1, 0);
+      uvs.push(ix / gridX, 1 - iz / gridZ);
     }
   }
 
   // Generate indices
-  for (let iy = 0; iy < gridY; iy++) {
+  for (let iz = 0; iz < gridZ; iz++) {
     for (let ix = 0; ix < gridX; ix++) {
-      const a = ix + (gridX + 1) * iy;
-      const b = ix + (gridX + 1) * (iy + 1);
-      const c = ix + 1 + (gridX + 1) * (iy + 1);
-      const d = ix + 1 + (gridX + 1) * iy;
+      const a = ix + (gridX + 1) * iz;
+      const b = ix + (gridX + 1) * (iz + 1);
+      const c = ix + 1 + (gridX + 1) * (iz + 1);
+      const d = ix + 1 + (gridX + 1) * iz;
 
       indices.push(a, b, d);
       indices.push(b, c, d);
@@ -520,7 +522,8 @@ export function parseMTL(mtlText: string): Map<string, MaterialData> {
           parseFloat(parts[3]),
         ];
       } else if (type === 'map_Kd') {
-        currentMaterial.texturePath = parts[1];
+        // Join all parts to handle paths with spaces
+        currentMaterial.texturePath = parts.slice(1).join(' ');
       }
     }
   }
