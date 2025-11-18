@@ -262,6 +262,7 @@ export class ModelViewer {
 
     // Dispose multi-material group resources
     for (const group of this.materialGroups) {
+      this.backend.deleteBindGroup(group.bindGroup);
       this.backend.deleteBuffer(group.vertexBuffer);
       this.backend.deleteBuffer(group.indexBuffer);
       if (group.texture !== this.dummyTexture) {
@@ -342,11 +343,8 @@ export class ModelViewer {
           'static_draw'
         );
 
-        // Determine index format
-        const maxIndex = indexCount > 0
-          ? Math.max(...Array.from(geometry.indices).slice(0, indexCount))
-          : 0;
-        const indexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
+        // Determine index format from actual array type
+        const indexFormat = geometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
 
         // Load texture for this material
         let texture = this.dummyTexture;
@@ -389,10 +387,8 @@ export class ModelViewer {
       this.modelVertexCount = simpleGeometry.positions.length / 3;
       this.modelIndexCount = Math.floor(simpleGeometry.indices.length / 3) * 3;
 
-      const maxIndex = this.modelIndexCount > 0
-        ? Math.max(...Array.from(simpleGeometry.indices).slice(0, this.modelIndexCount))
-        : 0;
-      this.modelIndexFormat = maxIndex > 65535 ? 'uint32' : 'uint16';
+      // Determine index format from actual array type
+      this.modelIndexFormat = simpleGeometry.indices instanceof Uint32Array ? 'uint32' : 'uint16';
 
       const interleavedData = this.interleaveVertexData(simpleGeometry);
 
