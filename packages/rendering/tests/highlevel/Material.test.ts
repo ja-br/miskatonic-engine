@@ -3,7 +3,7 @@
  * Epic 3.14: High-Level Rendering API Wrapper
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Material } from '../../src/highlevel/Material';
 import { HighLevelRenderer } from '../../src/highlevel/HighLevelRenderer';
 
@@ -12,10 +12,34 @@ describe('Material', () => {
   let canvas: HTMLCanvasElement;
 
   beforeEach(() => {
-    canvas = document.createElement('canvas');
+    // Mock document
+    const mockCanvas = {
+      getContext: vi.fn(() => null),
+      width: 800,
+      height: 600,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    const mockDocument = {
+      createElement: vi.fn((tag: string) => {
+        if (tag === 'canvas') {
+          return mockCanvas;
+        }
+        return {};
+      }),
+      getElementById: vi.fn(() => null),
+    };
+    vi.stubGlobal('document', mockDocument);
+
+    canvas = document.createElement('canvas') as any;
     canvas.width = 800;
     canvas.height = 600;
     renderer = new HighLevelRenderer({ canvas });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('Factory Methods', () => {

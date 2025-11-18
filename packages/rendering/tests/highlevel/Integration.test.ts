@@ -6,7 +6,7 @@
  * through material/mesh creation to drawing.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { HighLevelRenderer } from '../../src/highlevel/HighLevelRenderer';
 import { Material } from '../../src/highlevel/Material';
 import { Mesh } from '../../src/highlevel/Mesh';
@@ -16,10 +16,34 @@ describe('High-Level Rendering API Integration', () => {
   let renderer: HighLevelRenderer;
 
   beforeEach(() => {
-    canvas = document.createElement('canvas');
+    // Mock document
+    const mockCanvas = {
+      getContext: vi.fn(() => null),
+      width: 800,
+      height: 600,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    const mockDocument = {
+      createElement: vi.fn((tag: string) => {
+        if (tag === 'canvas') {
+          return mockCanvas;
+        }
+        return {};
+      }),
+      getElementById: vi.fn(() => null),
+    };
+    vi.stubGlobal('document', mockDocument);
+
+    canvas = document.createElement('canvas') as any;
     canvas.width = 800;
     canvas.height = 600;
     renderer = new HighLevelRenderer({ canvas });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('Complete Rendering Workflow', () => {

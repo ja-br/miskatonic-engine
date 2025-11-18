@@ -2,7 +2,7 @@
  * GPULightCuller Tests - Epic 3.16 Phase 2
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GPULightCuller } from '../src/culling/GPULightCuller';
 import type { LightData } from '../src/LightCollection';
 
@@ -128,7 +128,33 @@ describe('GPULightCuller', () => {
   let mockDevice: GPUDevice;
 
   beforeEach(() => {
+    // Mock GPUBufferUsage
+    const mockGPUBufferUsage = {
+      MAP_READ: 0x0001,
+      MAP_WRITE: 0x0002,
+      COPY_SRC: 0x0004,
+      COPY_DST: 0x0008,
+      INDEX: 0x0010,
+      VERTEX: 0x0020,
+      UNIFORM: 0x0040,
+      STORAGE: 0x0080,
+      INDIRECT: 0x0100,
+      QUERY_RESOLVE: 0x0200,
+    };
+    vi.stubGlobal('GPUBufferUsage', mockGPUBufferUsage);
+
+    // Mock GPUMapMode
+    const mockGPUMapMode = {
+      READ: 0x0001,
+      WRITE: 0x0002,
+    };
+    vi.stubGlobal('GPUMapMode', mockGPUMapMode);
+
     mockDevice = createMockGPUDevice();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   describe('constructor', () => {

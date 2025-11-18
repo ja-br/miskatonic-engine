@@ -29,8 +29,67 @@ class MockCommandSystem {
 describe('DebugConsole (Simple)', () => {
   let debugConsole: DebugConsole;
   let commandSystem: MockCommandSystem;
+  let mockStorage: Map<string, string>;
 
   beforeEach(() => {
+    // Mock localStorage
+    mockStorage = new Map<string, string>();
+    const mockLocalStorage = {
+      getItem: vi.fn((key: string) => mockStorage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => mockStorage.set(key, value)),
+      removeItem: vi.fn((key: string) => mockStorage.delete(key)),
+      clear: vi.fn(() => mockStorage.clear()),
+      get length() {
+        return mockStorage.size;
+      },
+      key: vi.fn((index: number) => {
+        const keys = Array.from(mockStorage.keys());
+        return keys[index] ?? null;
+      }),
+    };
+    vi.stubGlobal('localStorage', mockLocalStorage);
+
+    // Mock document
+    const mockElement = {
+      style: {},
+      classList: {
+        add: vi.fn(),
+        remove: vi.fn(),
+        toggle: vi.fn(),
+        contains: vi.fn(),
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      appendChild: vi.fn(),
+      removeChild: vi.fn(),
+      querySelector: vi.fn(),
+      querySelectorAll: vi.fn(() => []),
+      innerHTML: '',
+      textContent: '',
+      value: '',
+      focus: vi.fn(),
+      blur: vi.fn(),
+      scrollTop: 0,
+      scrollHeight: 0,
+    };
+
+    const mockDocument = {
+      createElement: vi.fn((tag: string) => ({ ...mockElement, tagName: tag })),
+      getElementById: vi.fn((id: string) => {
+        if (id === 'miskatonic-debug-console') {
+          return mockElement;
+        }
+        return null;
+      }),
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('document', mockDocument);
+
     commandSystem = new MockCommandSystem();
 
     // Register some test commands
@@ -60,6 +119,7 @@ describe('DebugConsole (Simple)', () => {
     if (debugConsole) {
       debugConsole.shutdown();
     }
+    vi.unstubAllGlobals();
   });
 
   describe('initialization', () => {

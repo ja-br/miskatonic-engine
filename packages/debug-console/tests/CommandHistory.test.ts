@@ -3,15 +3,31 @@ import { CommandHistory } from '../src/CommandHistory';
 
 describe('CommandHistory', () => {
   let history: CommandHistory;
+  let mockStorage: Map<string, string>;
 
   beforeEach(() => {
-    // Clear localStorage before each test
-    localStorage.clear();
+    // Create mock localStorage
+    mockStorage = new Map<string, string>();
+    const mockLocalStorage = {
+      getItem: vi.fn((key: string) => mockStorage.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => mockStorage.set(key, value)),
+      removeItem: vi.fn((key: string) => mockStorage.delete(key)),
+      clear: vi.fn(() => mockStorage.clear()),
+      get length() {
+        return mockStorage.size;
+      },
+      key: vi.fn((index: number) => {
+        const keys = Array.from(mockStorage.keys());
+        return keys[index] ?? null;
+      }),
+    };
+
+    vi.stubGlobal('localStorage', mockLocalStorage);
     history = new CommandHistory(5, 'test:history', false); // Disable persistence for tests
   });
 
   afterEach(() => {
-    localStorage.clear();
+    vi.unstubAllGlobals();
   });
 
   describe('add', () => {
