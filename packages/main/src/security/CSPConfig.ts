@@ -27,7 +27,7 @@ export class CSPConfig {
       "style-src 'self' 'unsafe-inline'", // unsafe-inline needed for some UI frameworks
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      "connect-src 'self'" + (isDev ? ' ws://localhost:5173' : ''), // Vite WebSocket
+      "connect-src 'self' file:" + (isDev ? ' ws://localhost:5173' : ''), // Vite WebSocket + local files
       "media-src 'self' blob:",
       "object-src 'none'",
       "frame-src 'none'",
