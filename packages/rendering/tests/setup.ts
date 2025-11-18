@@ -3,9 +3,32 @@
  * This file is imported before any tests run to perform global setup
  */
 
+// Import WebGPU mocks for GPU-related tests
+import './mocks/mockWebGPU';
+
 // Import and register all components
 import { ComponentRegistry, createFieldDescriptor } from '@miskatonic/ecs';
 import { Camera, Transform } from '@miskatonic/ecs';
+
+// Mock localStorage for browser-dependent tests
+if (typeof globalThis.localStorage === 'undefined') {
+  const storage = new Map<string, string>();
+
+  // @ts-expect-error - Mocking browser API
+  globalThis.localStorage = {
+    getItem: (key: string) => storage.get(key) ?? null,
+    setItem: (key: string, value: string) => storage.set(key, value),
+    removeItem: (key: string) => storage.delete(key),
+    clear: () => storage.clear(),
+    get length() {
+      return storage.size;
+    },
+    key: (index: number) => {
+      const keys = Array.from(storage.keys());
+      return keys[index] ?? null;
+    },
+  };
+}
 
 // Register Camera component (Epic 3.10)
 ComponentRegistry.register(Camera, [

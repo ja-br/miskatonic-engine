@@ -35,6 +35,11 @@ function createMockHandle(type: string): any {
 }
 
 export function createMockBackend(): IRendererBackend {
+  // Mock GPU Device for sampler creation
+  const mockDevice = {
+    createSampler: vi.fn(() => ({ label: 'Mock Sampler' })),
+  } as any;
+
   const mockBackend: IRendererBackend = {
     name: 'MockBackend',
 
@@ -44,6 +49,10 @@ export function createMockBackend(): IRendererBackend {
 
     isInitialized(): boolean {
       return true;
+    },
+
+    getDevice(): any {
+      return mockDevice;
     },
 
     getCapabilities(): BackendCapabilities {
@@ -89,11 +98,19 @@ export function createMockBackend(): IRendererBackend {
       return createMockHandle('texture');
     },
 
+    createDepthTexture(id: string, width: number, height: number): BackendTextureHandle {
+      return createMockHandle('depthTexture');
+    },
+
+    getDepthFormat(): 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' {
+      return 'depth16unorm';
+    },
+
     updateTexture(handle: BackendTextureHandle, data: any, x?: number, y?: number, width?: number, height?: number): void {
       // No-op
     },
 
-    createFramebuffer(id: string, width: number, height: number, hasDepth: boolean): BackendFramebufferHandle {
+    createFramebuffer(id: string, colorAttachments: BackendTextureHandle[], depthAttachment?: BackendTextureHandle): BackendFramebufferHandle {
       return createMockHandle('framebuffer');
     },
 

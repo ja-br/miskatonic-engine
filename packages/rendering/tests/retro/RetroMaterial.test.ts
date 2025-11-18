@@ -6,12 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   RetroMaterial,
-  RetroMaterialType,
-  TextureFilter,
-  RETRO_TEXTURE_CONSTRAINTS,
-  DEFAULT_RETRO_MATERIAL,
-  applyTextureDithering,
-  downscaleToRetroResolution,
+  type RetroMaterialType,
+  type RetroFilterMode,
   type RetroMaterialConfig,
 } from '../../src/retro';
 import type { IRendererBackend } from '../../src/backends/IRendererBackend';
@@ -27,7 +23,7 @@ describe('RetroMaterial', () => {
   describe('Initialization', () => {
     it('should initialize with default configuration', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -42,7 +38,7 @@ describe('RetroMaterial', () => {
 
     it('should not initialize twice', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -55,7 +51,7 @@ describe('RetroMaterial', () => {
 
     it('should handle concurrent initialization calls', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       // Call initialize() twice without awaiting the first
@@ -72,7 +68,7 @@ describe('RetroMaterial', () => {
 
     it('should throw when accessing resources before initialization', () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       expect(() => material.getPipeline()).toThrow('not initialized');
@@ -83,7 +79,7 @@ describe('RetroMaterial', () => {
   describe('Configuration', () => {
     it('should use default configuration values', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -97,10 +93,10 @@ describe('RetroMaterial', () => {
 
     it('should merge provided config with defaults', async () => {
       const config: RetroMaterialConfig = {
-        type: RetroMaterialType.Unlit,
+        type: 'unlit',
         albedoColor: [1.0, 0.0, 0.0],
         emissiveColor: [0.5, 0.5, 0.5],
-        textureFilter: TextureFilter.Point,
+        textureFilter: 'point',
       };
 
       const material = new RetroMaterial(backend, config);
@@ -126,7 +122,7 @@ describe('RetroMaterial', () => {
 
     it('should support unlit material type', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Unlit,
+        type: 'unlit',
         emissiveColor: [1.0, 1.0, 0.0],
       });
 
@@ -138,7 +134,7 @@ describe('RetroMaterial', () => {
 
     it('should support vertex-colored material type', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.VertexColored,
+        type: 'vertex-color',
       });
 
       await material.initialize();
@@ -187,7 +183,7 @@ describe('RetroMaterial', () => {
 
     it('should create default white texture when no albedo specified', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -200,7 +196,7 @@ describe('RetroMaterial', () => {
 
     it('should create default lightmap when none specified', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -238,7 +234,7 @@ describe('RetroMaterial', () => {
     it('should use point filtering', async () => {
       const material = new RetroMaterial(backend, {
         type: RetroMaterialType.Lit,
-        textureFilter: TextureFilter.Point,
+        textureFilter: 'point',
       });
 
       await material.initialize();
@@ -250,7 +246,7 @@ describe('RetroMaterial', () => {
     it('should use bilinear filtering', async () => {
       const material = new RetroMaterial(backend, {
         type: RetroMaterialType.Lit,
-        textureFilter: TextureFilter.Bilinear,
+        textureFilter: 'bilinear',
       });
 
       await material.initialize();
@@ -263,7 +259,7 @@ describe('RetroMaterial', () => {
   describe('Uniform Buffer', () => {
     it('should create uniform buffer on initialization', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -294,7 +290,7 @@ describe('RetroMaterial', () => {
 
     it('should handle updateProperties before initialization', () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       // Should not throw
@@ -307,7 +303,7 @@ describe('RetroMaterial', () => {
   describe('Resource Getters', () => {
     it('should return albedo texture', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -320,7 +316,7 @@ describe('RetroMaterial', () => {
 
     it('should return lightmap texture', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -333,7 +329,7 @@ describe('RetroMaterial', () => {
 
     it('should return undefined for optional textures', () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Unlit,
+        type: 'unlit',
       });
 
       // Before initialization, textures are undefined
@@ -345,7 +341,7 @@ describe('RetroMaterial', () => {
   describe('Disposal', () => {
     it('should dispose all GPU resources', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -358,7 +354,7 @@ describe('RetroMaterial', () => {
 
     it('should be safe to dispose multiple times', async () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       await material.initialize();
@@ -371,7 +367,7 @@ describe('RetroMaterial', () => {
 
     it('should be safe to dispose before initialization', () => {
       const material = new RetroMaterial(backend, {
-        type: RetroMaterialType.Lit,
+        type: 'lambert',
       });
 
       // Should not throw
@@ -384,7 +380,7 @@ describe('RetroMaterial', () => {
       expect(DEFAULT_RETRO_MATERIAL.type).toBe(RetroMaterialType.Lit);
       expect(DEFAULT_RETRO_MATERIAL.albedoColor).toEqual([0.8, 0.8, 0.8]);
       expect(DEFAULT_RETRO_MATERIAL.emissiveColor).toEqual([0, 0, 0]);
-      expect(DEFAULT_RETRO_MATERIAL.textureFilter).toBe(TextureFilter.Bilinear);
+      expect(DEFAULT_RETRO_MATERIAL.textureFilter).toBe('bilinear');
       expect(DEFAULT_RETRO_MATERIAL.roughness).toBe(0.5);
       expect(DEFAULT_RETRO_MATERIAL.metallic).toBe(0.0);
       expect(DEFAULT_RETRO_MATERIAL.enforceMaxResolution).toBe(true);
