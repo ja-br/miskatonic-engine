@@ -198,8 +198,8 @@ fn get_scanline_factor(color: vec3<f32>, position: f32) -> vec3<f32> {
 
 // Sample scanlines with TWO-scanline interpolation (CRITICAL!)
 fn get_scanlines_color(uv: vec2<f32>) -> vec3<f32> {
-  // Convert to pixel coordinates
-  let texSize = params.sourceSize;
+  // Convert to pixel coordinates using SOURCE resolution (internal game resolution)
+  let texSize = params.sourceSize;  // e.g., 640×480 internal resolution
   let pixCoord = uv * texSize + vec2<f32>(0.5); // Align to pixel corner
 
   // Get fractional position within pixel

@@ -410,14 +410,15 @@ export class RetroPostProcessor {
       addressModeV: 'clamp-to-edge',
     });
 
-    // 5. Create CRT intermediate texture (if CRT enabled)
+    // 5. Create composite output texture (if CRT enabled)
     // CRT pass needs a texture to render composite output to, then applies CRT effect to swapchain
+    // Uses internal resolution (width×height) to match the scene/bloom textures
     if (this.config.crt?.enabled) {
-      console.log(`[RetroPostProcessor] Creating CRT intermediate texture: ${displayWidth}x${displayHeight}`);
+      console.log(`[RetroPostProcessor] Creating composite texture for CRT input: ${this.width}x${this.height}`);
       this.compositeTexture = this.backend.createTexture(
         'retro-post-composite-output',
-        displayWidth,
-        displayHeight,
+        this.width,   // Internal resolution (e.g., 640×480)
+        this.height,  // Internal resolution (e.g., 640×480)
         null,
         { format: 'bgra8unorm' as any }
       );
@@ -680,9 +681,9 @@ export class RetroPostProcessor {
     // }
     if (this.config.crt?.enabled) {
       const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
-      crtParamsData[0] = this.displayWidth;
+      crtParamsData[0] = this.displayWidth;   // params.resolution - output swapchain size (for phosphor mask)
       crtParamsData[1] = this.displayHeight;
-      crtParamsData[2] = this.width;
+      crtParamsData[2] = this.width;          // params.sourceSize - composite texture size being sampled (for scanlines)
       crtParamsData[3] = this.height;
       crtParamsData[4] = this.config.crt.masterIntensity;
       crtParamsData[5] = this.config.crt.brightness;
@@ -1682,9 +1683,9 @@ export class RetroPostProcessor {
 
     // Update CRT params uniform with current settings
     const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
-    crtParamsData[0] = this.displayWidth;
+    crtParamsData[0] = this.displayWidth;   // params.resolution - output swapchain size (for phosphor mask)
     crtParamsData[1] = this.displayHeight;
-    crtParamsData[2] = this.width;
+    crtParamsData[2] = this.width;          // params.sourceSize - composite texture size being sampled (for scanlines)
     crtParamsData[3] = this.height;
     crtParamsData[4] = this.config.crt.masterIntensity;
     crtParamsData[5] = this.config.crt.brightness;
@@ -1811,11 +1812,11 @@ export class RetroPostProcessor {
     // If enabling and texture doesn't exist, allocate it
     if (enabled && !wasEnabled) {
       if (!this.compositeTexture) {
-        // Allocate at current display size
+        // Allocate at internal resolution to match scene/bloom textures
         this.compositeTexture = this.backend.createTexture(
           'retro-post-composite-output',
-          this.displayWidth,
-          this.displayHeight,
+          this.width,   // Internal resolution (e.g., 640×480)
+          this.height,  // Internal resolution (e.g., 640×480)
           null,
           { format: 'bgra8unorm' as any }
         );
@@ -1893,9 +1894,9 @@ export class RetroPostProcessor {
     if (!this.config.crt || !this.crtParamsBuffer) return;
 
     const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
-    crtParamsData[0] = this.displayWidth;
+    crtParamsData[0] = this.displayWidth;   // params.resolution - output swapchain size (for phosphor mask)
     crtParamsData[1] = this.displayHeight;
-    crtParamsData[2] = this.width;
+    crtParamsData[2] = this.width;          // params.sourceSize - composite texture size being sampled (for scanlines)
     crtParamsData[3] = this.height;
     crtParamsData[4] = this.config.crt.masterIntensity;
     crtParamsData[5] = this.config.crt.brightness;
