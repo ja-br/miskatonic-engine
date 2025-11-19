@@ -486,10 +486,12 @@ export class DiscordModelViewer {
       [1, 1]
     );
 
-    // Default sampler
+    // Default sampler (linear with clamp-to-edge for post-processing)
     this.defaultSampler = this.device.createSampler({
-      magFilter: 'linear',
       minFilter: 'linear',
+      magFilter: 'linear',
+      addressModeU: 'clamp-to-edge',
+      addressModeV: 'clamp-to-edge',
     });
   }
 
