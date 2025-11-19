@@ -967,6 +967,116 @@ export class RetroPostProcessor {
   }
 
   /**
+   * Execute a single downsample step
+   */
+  private executeDownsampleStep(
+    sourceTexture: BackendTextureHandle,
+    targetFramebuffer: BackendFramebufferHandle,
+    sourceWidth: number,
+    sourceHeight: number,
+    label: string
+  ): void {
+    // Update params with source texel size
+    const params = new Float32Array(4);
+    params[0] = 1.0 / sourceWidth;
+    params[1] = 1.0 / sourceHeight;
+    this.backend.updateBuffer(this.downsampleParamsBuffer!, params);
+
+    // Create bind groups
+    const textureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout!, {
+      bindings: [
+        { binding: 0, resource: sourceTexture },
+        { binding: 1, resource: this.linearSampler as any },
+      ],
+    });
+
+    const uniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout!, {
+      bindings: [
+        { binding: 0, resource: this.downsampleParamsBuffer! },
+      ],
+    });
+
+    // Render pass
+    this.backend.beginRenderPass(targetFramebuffer, [0, 0, 0, 0], undefined, undefined, label);
+
+    this.backend.executeDrawCommand({
+      pipeline: this.bloomDownsamplePipeline!,
+      bindGroups: new Map([
+        [0, textureBindGroup],
+        [1, uniformBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(),
+        vertexCount: 3,
+      },
+      label: `${label} Draw`,
+    });
+
+    this.backend.endRenderPass();
+
+    // Clean up
+    this.backend.deleteBindGroup(textureBindGroup);
+    this.backend.deleteBindGroup(uniformBindGroup);
+  }
+
+  /**
+   * Execute a single upsample step with additive blending
+   */
+  private executeUpsampleStep(
+    sourceTexture: BackendTextureHandle,
+    targetFramebuffer: BackendFramebufferHandle,
+    sourceWidth: number,
+    sourceHeight: number,
+    blendFactor: number,
+    label: string
+  ): void {
+    // Update params with source texel size and blend factor
+    const params = new Float32Array(4);
+    params[0] = 1.0 / sourceWidth;
+    params[1] = 1.0 / sourceHeight;
+    params[2] = blendFactor;
+    this.backend.updateBuffer(this.upsampleParamsBuffer!, params);
+
+    // Create bind groups
+    const textureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout!, {
+      bindings: [
+        { binding: 0, resource: sourceTexture },
+        { binding: 1, resource: this.linearSampler as any },
+      ],
+    });
+
+    const uniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout!, {
+      bindings: [
+        { binding: 0, resource: this.upsampleParamsBuffer! },
+      ],
+    });
+
+    // Render pass with additive blending
+    this.backend.beginRenderPass(targetFramebuffer, [0, 0, 0, 0], undefined, undefined, label);
+
+    this.backend.executeDrawCommand({
+      pipeline: this.bloomUpsamplePipeline!,
+      bindGroups: new Map([
+        [0, textureBindGroup],
+        [1, uniformBindGroup],
+      ]),
+      geometry: {
+        type: 'nonIndexed',
+        vertexBuffers: new Map(),
+        vertexCount: 3,
+      },
+      label: `${label} Draw`,
+    });
+
+    this.backend.endRenderPass();
+
+    // Clean up
+    this.backend.deleteBindGroup(textureBindGroup);
+    this.backend.deleteBindGroup(uniformBindGroup);
+  }
+
+  /**
    * Bloom Downsample Pass (Mip Pyramid)
    * Downsamples bloom extract through mip chain with 13-tap filter
    * 5-level pyramid: Extract (160x120) → Mip0 (80x60) → Mip1 (40x30) → Mip2 (20x15) → Mip3 (10x8) → Mip4 (5x4)
@@ -994,263 +1104,20 @@ export class RetroPostProcessor {
       return;
     }
 
-    // ========== DOWNSAMPLE 1: Extract (160x120) → Mip0 (80x60) ==========
+    // Define downsample chain: [sourceTexture, targetFramebuffer, sourceWidth, sourceHeight, minMipLevel]
+    const downsampleChain: [BackendTextureHandle, BackendFramebufferHandle, number, number, number][] = [
+      [this.bloomExtractTexture, this.bloomMip0Framebuffer, 160, 120, 1],
+      [this.bloomMip0Texture, this.bloomMip1Framebuffer, 80, 60, 2],
+      [this.bloomMip1Texture, this.bloomMip2Framebuffer, 40, 30, 3],
+      [this.bloomMip2Texture, this.bloomMip3Framebuffer, 20, 15, 4],
+      [this.bloomMip3Texture, this.bloomMip4Framebuffer, 10, 8, 5],
+    ];
 
-    // Update downsample params with EXTRACT (source) texel size
-    const downsampleParams0 = new Float32Array(4);
-    downsampleParams0[0] = 1.0 / 160.0; // texelSize.x (source: Extract 160x120)
-    downsampleParams0[1] = 1.0 / 120.0; // texelSize.y
-    this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams0);
-
-    // Create bind groups
-    const ds0TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
-      bindings: [
-        { binding: 0, resource: this.bloomExtractTexture },
-        { binding: 1, resource: this.linearSampler as any },
-      ],
-    });
-
-    const ds0UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
-      bindings: [
-        { binding: 0, resource: this.downsampleParamsBuffer },
-      ],
-    });
-
-    // Render pass
-    this.backend.beginRenderPass(
-      this.bloomMip0Framebuffer,
-      [0, 0, 0, 0],
-      undefined,
-      undefined,
-      'Bloom Downsample 0 (Extract→Mip0)'
-    );
-
-    this.backend.executeDrawCommand({
-      pipeline: this.bloomDownsamplePipeline,
-      bindGroups: new Map([
-        [0, ds0TextureBindGroup],
-        [1, ds0UniformBindGroup],
-      ]),
-      geometry: {
-        type: 'nonIndexed',
-        vertexBuffers: new Map(),
-        vertexCount: 3,
-      },
-      label: 'Bloom Downsample 0 Draw',
-    });
-
-    this.backend.endRenderPass();
-
-    // Clean up
-    this.backend.deleteBindGroup(ds0TextureBindGroup);
-    this.backend.deleteBindGroup(ds0UniformBindGroup);
-
-    // ========== DOWNSAMPLE 2: Mip0 (80x60) → Mip1 (40x30) ==========
-    if (this.config.bloomMipLevels >= 2) {
-      // Update downsample params with MIP0 (source) texel size
-      const downsampleParams1 = new Float32Array(4);
-      downsampleParams1[0] = 1.0 / 80.0; // texelSize.x (source: Mip0 80x60)
-      downsampleParams1[1] = 1.0 / 60.0; // texelSize.y
-      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams1);
-
-      // Create bind groups
-      const ds1TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip0Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const ds1UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.downsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass
-      this.backend.beginRenderPass(
-        this.bloomMip1Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Downsample 1 (Mip0→Mip1)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomDownsamplePipeline,
-        bindGroups: new Map([
-          [0, ds1TextureBindGroup],
-          [1, ds1UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Downsample 1 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(ds1TextureBindGroup);
-      this.backend.deleteBindGroup(ds1UniformBindGroup);
-    }
-
-    // ========== DOWNSAMPLE 3: Mip1 (40x30) → Mip2 (20x15) ==========
-    if (this.config.bloomMipLevels >= 3) {
-      // Update downsample params with MIP1 (source) texel size
-      const downsampleParams2 = new Float32Array(4);
-      downsampleParams2[0] = 1.0 / 40.0; // texelSize.x (source: Mip1 40x30)
-      downsampleParams2[1] = 1.0 / 30.0; // texelSize.y
-      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams2);
-
-      // Create bind groups
-      const ds2TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip1Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const ds2UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.downsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass
-      this.backend.beginRenderPass(
-        this.bloomMip2Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Downsample 2 (Mip1→Mip2)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomDownsamplePipeline,
-        bindGroups: new Map([
-          [0, ds2TextureBindGroup],
-          [1, ds2UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Downsample 2 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(ds2TextureBindGroup);
-      this.backend.deleteBindGroup(ds2UniformBindGroup);
-    }
-
-    // ========== DOWNSAMPLE 4: Mip2 (20x15) → Mip3 (10x8) ==========
-    if (this.config.bloomMipLevels >= 4) {
-      // Update downsample params with MIP2 (source) texel size
-      const downsampleParams3 = new Float32Array(4);
-      downsampleParams3[0] = 1.0 / 20.0; // texelSize.x (source: Mip2 20x15)
-      downsampleParams3[1] = 1.0 / 15.0; // texelSize.y
-      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams3);
-
-      // Create bind groups
-      const ds3TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip2Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const ds3UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.downsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass
-      this.backend.beginRenderPass(
-        this.bloomMip3Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Downsample 3 (Mip2→Mip3)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomDownsamplePipeline,
-        bindGroups: new Map([
-          [0, ds3TextureBindGroup],
-          [1, ds3UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Downsample 3 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(ds3TextureBindGroup);
-      this.backend.deleteBindGroup(ds3UniformBindGroup);
-    }
-
-    // ========== DOWNSAMPLE 5: Mip3 (10x8) → Mip4 (5x4) ==========
-    if (this.config.bloomMipLevels >= 5) {
-      // Update downsample params with MIP3 (source) texel size
-      const downsampleParams4 = new Float32Array(4);
-      downsampleParams4[0] = 1.0 / 10.0; // texelSize.x (source: Mip3 10x8)
-      downsampleParams4[1] = 1.0 / 8.0; // texelSize.y
-      this.backend.updateBuffer(this.downsampleParamsBuffer, downsampleParams4);
-
-      // Create bind groups
-      const ds4TextureBindGroup = this.backend.createBindGroup(this.downsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip3Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const ds4UniformBindGroup = this.backend.createBindGroup(this.downsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.downsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass
-      this.backend.beginRenderPass(
-        this.bloomMip4Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Downsample 4 (Mip3→Mip4)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomDownsamplePipeline,
-        bindGroups: new Map([
-          [0, ds4TextureBindGroup],
-          [1, ds4UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Downsample 4 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(ds4TextureBindGroup);
-      this.backend.deleteBindGroup(ds4UniformBindGroup);
+    for (let i = 0; i < downsampleChain.length; i++) {
+      const [srcTex, dstFB, srcW, srcH, minLevel] = downsampleChain[i];
+      if (this.config.bloomMipLevels >= minLevel) {
+        this.executeDownsampleStep(srcTex, dstFB, srcW, srcH, `Bloom Downsample ${i}`);
+      }
     }
   }
 
@@ -1282,269 +1149,21 @@ export class RetroPostProcessor {
       return;
     }
 
-    // ========== UPSAMPLE 1: Mip4 (5x4) → Mip3 (10x8) with ADDITIVE BLEND ==========
-    if (this.config.bloomMipLevels >= 5) {
-      // Update upsample params with MIP4 (source) texel size and blend factor
-      const upsampleMip4to3 = new Float32Array(4);
-      upsampleMip4to3[0] = 1.0 / 5.0; // texelSize.x (source: Mip4 5x4)
-      upsampleMip4to3[1] = 1.0 / 4.0; // texelSize.y
-      upsampleMip4to3[2] = 0.3; // blendFactor (reduced to prevent washout from highest mip)
-      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleMip4to3);
+    // Define upsample chain: [sourceTexture, targetFramebuffer, sourceWidth, sourceHeight, blendFactor, minMipLevel]
+    const upsampleChain: [BackendTextureHandle, BackendFramebufferHandle, number, number, number, number][] = [
+      [this.bloomMip4Texture, this.bloomMip3Framebuffer, 5, 4, 0.3, 5],
+      [this.bloomMip3Texture, this.bloomMip2Framebuffer, 10, 8, 0.5, 4],
+      [this.bloomMip2Texture, this.bloomMip1Framebuffer, 20, 15, 0.6, 3],
+      [this.bloomMip1Texture, this.bloomMip0Framebuffer, 40, 30, 0.8, 2],
+      [this.bloomMip0Texture, this.bloomExtractFramebuffer, 80, 60, 1.0, 1],
+    ];
 
-      // Create bind groups
-      const usM4toM3TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip4Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const usM4toM3UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.upsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass with ADDITIVE BLENDING
-      this.backend.beginRenderPass(
-        this.bloomMip3Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Upsample 0 (Mip4→Mip3)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomUpsamplePipeline,
-        bindGroups: new Map([
-          [0, usM4toM3TextureBindGroup],
-          [1, usM4toM3UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Upsample 0 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(usM4toM3TextureBindGroup);
-      this.backend.deleteBindGroup(usM4toM3UniformBindGroup);
+    for (let i = 0; i < upsampleChain.length; i++) {
+      const [srcTex, dstFB, srcW, srcH, blend, minLevel] = upsampleChain[i];
+      if (this.config.bloomMipLevels >= minLevel) {
+        this.executeUpsampleStep(srcTex, dstFB, srcW, srcH, blend, `Bloom Upsample ${i}`);
+      }
     }
-
-    // ========== UPSAMPLE 2: Mip3 (10x8) → Mip2 (20x15) with ADDITIVE BLEND ==========
-    if (this.config.bloomMipLevels >= 4) {
-      // Update upsample params with MIP3 (source) texel size and blend factor
-      const upsampleMip3to2 = new Float32Array(4);
-      upsampleMip3to2[0] = 1.0 / 10.0; // texelSize.x (source: Mip3 10x8)
-      upsampleMip3to2[1] = 1.0 / 8.0; // texelSize.y
-      upsampleMip3to2[2] = 0.4; // blendFactor (controlled contribution from mid-high mip)
-      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleMip3to2);
-
-      // Create bind groups
-      const usM3toM2TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip3Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const usM3toM2UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.upsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass with ADDITIVE BLENDING
-      this.backend.beginRenderPass(
-        this.bloomMip2Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Upsample 1 (Mip3→Mip2)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomUpsamplePipeline,
-        bindGroups: new Map([
-          [0, usM3toM2TextureBindGroup],
-          [1, usM3toM2UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Upsample 1 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(usM3toM2TextureBindGroup);
-      this.backend.deleteBindGroup(usM3toM2UniformBindGroup);
-    }
-
-    // ========== UPSAMPLE 3: Mip2 (20x15) → Mip1 (40x30) with ADDITIVE BLEND ==========
-    if (this.config.bloomMipLevels >= 3) {
-      // Update upsample params with MIP2 (source) texel size and blend factor
-      const upsampleMip2to1 = new Float32Array(4);
-      upsampleMip2to1[0] = 1.0 / 20.0; // texelSize.x (source: Mip2 20x15)
-      upsampleMip2to1[1] = 1.0 / 15.0; // texelSize.y
-      upsampleMip2to1[2] = 0.5; // blendFactor (moderate contribution from mid mip)
-      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleMip2to1);
-
-      // Create bind groups
-      const usM2toM1TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip2Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const usM2toM1UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.upsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass with ADDITIVE BLENDING
-      this.backend.beginRenderPass(
-        this.bloomMip1Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Upsample 2 (Mip2→Mip1)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomUpsamplePipeline,
-        bindGroups: new Map([
-          [0, usM2toM1TextureBindGroup],
-          [1, usM2toM1UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Upsample 2 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(usM2toM1TextureBindGroup);
-      this.backend.deleteBindGroup(usM2toM1UniformBindGroup);
-    }
-
-    // ========== UPSAMPLE 4: Mip1 (40x30) → Mip0 (80x60) with ADDITIVE BLEND ==========
-    if (this.config.bloomMipLevels >= 2) {
-      // Update upsample params with MIP1 (source) texel size and blend factor
-      const upsampleParams0 = new Float32Array(4);
-      upsampleParams0[0] = 1.0 / 40.0; // texelSize.x (source: Mip1 40x30)
-      upsampleParams0[1] = 1.0 / 30.0; // texelSize.y
-      upsampleParams0[2] = 0.6; // blendFactor (higher contribution from near-field bloom)
-      this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleParams0);
-
-      // Create bind groups
-      const us0TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
-        bindings: [
-          { binding: 0, resource: this.bloomMip1Texture },
-          { binding: 1, resource: this.linearSampler as any },
-        ],
-      });
-
-      const us0UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
-        bindings: [
-          { binding: 0, resource: this.upsampleParamsBuffer },
-        ],
-      });
-
-      // Render pass with ADDITIVE BLENDING (pipeline has blend enabled)
-      this.backend.beginRenderPass(
-        this.bloomMip0Framebuffer,
-        [0, 0, 0, 0],
-        undefined,
-        undefined,
-        'Bloom Upsample 0 (Mip1→Mip0)'
-      );
-
-      this.backend.executeDrawCommand({
-        pipeline: this.bloomUpsamplePipeline,
-        bindGroups: new Map([
-          [0, us0TextureBindGroup],
-          [1, us0UniformBindGroup],
-        ]),
-        geometry: {
-          type: 'nonIndexed',
-          vertexBuffers: new Map(),
-          vertexCount: 3,
-        },
-        label: 'Bloom Upsample 0 Draw',
-      });
-
-      this.backend.endRenderPass();
-
-      // Clean up
-      this.backend.deleteBindGroup(us0TextureBindGroup);
-      this.backend.deleteBindGroup(us0UniformBindGroup);
-    }
-
-    // ========== UPSAMPLE 5: Mip0 (80x60) → Extract (160x120) with ADDITIVE BLEND ==========
-
-    // Update upsample params with MIP0 (source) texel size and blend factor
-    const upsampleParams1 = new Float32Array(4);
-    upsampleParams1[0] = 1.0 / 80.0; // texelSize.x (source: Mip0 80x60)
-    upsampleParams1[1] = 1.0 / 60.0; // texelSize.y
-    upsampleParams1[2] = 1.0; // blendFactor (final composite - full contribution)
-    this.backend.updateBuffer(this.upsampleParamsBuffer, upsampleParams1);
-
-    // Create bind groups
-    const us1TextureBindGroup = this.backend.createBindGroup(this.upsampleTextureLayout, {
-      bindings: [
-        { binding: 0, resource: this.bloomMip0Texture },
-        { binding: 1, resource: this.linearSampler as any },
-      ],
-    });
-
-    const us1UniformBindGroup = this.backend.createBindGroup(this.upsampleUniformLayout, {
-      bindings: [
-        { binding: 0, resource: this.upsampleParamsBuffer },
-      ],
-    });
-
-    // Render pass with ADDITIVE BLENDING
-    this.backend.beginRenderPass(
-      this.bloomExtractFramebuffer,
-      [0, 0, 0, 0],
-      undefined,
-      undefined,
-      'Bloom Upsample 1 (Mip0→Extract)'
-    );
-
-    this.backend.executeDrawCommand({
-      pipeline: this.bloomUpsamplePipeline,
-      bindGroups: new Map([
-        [0, us1TextureBindGroup],
-        [1, us1UniformBindGroup],
-      ]),
-      geometry: {
-        type: 'nonIndexed',
-        vertexBuffers: new Map(),
-        vertexCount: 3,
-      },
-      label: 'Bloom Upsample 1 Draw',
-    });
-
-    this.backend.endRenderPass();
-
-    // Clean up
-    this.backend.deleteBindGroup(us1TextureBindGroup);
-    this.backend.deleteBindGroup(us1UniformBindGroup);
   }
 
   /**
