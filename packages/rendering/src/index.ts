@@ -57,7 +57,6 @@ export {
   type DepthOccluder,
   DepthOcclusionResult,
 } from './culling';
-export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
 
 // Epic 3.8: GPU Memory Management
 export { GPUBufferPool, BufferUsageType, type BufferPoolStats } from './GPUBufferPool';
