@@ -82,7 +82,11 @@ export function parseOBJ(objText: string): GeometryData {
         // Validate all 3 vertices before processing triangle
         for (const v of [v1, v2, v3]) {
           const vertParts = v.split('/');
-          const posIdx = parseInt(vertParts[0]) - 1;
+          let posIdx = parseInt(vertParts[0]) - 1;
+          // Handle negative (relative) indices
+          if (posIdx < 0) {
+            posIdx = tempPositions.length / 3 + posIdx + 1;
+          }
           if (posIdx < 0 || posIdx >= tempPositions.length / 3) {
             console.warn(`Invalid position index: ${posIdx + 1}, skipping triangle`);
             continue triangleLoop;
@@ -95,9 +99,20 @@ export function parseOBJ(objText: string): GeometryData {
 
           if (idx === undefined) {
             const vertParts = v.split('/');
-            const posIdx = parseInt(vertParts[0]) - 1;
-            const uvIdx = vertParts[1] ? parseInt(vertParts[1]) - 1 : -1;
-            const normIdx = vertParts[2] ? parseInt(vertParts[2]) - 1 : -1;
+            let posIdx = parseInt(vertParts[0]) - 1;
+            let uvIdx = vertParts[1] ? parseInt(vertParts[1]) - 1 : -1;
+            let normIdx = vertParts[2] ? parseInt(vertParts[2]) - 1 : -1;
+
+            // Handle negative (relative) indices
+            if (posIdx < 0) {
+              posIdx = tempPositions.length / 3 + posIdx + 1;
+            }
+            if (uvIdx < -1) {
+              uvIdx = tempUVs.length / 2 + uvIdx + 1;
+            }
+            if (normIdx < -1) {
+              normIdx = tempNormals.length / 3 + normIdx + 1;
+            }
 
             // Add position
             positions.push(
@@ -390,7 +405,11 @@ export function parseOBJWithMaterials(objText: string): { geometry: GeometryData
         // Validate
         for (const v of [v1, v2, v3]) {
           const vertParts = v.split('/');
-          const posIdx = parseInt(vertParts[0]) - 1;
+          let posIdx = parseInt(vertParts[0]) - 1;
+          // Handle negative (relative) indices
+          if (posIdx < 0) {
+            posIdx = tempPositions.length / 3 + posIdx + 1;
+          }
           if (posIdx < 0 || posIdx >= tempPositions.length / 3) {
             continue triangleLoop;
           }
@@ -402,9 +421,20 @@ export function parseOBJWithMaterials(objText: string): { geometry: GeometryData
 
           if (idx === undefined) {
             const vertParts = v.split('/');
-            const posIdx = parseInt(vertParts[0]) - 1;
-            const uvIdx = vertParts[1] ? parseInt(vertParts[1]) - 1 : -1;
-            const normIdx = vertParts[2] ? parseInt(vertParts[2]) - 1 : -1;
+            let posIdx = parseInt(vertParts[0]) - 1;
+            let uvIdx = vertParts[1] ? parseInt(vertParts[1]) - 1 : -1;
+            let normIdx = vertParts[2] ? parseInt(vertParts[2]) - 1 : -1;
+
+            // Handle negative (relative) indices
+            if (posIdx < 0) {
+              posIdx = tempPositions.length / 3 + posIdx + 1;
+            }
+            if (uvIdx < -1) {
+              uvIdx = tempUVs.length / 2 + uvIdx + 1;
+            }
+            if (normIdx < -1) {
+              normIdx = tempNormals.length / 3 + normIdx + 1;
+            }
 
             positions.push(
               tempPositions[posIdx * 3],

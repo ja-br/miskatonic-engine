@@ -1,0 +1,24 @@
+# Blender 4.2.1 LTS MTL File: 'None'
+# www.blender.org
+
+newmtl 81f456
+Ns 200.000000
+Ka 1.000000 1.000000 1.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+illum 3
+map_Kd 4bc927.png
+map_Ks a5d2a2.png
+map_d 4bc927.png
+map_Bump -bm 1.000000 a6033f.png
+
+newmtl d16816
+Ns 200.000000
+Ka 1.000000 1.000000 1.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+illum 3
+map_Kd 24ab3e.png
+map_Ks 1360c4.png
+map_d 24ab3e.png
+map_Bump -bm 1.000000 139161.png

@@ -112,7 +112,7 @@ export class ModelViewer {
   private startTime: number = 0;
 
   // Camera target (adjustable with Q/E keys)
-  private targetY: number = 2;
+  private targetY: number = 8;
 
   // Post-processing state
   private bloomEnabled: boolean = true;
@@ -460,8 +460,8 @@ export class ModelViewer {
 
     // Reset camera to default view for new model
     if (this.orbitController) {
-      this.targetY = 2;
-      this.orbitController.reset(10, 0, Math.PI / 6);
+      this.targetY = 8;
+      this.orbitController.reset(30, Math.PI / 4, Math.PI / 6);
       this.orbitController.setTarget(0, this.targetY, 0);
     }
   }
@@ -918,8 +918,8 @@ export class ModelViewer {
       // Reset camera on 'R' key
       if (e.key === 'r' || e.key === 'R') {
         if (this.orbitController) {
-          this.targetY = 2;
-          this.orbitController.reset(10, 0, Math.PI / 6);
+          this.targetY = 8;
+          this.orbitController.reset(30, Math.PI / 4, Math.PI / 6);
           this.orbitController.setTarget(0, this.targetY, 0);
           console.log('Camera reset');
         }
@@ -1507,7 +1507,7 @@ export class ModelViewer {
       this.targetY = modelCenterY;
       // Distance based on model size (1.5x size for good framing)
       const distance = Math.max(modelSize * 1.5, 5);
-      this.orbitController.reset(distance, 0, Math.PI / 6);
+      this.orbitController.reset(distance, Math.PI / 4, Math.PI / 6);
       this.orbitController.setTarget(modelCenterX, modelCenterY, modelCenterZ);
     }
   }
