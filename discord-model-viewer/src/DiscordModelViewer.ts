@@ -575,7 +575,7 @@ export class DiscordModelViewer {
         bindGroupLayouts: [this.bloomExtractTextureLayout!, this.bloomExtractUniformLayout!],
       }),
       vertex: { module: bloomExtractModule, entryPoint: 'vs_main' },
-      fragment: { module: bloomExtractModule, entryPoint: 'fs_main', targets: [{ format: this.format }] },
+      fragment: { module: bloomExtractModule, entryPoint: 'fs_main', targets: [{ format: 'rgba8unorm' }] },
       primitive: { topology: 'triangle-list' },
     });
     console.log('Bloom extract pipeline created successfully');
@@ -587,7 +587,7 @@ export class DiscordModelViewer {
         bindGroupLayouts: [this.downsampleTextureLayout!, this.downsampleUniformLayout!],
       }),
       vertex: { module: bloomDownsampleModule, entryPoint: 'vs_main' },
-      fragment: { module: bloomDownsampleModule, entryPoint: 'fs_main', targets: [{ format: this.format }] },
+      fragment: { module: bloomDownsampleModule, entryPoint: 'fs_main', targets: [{ format: 'rgba8unorm' }] },
       primitive: { topology: 'triangle-list' },
     });
     console.log('Bloom downsample pipeline created successfully');
@@ -603,7 +603,7 @@ export class DiscordModelViewer {
         module: bloomUpsampleModule,
         entryPoint: 'fs_main',
         targets: [{
-          format: this.format,
+          format: 'rgba8unorm',
           blend: {
             color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
@@ -683,38 +683,38 @@ export class DiscordModelViewer {
     // Bloom extract texture
     this.bloomExtractTexture = this.device.createTexture({
       size: [this.bloomWidth, this.bloomHeight],
-      format: this.format,
+      format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
     // Mip pyramid textures
     this.bloomMip0Texture = this.device.createTexture({
       size: [this.mip0Width, this.mip0Height],
-      format: this.format,
+      format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
     this.bloomMip1Texture = this.device.createTexture({
       size: [this.mip1Width, this.mip1Height],
-      format: this.format,
+      format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
     this.bloomMip2Texture = this.device.createTexture({
       size: [this.mip2Width, this.mip2Height],
-      format: this.format,
+      format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
     this.bloomMip3Texture = this.device.createTexture({
       size: [this.mip3Width, this.mip3Height],
-      format: this.format,
+      format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
     this.bloomMip4Texture = this.device.createTexture({
       size: [this.mip4Width, this.mip4Height],
-      format: this.format,
+      format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
 
@@ -1364,7 +1364,9 @@ export class DiscordModelViewer {
     compositeData[0] = this.bloomIntensity;
     compositeData[1] = this.grainAmount;
     compositeData[2] = this.gamma;
-    compositeData[3] = 0; // ditherPattern (as float, will be cast to u32)
+    // ditherPattern is u32, write via Uint32Array view to preserve bit pattern
+    const ditherU32View = new Uint32Array(compositeData.buffer, 12, 1);
+    ditherU32View[0] = 0;
     compositeData[4] = this.time;
     // [5-11] = padding
     this.device.queue.writeBuffer(this.compositeParamsBuffer!, 0, compositeData);
