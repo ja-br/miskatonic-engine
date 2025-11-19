@@ -546,7 +546,7 @@ export class DiscordModelViewer {
         }],
       },
       primitive: { topology: 'triangle-list', cullMode: 'back' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     });
     console.log('Main pipeline created successfully');
 
@@ -578,7 +578,7 @@ export class DiscordModelViewer {
         }],
       },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     });
     console.log('Wireframe pipeline created successfully');
 
