@@ -69,6 +69,7 @@ export class ModelViewer {
 
   // Shader and pipeline
   private modelShader!: BackendShaderHandle;
+  private noDiscardShader!: BackendShaderHandle; // For alpha-blend and additive pipelines
   private bindGroupLayout!: BackendBindGroupLayoutHandle;
   private sharedUniformBuffer!: BackendBufferHandle;
   private sharedBindGroup!: BackendBindGroupHandle;
@@ -113,6 +114,10 @@ export class ModelViewer {
 
   // Camera target (adjustable with Q/E keys)
   private targetY: number = 8;
+
+  // Model-specific defaults for camera reset
+  private defaultCameraDistance: number = 30;
+  private defaultTargetY: number = 8;
 
   // Post-processing state
   private bloomEnabled: boolean = true;
@@ -226,6 +231,17 @@ export class ModelViewer {
 
     console.log('Shader compiled successfully');
 
+    // Load no-discard shader for alpha-blend and additive pipelines
+    console.log('Loading simple-lambert-no-discard shader...');
+    const noDiscardSource = await import('../../rendering/src/retro/shaders/simple-lambert-no-discard.wgsl?raw').then(m => m.default);
+
+    this.noDiscardShader = this.backend.createShader('no-discard-shader', {
+      vertex: noDiscardSource,
+      fragment: noDiscardSource,
+    });
+
+    console.log('No-discard shader compiled successfully');
+
     // Initialize retro post-processor (same as demo.ts)
     this.retroPostProcessor = new RetroPostProcessor(
       this.backend,
@@ -322,6 +338,10 @@ export class ModelViewer {
       let totalVertices = 0;
       let totalTriangles = 0;
 
+      // Calculate bounding box for camera positioning
+      let minY = Infinity;
+      let maxY = -Infinity;
+
       for (const group of modelData.materialGroups) {
         const geometry = group.geometry;
         const indexCount = Math.floor(geometry.indices.length / 3) * 3;
@@ -329,6 +349,13 @@ export class ModelViewer {
 
         totalVertices += vertexCount;
         totalTriangles += indexCount / 3;
+
+        // Update bounding box from vertex positions
+        for (let i = 1; i < geometry.positions.length; i += 3) {
+          const y = geometry.positions[i];
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
 
         // Interleave vertex data
         const interleavedData = this.interleaveVertexData(geometry);
@@ -352,11 +379,14 @@ export class ModelViewer {
 
         // Load texture for this material
         let texture = this.dummyTexture;
+        let textureHasAlpha = false;
         const materialDef = modelData.materials.get(group.materialName);
         if (materialDef?.texturePath) {
           const textureUrl = basePath + materialDef.texturePath;
           try {
-            texture = await this.loadTexture(textureUrl, group.materialName);
+            const result = await this.loadTexture(textureUrl, group.materialName);
+            texture = result.texture;
+            textureHasAlpha = result.hasAlpha;
           } catch (error) {
             console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
             this.logMessage(`Failed: ${materialDef.texturePath}`);
@@ -407,9 +437,9 @@ export class ModelViewer {
         else if (materialDef?.alphaMap) {
           renderMode = 'alpha-blend';
         }
-        // Check for PNG texture (may have alpha channel)
-        else if (textureName.endsWith('.png')) {
-          renderMode = 'alpha-cutout';
+        // Check for actual transparency in texture (detected at load time)
+        else if (textureHasAlpha) {
+          renderMode = 'alpha-blend';
         }
 
         this.materialGroups.push({
@@ -427,6 +457,15 @@ export class ModelViewer {
 
       this.modelVertexCount = totalVertices;
       this.modelIndexCount = totalTriangles * 3;
+
+      // Set camera target to model's vertical center
+      if (minY !== Infinity && maxY !== -Infinity) {
+        this.targetY = (minY + maxY) / 2;
+        // Adjust camera distance based on model height
+        const modelHeight = maxY - minY;
+        this.defaultCameraDistance = Math.max(20, modelHeight * 2);
+        this.defaultTargetY = this.targetY;
+      }
 
       console.log(`Model: ${totalVertices} vertices, ${totalTriangles} triangles in ${this.materialGroups.length} groups`);
     } else if (simpleGeometry) {
@@ -452,24 +491,67 @@ export class ModelViewer {
         'static_draw'
       );
 
+      // Calculate bounding box for simple geometry
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = 1; i < simpleGeometry.positions.length; i += 3) {
+        const y = simpleGeometry.positions[i];
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      if (minY !== Infinity && maxY !== -Infinity) {
+        this.targetY = (minY + maxY) / 2;
+        const modelHeight = maxY - minY;
+        this.defaultCameraDistance = Math.max(10, modelHeight * 2.5);
+        this.defaultTargetY = this.targetY;
+      }
+
       console.log(`Model: ${this.modelVertexCount} vertices, ${this.modelIndexCount / 3} triangles`);
     }
 
     // Update UI with model stats
     this.updateModelStats();
 
-    // Reset camera to default view for new model
+    // Reset camera to view model based on calculated bounds
     if (this.orbitController) {
-      this.targetY = 8;
-      this.orbitController.reset(30, Math.PI / 4, Math.PI / 6);
+      this.orbitController.reset(this.defaultCameraDistance, Math.PI / 4, Math.PI / 6);
       this.orbitController.setTarget(0, this.targetY, 0);
     }
   }
 
-  private async loadTexture(url: string, name: string): Promise<BackendTextureHandle> {
+  // Convert non-premultiplied alpha to premultiplied alpha
+  // This fixes black fringes at transparent edges caused by linear filtering
+  private premultiplyAlpha(data: Uint8ClampedArray): Uint8Array {
+    const result = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      result[i]     = Math.round(data[i]     * alpha); // R
+      result[i + 1] = Math.round(data[i + 1] * alpha); // G
+      result[i + 2] = Math.round(data[i + 2] * alpha); // B
+      result[i + 3] = data[i + 3];                     // A unchanged
+    }
+    return result;
+  }
+
+  // Check if texture data contains significant transparency (> 1% of pixels)
+  private hasTransparency(data: Uint8ClampedArray | Uint8Array): boolean {
+    let transparentCount = 0;
+    const totalPixels = data.length / 4;
+
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 255) transparentCount++;
+    }
+
+    // Only consider it transparent if > 1% of pixels have alpha < 255
+    // This filters out textures with just a few transparent edge artifacts
+    return (transparentCount / totalPixels) > 0.01;
+  }
+
+  private async loadTexture(url: string, name: string): Promise<{ texture: BackendTextureHandle; hasAlpha: boolean }> {
     if (!this.backend) throw new Error('Backend not initialized');
 
     const MAX_TEXTURE_SIZE = 256;
+    const isPNG = url.toLowerCase().endsWith('.png');
 
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -499,19 +581,27 @@ export class ModelViewer {
         ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
         const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
 
+        // Check for actual transparency before premultiplying
+        const hasAlpha = isPNG && this.hasTransparency(imageData.data);
+
+        // Premultiply alpha for PNG textures to fix black fringes
+        const textureData = isPNG
+          ? this.premultiplyAlpha(imageData.data)
+          : new Uint8Array(imageData.data.buffer);
+
         const texture = this.backend!.createTexture(
           `texture-${name}`,
           targetWidth,
           targetHeight,
-          new Uint8Array(imageData.data.buffer),
+          textureData,
           { format: 'rgba8unorm' }
         );
 
         const resized = (img.width !== targetWidth || img.height !== targetHeight)
           ? ` (resized from ${img.width}x${img.height})`
           : '';
-        console.log(`Loaded texture: ${name} (${targetWidth}x${targetHeight})${resized}`);
-        resolve(texture);
+        console.log(`Loaded texture: ${name} (${targetWidth}x${targetHeight})${resized}${isPNG ? ' [premultiplied]' : ''}${hasAlpha ? ' [has alpha]' : ''}`);
+        resolve({ texture, hasAlpha });
       };
       img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
       img.src = url;
@@ -808,9 +898,9 @@ export class ModelViewer {
       depthFormat: 'depth16unorm',
     });
 
-    // Create alpha-blend pipeline (transparent objects)
+    // Create alpha-blend pipeline (transparent objects) - uses no-discard shader
     this.alphaBlendPipeline = this.backend.createRenderPipeline({
-      shader: this.modelShader,
+      shader: this.noDiscardShader,
       vertexLayouts: [{
         arrayStride: ModelViewer.VERTEX_STRIDE,
         stepMode: 'vertex',
@@ -826,7 +916,8 @@ export class ModelViewer {
         topology: 'triangle-list',
         blend: {
           enabled: true,
-          srcFactor: 'src-alpha',
+          // Premultiplied alpha blend - textures have RGB * A stored
+          srcFactor: 'one',
           dstFactor: 'one-minus-src-alpha',
           operation: 'add',
         },
@@ -843,9 +934,9 @@ export class ModelViewer {
       depthFormat: 'depth16unorm',
     });
 
-    // Create additive pipeline (for FX effects like glows, bursts)
+    // Create additive pipeline (for FX effects like glows, bursts) - uses no-discard shader
     this.additivePipeline = this.backend.createRenderPipeline({
-      shader: this.modelShader,
+      shader: this.noDiscardShader,
       vertexLayouts: [{
         arrayStride: ModelViewer.VERTEX_STRIDE,
         stepMode: 'vertex',
@@ -918,8 +1009,9 @@ export class ModelViewer {
       // Reset camera on 'R' key
       if (e.key === 'r' || e.key === 'R') {
         if (this.orbitController) {
-          this.targetY = 8;
-          this.orbitController.reset(30, Math.PI / 4, Math.PI / 6);
+          // Reset to model-specific defaults
+          this.targetY = this.defaultTargetY;
+          this.orbitController.reset(this.defaultCameraDistance, Math.PI / 4, Math.PI / 6);
           this.orbitController.setTarget(0, this.targetY, 0);
           console.log('Camera reset');
         }
@@ -1377,6 +1469,7 @@ export class ModelViewer {
 
           // Load texture for this material
           let texture = this.dummyTexture;
+          let textureHasAlpha = false;
           const materialDef = modelData.materials.get(group.materialName);
           if (materialDef?.texturePath) {
             // Handle absolute Windows paths in MTL files (common in downloaded models)
@@ -1395,7 +1488,9 @@ export class ModelViewer {
               texture = this.checkerboardTexture; // Use checkerboard for unsupported formats
             } else {
               try {
-                texture = await this.loadTextureFromFile(texturePath, `${groupIndex - 1}-${group.materialName}`);
+                const result = await this.loadTextureFromFile(texturePath, `${groupIndex - 1}-${group.materialName}`);
+                texture = result.texture;
+                textureHasAlpha = result.hasAlpha;
               } catch (error) {
                 console.warn(`Failed to load texture ${textureFileName}:`, error);
                 this.logMessage(`Failed: ${textureFileName}`);
@@ -1448,10 +1543,9 @@ export class ModelViewer {
           else if (materialDef?.alphaMap) {
             renderMode = 'alpha-blend';
           }
-          // Check for PNG texture (may have alpha channel)
-          else if (textureName.endsWith('.png')) {
-            // PNG files might have alpha - use alpha-cutout by default
-            renderMode = 'alpha-cutout';
+          // Check for actual transparency in texture (detected at load time)
+          else if (textureHasAlpha) {
+            renderMode = 'alpha-blend';
           }
 
           this.materialGroups.push({
@@ -1515,7 +1609,7 @@ export class ModelViewer {
   /**
    * Load a texture from a file system path (via IPC)
    */
-  private async loadTextureFromFile(filePath: string, name: string): Promise<BackendTextureHandle> {
+  private async loadTextureFromFile(filePath: string, name: string): Promise<{ texture: BackendTextureHandle; hasAlpha: boolean }> {
     if (!this.backend) throw new Error('Backend not initialized');
 
     const MAX_TEXTURE_SIZE = 256;
@@ -1558,17 +1652,27 @@ export class ModelViewer {
         // Get pixel data
         const imageData = ctx.getImageData(0, 0, width, height);
 
+        // Premultiply alpha for PNG textures to fix black fringes
+        const isPNG = filePath.toLowerCase().endsWith('.png');
+
+        // Check for actual transparency before premultiplying
+        const hasAlpha = isPNG && this.hasTransparency(imageData.data);
+
+        const textureData = isPNG
+          ? this.premultiplyAlpha(imageData.data)
+          : new Uint8Array(imageData.data.buffer);
+
         // Create texture with pixel data
         const texture = backend.createTexture(
           `texture-${name}`,
           width,
           height,
-          new Uint8Array(imageData.data.buffer),
+          textureData,
           { format: 'rgba8unorm' }
         );
 
-        console.log(`Loaded texture: ${name} (${width}x${height})`);
-        resolve(texture);
+        console.log(`Loaded texture: ${name} (${width}x${height})${isPNG ? ' [premultiplied]' : ''}${hasAlpha ? ' [has alpha]' : ''}`);
+        resolve({ texture, hasAlpha });
       };
 
       img.onerror = () => reject(new Error(`Failed to load texture: ${filePath}`));
