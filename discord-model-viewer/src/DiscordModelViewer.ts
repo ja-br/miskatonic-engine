@@ -1408,8 +1408,8 @@ export class DiscordModelViewer {
     const up = new Float32Array([0, 1, 0]);
 
     const viewMatrix = Mat4.lookAt(eye, target, up);
-    // Use internal resolution aspect ratio since scene renders at internal resolution
-    const aspect = this.internalWidth / this.internalHeight;
+    // Use actual canvas dimensions for correct aspect ratio
+    const aspect = this.canvas.width / this.canvas.height;
     const projMatrix = Mat4.perspective(Math.PI / 4, aspect, 1, 5000);
     const viewProjMatrix = Mat4.multiply(projMatrix, viewMatrix);
 
