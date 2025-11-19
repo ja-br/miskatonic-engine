@@ -1313,7 +1313,26 @@ export class DiscordModelViewer {
     // Textures: tracked during load
     const vertexBytes = this.modelVertexCount * 48;
     const indexBytes = this.modelIndexCount * 2;
-    const totalMB = (vertexBytes + indexBytes + this.textureVRAM) / (1024 * 1024);
+
+    // Post-processing textures (scene render targets)
+    const sceneTextureVRAM = this.internalWidth * this.internalHeight * 4;  // bgra8unorm
+    const depthTextureVRAM = this.internalWidth * this.internalHeight * 2;  // depth24plus
+    const compositeVRAM = this.crtEnabled ? this.internalWidth * this.internalHeight * 4 : 0;
+
+    // Bloom mip pyramid (quarter resolution, configured mip levels)
+    let bloomVRAM = 0;
+    let bw = Math.floor(this.internalWidth / 4);
+    let bh = Math.floor(this.internalHeight / 4);
+    for (let i = 0; i < this.bloomMipLevels; i++) {
+      bloomVRAM += bw * bh * 4;
+      bw = Math.max(1, Math.floor(bw / 2));
+      bh = Math.max(1, Math.floor(bh / 2));
+    }
+
+    const totalMB = (
+      vertexBytes + indexBytes + this.textureVRAM +
+      sceneTextureVRAM + depthTextureVRAM + compositeVRAM + bloomVRAM
+    ) / (1024 * 1024);
     if (vramEl) vramEl.textContent = `${totalMB.toFixed(2)} MB`;
   }
 
