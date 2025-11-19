@@ -180,7 +180,7 @@ export class ModelViewer {
       this.world.addComponent(this.cameraEntity, Camera, Camera.perspective(
         (45 * Math.PI) / 180,
         1.0,
-        100
+        500
       ));
 
       // Create orbit controller - target model center (slightly above ground)

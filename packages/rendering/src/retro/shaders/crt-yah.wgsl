@@ -354,19 +354,27 @@ fn apply_color_overflow(color: vec3<f32>) -> vec3<f32> {
     return color;
   }
 
-  // Compute squared color scaled by overflow intensity
-  let overflow = color * color * params.colorOverflow;
-
+  // Use linear color for stronger midtone contribution
+  let overflow = color * params.colorOverflow;
   var result = color;
 
-  // Add cross-channel contributions using PRODUCTS of luma coefficients
-  // This simulates the physical interaction between phosphor excitation
-  result.r += LUMA_R * LUMA_G * overflow.g;  // 0.2126 * 0.7152 * overflow.g
-  result.r += LUMA_R * LUMA_B * overflow.b;  // 0.2126 * 0.0722 * overflow.b
-  result.g += LUMA_G * LUMA_R * overflow.r;  // 0.7152 * 0.2126 * overflow.r
-  result.g += LUMA_G * LUMA_B * overflow.b;  // 0.7152 * 0.0722 * overflow.b
-  result.b += LUMA_B * LUMA_R * overflow.r;  // 0.0722 * 0.2126 * overflow.r
-  result.b += LUMA_B * LUMA_G * overflow.g;  // 0.0722 * 0.7152 * overflow.g
+  // Direct channel bleeding with meaningful coefficients
+  // These are 10-30x stronger than the original luma product approach
+  let strong = 0.35 * overflow;  // Strong bleeding
+  let medium = 0.20 * overflow;  // Medium bleeding
+  let weak   = 0.10 * overflow;  // Weak bleeding
+
+  // Green -> Red (dominant in CRT phosphors)
+  // Blue -> Red (minor)
+  result.r += strong.g + weak.b;
+
+  // Red -> Green
+  // Blue -> Green
+  result.g += medium.r + medium.b;
+
+  // Red -> Blue (minimal)
+  // Green -> Blue
+  result.b += weak.r + medium.g;
 
   return result;
 }

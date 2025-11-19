@@ -94,6 +94,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // Sample texture
   let texColor = textureSample(baseTexture, baseSampler, in.uv);
 
+  // Alpha cutout - discard semi-transparent pixels (typical for hair, foliage, etc.)
+  if (texColor.a < 0.5) {
+    discard;
+  }
+
   // Apply pre-computed vertex lighting
   let finalColor = texColor.rgb * material.albedo.rgb * in.lightColor;
 
