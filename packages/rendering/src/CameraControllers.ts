@@ -63,7 +63,7 @@ export class OrbitCameraController {
    */
   zoom(delta: number): void {
     this.distance += delta;
-    this.distance = Math.max(1, Math.min(100, this.distance));
+    this.distance = Math.max(1, Math.min(1000, this.distance));
     this.updatePosition();
   }
 

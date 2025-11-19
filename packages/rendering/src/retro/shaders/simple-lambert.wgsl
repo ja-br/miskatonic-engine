@@ -94,8 +94,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
   // Sample texture
   let texColor = textureSample(baseTexture, baseSampler, in.uv);
 
-  // Alpha cutout - discard semi-transparent pixels (typical for hair, foliage, etc.)
-  if (texColor.a < 0.5) {
+  // Alpha cutout - discard transparent pixels (typical for hair, foliage, effects)
+  // Use low threshold (0.1) to preserve soft edges in effect textures
+  if (texColor.a < 0.1) {
     discard;
   }
 

@@ -21,6 +21,9 @@ export interface MaterialData {
   ambient: [number, number, number]; // Ka
   specular: [number, number, number]; // Ks
   texturePath?: string; // map_Kd
+  dissolve?: number; // d (1.0 = opaque, 0.0 = transparent)
+  alphaMap?: string; // map_d
+  illumModel?: number; // illum
 }
 
 /**

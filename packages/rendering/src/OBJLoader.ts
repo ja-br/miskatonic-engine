@@ -253,14 +253,16 @@ export function parseMTL(mtlText: string): Map<string, MaterialData> {
     const type = parts[0];
 
     if (type === 'newmtl') {
-      // Start new material
+      // Start new material (join parts to handle names with spaces)
+      const materialName = parts.slice(1).join(' ');
       currentMaterial = {
-        name: parts[1],
+        name: materialName,
         diffuse: [0.8, 0.8, 0.8],
         ambient: [0.2, 0.2, 0.2],
         specular: [1.0, 1.0, 1.0],
+        dissolve: 1.0, // Default to fully opaque
       };
-      materials.set(parts[1], currentMaterial);
+      materials.set(materialName, currentMaterial);
     } else if (currentMaterial) {
       if (type === 'Kd') {
         currentMaterial.diffuse = [
@@ -283,6 +285,18 @@ export function parseMTL(mtlText: string): Map<string, MaterialData> {
       } else if (type === 'map_Kd') {
         // Join all parts to handle paths with spaces
         currentMaterial.texturePath = parts.slice(1).join(' ');
+      } else if (type === 'd') {
+        // Dissolve (opacity): 1.0 = opaque, 0.0 = transparent
+        currentMaterial.dissolve = parseFloat(parts[1]);
+      } else if (type === 'Tr') {
+        // Transparency (inverse of dissolve): 0.0 = opaque, 1.0 = transparent
+        currentMaterial.dissolve = 1.0 - parseFloat(parts[1]);
+      } else if (type === 'map_d') {
+        // Alpha/opacity texture map
+        currentMaterial.alphaMap = parts.slice(1).join(' ');
+      } else if (type === 'illum') {
+        // Illumination model
+        currentMaterial.illumModel = parseInt(parts[1], 10);
       }
     }
   }
@@ -333,9 +347,11 @@ export function parseOBJWithMaterials(objText: string): { geometry: GeometryData
         parseFloat(parts[2])
       );
     } else if (type === 'mtllib') {
-      mtlPath = parts[1];
+      // Join all parts to handle filenames with spaces
+      mtlPath = parts.slice(1).join(' ');
     } else if (type === 'usemtl') {
-      currentMaterial = parts[1];
+      // Join all parts to handle material names with spaces
+      currentMaterial = parts.slice(1).join(' ');
       if (!materialFaces.has(currentMaterial)) {
         materialFaces.set(currentMaterial, []);
       }

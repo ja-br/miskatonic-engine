@@ -29,6 +29,7 @@ import {
   type MaterialGroup,
   OPAQUE_PIPELINE_STATE,
   WIREFRAME_PIPELINE_STATE,
+  ADDITIVE_BLEND_PIPELINE_STATE,
 } from '../../rendering/src';
 import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
 import * as Mat4 from '../../ecs/src/math/Mat4';
@@ -71,7 +72,10 @@ export class ModelViewer {
   private bindGroupLayout!: BackendBindGroupLayoutHandle;
   private sharedUniformBuffer!: BackendBufferHandle;
   private sharedBindGroup!: BackendBindGroupHandle;
-  private modelPipeline!: BackendPipelineHandle;
+  private modelPipeline!: BackendPipelineHandle; // Opaque (discard < 0.5)
+  private alphaCutoutPipeline!: BackendPipelineHandle; // Alpha cutout (discard < 0.1)
+  private alphaBlendPipeline!: BackendPipelineHandle; // Alpha blend (no discard)
+  private additivePipeline!: BackendPipelineHandle; // Additive blend for FX
   private wireframePipeline!: BackendPipelineHandle;
   private wireframeEnabled: boolean = false;
 
@@ -91,6 +95,8 @@ export class ModelViewer {
     indexFormat: 'uint16' | 'uint32';
     texture: BackendTextureHandle;
     bindGroup: BackendBindGroupHandle;
+    renderMode: 'opaque' | 'alpha-cutout' | 'alpha-blend' | 'additive';
+    centroid: [number, number, number]; // For sorting transparent objects
   }[] = [];
 
   // Ground plane
@@ -180,11 +186,11 @@ export class ModelViewer {
       this.world.addComponent(this.cameraEntity, Camera, Camera.perspective(
         (45 * Math.PI) / 180,
         1.0,
-        500
+        5000
       ));
 
       // Create orbit controller - target model center (slightly above ground)
-      this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 10);
+      this.orbitController = new OrbitCameraController(this.cameraEntity, this.world, 100);
       this.orbitController.setTarget(0, this.targetY, 0);
 
       // Setup camera controls
@@ -367,6 +373,45 @@ export class ModelViewer {
           ],
         });
 
+        // Calculate centroid for sorting transparent objects
+        const positions = geometry.positions;
+        let cx = 0, cy = 0, cz = 0;
+        const numVerts = positions.length / 3;
+        if (numVerts > 0) {
+          for (let i = 0; i < positions.length; i += 3) {
+            cx += positions[i];
+            cy += positions[i + 1];
+            cz += positions[i + 2];
+          }
+          cx /= numVerts;
+          cy /= numVerts;
+          cz /= numVerts;
+        }
+        const centroid: [number, number, number] = [cx, cy, cz];
+
+        // Classify render mode based on texture and material properties
+        let renderMode: 'opaque' | 'alpha-cutout' | 'alpha-blend' | 'additive' = 'opaque';
+        const textureName = materialDef?.texturePath?.toLowerCase() || '';
+        const materialName = group.materialName.toLowerCase();
+
+        // Check for FX/effect materials (additive blending)
+        if (textureName.match(/fx|effect|burst|glow|beam|laser|particle/i) ||
+            materialName.match(/fx|effect|burst|glow|beam|laser|particle/i)) {
+          renderMode = 'additive';
+        }
+        // Check for explicit transparency in MTL (dissolve < 1.0)
+        else if (materialDef?.dissolve !== undefined && materialDef.dissolve < 1.0) {
+          renderMode = 'alpha-blend';
+        }
+        // Check for alpha map
+        else if (materialDef?.alphaMap) {
+          renderMode = 'alpha-blend';
+        }
+        // Check for PNG texture (may have alpha channel)
+        else if (textureName.endsWith('.png')) {
+          renderMode = 'alpha-cutout';
+        }
+
         this.materialGroups.push({
           materialName: group.materialName,
           vertexBuffer,
@@ -375,6 +420,8 @@ export class ModelViewer {
           indexFormat,
           texture,
           bindGroup,
+          renderMode,
+          centroid,
         });
       }
 
@@ -741,6 +788,79 @@ export class ModelViewer {
       colorFormat: 'bgra8unorm',
       depthFormat: 'depth16unorm',
     });
+
+    // Create alpha-cutout pipeline (same as opaque, for materials with alpha textures)
+    this.alphaCutoutPipeline = this.backend.createRenderPipeline({
+      shader: this.modelShader,
+      vertexLayouts: [{
+        arrayStride: ModelViewer.VERTEX_STRIDE,
+        stepMode: 'vertex',
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },
+          { shaderLocation: 1, offset: 12, format: 'float32x3' },
+          { shaderLocation: 2, offset: 24, format: 'float32x2' },
+          { shaderLocation: 3, offset: 32, format: 'float32x4' },
+        ],
+      }],
+      bindGroupLayouts: [this.bindGroupLayout, this.materialBindGroupLayout, this.lightBindGroupLayout],
+      pipelineState: OPAQUE_PIPELINE_STATE, // Same as opaque, shader handles discard
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth16unorm',
+    });
+
+    // Create alpha-blend pipeline (transparent objects)
+    this.alphaBlendPipeline = this.backend.createRenderPipeline({
+      shader: this.modelShader,
+      vertexLayouts: [{
+        arrayStride: ModelViewer.VERTEX_STRIDE,
+        stepMode: 'vertex',
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },
+          { shaderLocation: 1, offset: 12, format: 'float32x3' },
+          { shaderLocation: 2, offset: 24, format: 'float32x2' },
+          { shaderLocation: 3, offset: 32, format: 'float32x4' },
+        ],
+      }],
+      bindGroupLayouts: [this.bindGroupLayout, this.materialBindGroupLayout, this.lightBindGroupLayout],
+      pipelineState: {
+        topology: 'triangle-list',
+        blend: {
+          enabled: true,
+          srcFactor: 'src-alpha',
+          dstFactor: 'one-minus-src-alpha',
+          operation: 'add',
+        },
+        depthStencil: {
+          depthWriteEnabled: false, // Don't write depth for transparent
+          depthCompare: 'less',
+        },
+        rasterization: {
+          cullMode: 'back', // Keep back-face culling (code-critic recommendation)
+          frontFace: 'ccw',
+        },
+      },
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth16unorm',
+    });
+
+    // Create additive pipeline (for FX effects like glows, bursts)
+    this.additivePipeline = this.backend.createRenderPipeline({
+      shader: this.modelShader,
+      vertexLayouts: [{
+        arrayStride: ModelViewer.VERTEX_STRIDE,
+        stepMode: 'vertex',
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x3' },
+          { shaderLocation: 1, offset: 12, format: 'float32x3' },
+          { shaderLocation: 2, offset: 24, format: 'float32x2' },
+          { shaderLocation: 3, offset: 32, format: 'float32x4' },
+        ],
+      }],
+      bindGroupLayouts: [this.bindGroupLayout, this.materialBindGroupLayout, this.lightBindGroupLayout],
+      pipelineState: ADDITIVE_BLEND_PIPELINE_STATE,
+      colorFormat: 'bgra8unorm',
+      depthFormat: 'depth16unorm',
+    });
   }
 
   private setupCameraControls(): void {
@@ -910,15 +1030,44 @@ export class ModelViewer {
       true                            // requireDepth = true for 3D rendering
     );
 
-    // Select pipeline based on wireframe mode
-    const activePipeline = this.wireframeEnabled ? this.wireframePipeline : this.modelPipeline;
-
     // Draw model - either multi-material or single
     if (this.materialGroups.length > 0) {
-      // Multi-material: one draw call per material group
-      for (const group of this.materialGroups) {
-        const materialCommand: DrawCommand = {
-          pipeline: activePipeline,
+      // Get camera position for distance-based sorting
+      const cameraTransform = this.cameraEntity ? this.world.getComponent(this.cameraEntity, Transform) : null;
+      const camX = cameraTransform?.x ?? 0;
+      const camY = cameraTransform?.y ?? 0;
+      const camZ = cameraTransform?.z ?? 0;
+
+      // Separate groups by render mode
+      const opaqueGroups = this.materialGroups.filter(g => g.renderMode === 'opaque');
+      const cutoutGroups = this.materialGroups.filter(g => g.renderMode === 'alpha-cutout');
+      const blendGroups = this.materialGroups.filter(g => g.renderMode === 'alpha-blend');
+      const additiveGroups = this.materialGroups.filter(g => g.renderMode === 'additive');
+
+      // Sort transparent groups back-to-front by distance from camera
+      const sortByDistance = (groups: typeof this.materialGroups) => {
+        return groups.sort((a, b) => {
+          const distA = Math.sqrt(
+            (a.centroid[0] - camX) ** 2 +
+            (a.centroid[1] - camY) ** 2 +
+            (a.centroid[2] - camZ) ** 2
+          );
+          const distB = Math.sqrt(
+            (b.centroid[0] - camX) ** 2 +
+            (b.centroid[1] - camY) ** 2 +
+            (b.centroid[2] - camZ) ** 2
+          );
+          return distB - distA; // Back to front
+        });
+      };
+
+      const sortedBlend = sortByDistance([...blendGroups]);
+      const sortedAdditive = sortByDistance([...additiveGroups]);
+
+      // Helper to draw a group with specific pipeline
+      const drawGroup = (group: typeof this.materialGroups[0], pipeline: BackendPipelineHandle) => {
+        const command: DrawCommand = {
+          pipeline,
           bindGroups: new Map([
             [0, this.sharedBindGroup],
             [1, group.bindGroup],
@@ -933,12 +1082,35 @@ export class ModelViewer {
           },
           label: `model-${group.materialName}`,
         };
-        this.backend.executeDrawCommand(materialCommand);
+        this.backend.executeDrawCommand(command);
+      };
+
+      // 1. Render opaque materials first (depth write enabled)
+      const opaquePipeline = this.wireframeEnabled ? this.wireframePipeline : this.modelPipeline;
+      for (const group of opaqueGroups) {
+        drawGroup(group, opaquePipeline);
+      }
+
+      // 2. Render alpha-cutout materials (depth write enabled, discard in shader)
+      const cutoutPipeline = this.wireframeEnabled ? this.wireframePipeline : this.alphaCutoutPipeline;
+      for (const group of cutoutGroups) {
+        drawGroup(group, cutoutPipeline);
+      }
+
+      // 3. Render alpha-blend materials (sorted back-to-front, depth write disabled)
+      for (const group of sortedBlend) {
+        drawGroup(group, this.alphaBlendPipeline);
+      }
+
+      // 4. Render additive materials (sorted back-to-front, additive blending)
+      for (const group of sortedAdditive) {
+        drawGroup(group, this.additivePipeline);
       }
     } else if (this.modelVertexBuffer && this.modelIndexBuffer) {
       // Single material fallback - only if buffers exist
+      const fallbackPipeline = this.wireframeEnabled ? this.wireframePipeline : this.modelPipeline;
       const modelCommand: DrawCommand = {
-        pipeline: activePipeline,
+        pipeline: fallbackPipeline,
         bindGroups: new Map([
           [0, this.sharedBindGroup],
           [1, this.materialBindGroup],
@@ -1241,6 +1413,47 @@ export class ModelViewer {
             ],
           });
 
+          // Calculate centroid for this material group (for sorting transparent objects)
+          const positions = geometry.positions;
+          let cx = 0, cy = 0, cz = 0;
+          const numVerts = positions.length / 3;
+          if (numVerts > 0) {
+            for (let i = 0; i < positions.length; i += 3) {
+              cx += positions[i];
+              cy += positions[i + 1];
+              cz += positions[i + 2];
+            }
+            cx /= numVerts;
+            cy /= numVerts;
+            cz /= numVerts;
+          }
+          const centroid: [number, number, number] = [cx, cy, cz];
+
+          // Classify render mode based on material properties
+          let renderMode: 'opaque' | 'alpha-cutout' | 'alpha-blend' | 'additive' = 'opaque';
+
+          const textureName = materialDef?.texturePath?.toLowerCase() || '';
+          const materialName = group.materialName.toLowerCase();
+
+          // Check for FX/effect materials (additive blending)
+          if (textureName.match(/fx|effect|burst|glow|beam|laser|particle/i) ||
+              materialName.match(/fx|effect|burst|glow|beam|laser|particle/i)) {
+            renderMode = 'additive';
+          }
+          // Check for explicit transparency in MTL (dissolve < 1.0)
+          else if (materialDef?.dissolve !== undefined && materialDef.dissolve < 1.0) {
+            renderMode = 'alpha-blend';
+          }
+          // Check for alpha map
+          else if (materialDef?.alphaMap) {
+            renderMode = 'alpha-blend';
+          }
+          // Check for PNG texture (may have alpha channel)
+          else if (textureName.endsWith('.png')) {
+            // PNG files might have alpha - use alpha-cutout by default
+            renderMode = 'alpha-cutout';
+          }
+
           this.materialGroups.push({
             materialName: group.materialName,
             vertexBuffer,
@@ -1249,6 +1462,8 @@ export class ModelViewer {
             indexFormat,
             texture,
             bindGroup,
+            renderMode,
+            centroid,
           });
         }
 
