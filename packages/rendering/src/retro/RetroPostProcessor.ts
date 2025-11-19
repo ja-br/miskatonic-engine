@@ -14,76 +14,19 @@ import type {
   BackendFramebufferHandle
 } from '../backends';
 
+// Import config types and utilities
+import type { RetroPostConfig, CRTYahConfig } from './RetroPostConfig.js';
+import { packCRTParams } from './RetroPostConfig.js';
+
+// Re-export config types for external use
+export type { MaskType, CRTYahConfig, RetroPostConfig } from './RetroPostConfig.js';
+
 // Import shaders (Vite ?raw syntax)
 import bloomExtractWGSL from './shaders/bloom-extract.wgsl?raw';
 import bloomDownsampleWGSL from './shaders/bloom-downsample.wgsl?raw';
 import bloomUpsampleWGSL from './shaders/bloom-upsample.wgsl?raw';
 import compositeWGSL from './shaders/composite.wgsl?raw';
 import crtYahWGSL from './shaders/crt-yah.wgsl?raw';
-
-/** CRT phosphor mask type */
-export type MaskType = 'aperture-grille' | 'slot-mask' | 'shadow-mask';
-
-/** CRT-Yah effect configuration */
-export interface CRTYahConfig {
-  /** Enable CRT effect */
-  enabled: boolean;
-
-  /** Master intensity (0=off, 1=normal, 2=intense) */
-  masterIntensity: number;
-
-  /** Brightness adjustment */
-  brightness: number;
-  /** Contrast adjustment */
-  contrast: number;
-  /** Saturation adjustment */
-  saturation: number;
-
-  /** Scanline strength (0-1) */
-  scanlinesStrength: number;
-  /** Minimum beam width */
-  beamWidthMin: number;
-  /** Maximum beam width */
-  beamWidthMax: number;
-  /** Beam shape: 0=sharp, 1=smooth */
-  beamShape: number;
-
-  /** Phosphor mask intensity (0-1) */
-  maskIntensity: number;
-  /** Phosphor mask type */
-  maskType: MaskType;
-
-  /** Screen curvature amount (0-1) */
-  curvatureAmount: number;
-  /** Vignette amount (0-1) */
-  vignetteAmount: number;
-  /** Corner radius (0-0.25) */
-  cornerRadius: number;
-
-  /** Color overflow / phosphor bloom intensity (0-1) */
-  colorOverflow: number;
-}
-
-export interface RetroPostConfig {
-  /** Bloom threshold (brightness cutoff) */
-  bloomThreshold: number;
-  /** Bloom intensity (additive blend amount) */
-  bloomIntensity: number;
-  /** Number of mip levels for bloom pyramid (default: 5) */
-  bloomMipLevels: number;
-  /** Film grain amount */
-  grainAmount: number;
-  /** Gamma for tonemapping (gamma correction only) */
-  gamma: number;
-  /** Dither pattern: 0 = 4x4 Bayer, 1 = 8x8 Bayer */
-  ditherPattern: 0 | 1;
-  /** Optional color LUT texture (256x16) */
-  colorLUT?: BackendTextureHandle;
-  /** Internal render resolution (if undefined, uses display resolution) */
-  internalResolution?: { width: number; height: number };
-  /** Optional CRT-Yah effect configuration */
-  crt?: CRTYahConfig;
-}
 
 /**
  * Manages retro-style post-processing effects
@@ -671,37 +614,15 @@ export class RetroPostProcessor {
       'dynamic_draw'
     );
 
-    // CRTParams (96 bytes - WebGPU requires 96 bytes for this struct)
-    // struct CRTParams {
-    //   resolution: vec2<f32>,     // 8 bytes
-    //   sourceSize: vec2<f32>,     // 8 bytes
-    //   masterIntensity: f32,      // 4 bytes
-    //   ... (13 more f32 params)   // 52 bytes
-    //   _padding: vec3<f32>,       // 12 bytes
-    // }
+    // CRTParams (96 bytes - WebGPU alignment)
     if (this.config.crt?.enabled) {
-      const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
-      crtParamsData[0] = this.displayWidth;   // params.resolution - output swapchain size (for phosphor mask)
-      crtParamsData[1] = this.displayHeight;
-      crtParamsData[2] = this.width;          // params.sourceSize - composite texture size being sampled (for scanlines)
-      crtParamsData[3] = this.height;
-      crtParamsData[4] = this.config.crt.masterIntensity;
-      crtParamsData[5] = this.config.crt.brightness;
-      crtParamsData[6] = this.config.crt.contrast;
-      crtParamsData[7] = this.config.crt.saturation;
-      crtParamsData[8] = this.config.crt.scanlinesStrength;
-      crtParamsData[9] = this.config.crt.beamWidthMin;
-      crtParamsData[10] = this.config.crt.beamWidthMax;
-      crtParamsData[11] = this.config.crt.beamShape;
-      crtParamsData[12] = this.config.crt.maskIntensity;
-      // Map mask type string to float (1=aperture-grille, 2=slot-mask, 3=shadow-mask)
-      crtParamsData[13] = this.config.crt.maskType === 'aperture-grille' ? 1.0 :
-                          this.config.crt.maskType === 'slot-mask' ? 2.0 : 3.0;
-      crtParamsData[14] = this.config.crt.curvatureAmount;
-      crtParamsData[15] = this.config.crt.vignetteAmount;
-      crtParamsData[16] = this.config.crt.cornerRadius;
-      crtParamsData[17] = this.config.crt.colorOverflow;
-      // crtParamsData[18-23] remain 0 (padding vec3)
+      const crtParamsData = packCRTParams(
+        this.config.crt,
+        this.displayWidth,
+        this.displayHeight,
+        this.width,
+        this.height
+      );
 
       if (this.crtParamsBuffer) {
         this.backend.deleteBuffer(this.crtParamsBuffer);
@@ -1301,26 +1222,13 @@ export class RetroPostProcessor {
     }
 
     // Update CRT params uniform with current settings
-    const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
-    crtParamsData[0] = this.displayWidth;   // params.resolution - output swapchain size (for phosphor mask)
-    crtParamsData[1] = this.displayHeight;
-    crtParamsData[2] = this.width;          // params.sourceSize - composite texture size being sampled (for scanlines)
-    crtParamsData[3] = this.height;
-    crtParamsData[4] = this.config.crt.masterIntensity;
-    crtParamsData[5] = this.config.crt.brightness;
-    crtParamsData[6] = this.config.crt.contrast;
-    crtParamsData[7] = this.config.crt.saturation;
-    crtParamsData[8] = this.config.crt.scanlinesStrength;
-    crtParamsData[9] = this.config.crt.beamWidthMin;
-    crtParamsData[10] = this.config.crt.beamWidthMax;
-    crtParamsData[11] = this.config.crt.beamShape;
-    crtParamsData[12] = this.config.crt.maskIntensity;
-    crtParamsData[13] = this.config.crt.maskType === 'aperture-grille' ? 1.0 :
-                        this.config.crt.maskType === 'slot-mask' ? 2.0 : 3.0;
-    crtParamsData[14] = this.config.crt.curvatureAmount;
-    crtParamsData[15] = this.config.crt.vignetteAmount;
-    crtParamsData[16] = this.config.crt.cornerRadius;
-    crtParamsData[17] = this.config.crt.colorOverflow;
+    const crtParamsData = packCRTParams(
+      this.config.crt,
+      this.displayWidth,
+      this.displayHeight,
+      this.width,
+      this.height
+    );
     this.backend.updateBuffer(this.crtParamsBuffer, crtParamsData);
 
     // Create bind group for composite texture (group 0)
@@ -1512,27 +1420,13 @@ export class RetroPostProcessor {
   private updateCRTBuffer(): void {
     if (!this.config.crt || !this.crtParamsBuffer) return;
 
-    const crtParamsData = new Float32Array(24); // 96 bytes (WebGPU alignment)
-    crtParamsData[0] = this.displayWidth;   // params.resolution - output swapchain size (for phosphor mask)
-    crtParamsData[1] = this.displayHeight;
-    crtParamsData[2] = this.width;          // params.sourceSize - composite texture size being sampled (for scanlines)
-    crtParamsData[3] = this.height;
-    crtParamsData[4] = this.config.crt.masterIntensity;
-    crtParamsData[5] = this.config.crt.brightness;
-    crtParamsData[6] = this.config.crt.contrast;
-    crtParamsData[7] = this.config.crt.saturation;
-    crtParamsData[8] = this.config.crt.scanlinesStrength;
-    crtParamsData[9] = this.config.crt.beamWidthMin;
-    crtParamsData[10] = this.config.crt.beamWidthMax;
-    crtParamsData[11] = this.config.crt.beamShape;
-    crtParamsData[12] = this.config.crt.maskIntensity;
-    crtParamsData[13] = this.config.crt.maskType === 'aperture-grille' ? 1.0 :
-                        this.config.crt.maskType === 'slot-mask' ? 2.0 : 3.0;
-    crtParamsData[14] = this.config.crt.curvatureAmount;
-    crtParamsData[15] = this.config.crt.vignetteAmount;
-    crtParamsData[16] = this.config.crt.cornerRadius;
-    crtParamsData[17] = this.config.crt.colorOverflow;
-    // crtParamsData[18-23] remain 0 (padding)
+    const crtParamsData = packCRTParams(
+      this.config.crt,
+      this.displayWidth,
+      this.displayHeight,
+      this.width,
+      this.height
+    );
 
     this.backend.updateBuffer(this.crtParamsBuffer, crtParamsData);
   }
