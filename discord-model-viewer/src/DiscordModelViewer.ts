@@ -130,6 +130,9 @@ export class DiscordModelViewer {
   private frameCount = 0;
   private lastFpsUpdate = 0;
 
+  // VRAM tracking
+  private textureVRAM = 0;
+
   // Light state
   private lightAzimuth = Math.PI / 4;
   private lightElevation = Math.PI / 4;
@@ -856,6 +859,7 @@ export class DiscordModelViewer {
       }
     }
     this.materialGroups = [];
+    this.textureVRAM = 0;
 
     console.log(`Loading model: ${modelName}`);
 
@@ -1237,6 +1241,9 @@ export class DiscordModelViewer {
           [width, height]
         );
 
+        // Track actual VRAM usage
+        this.textureVRAM += width * height * 4;
+
         resolve({ texture, hasAlpha });
       };
       img.onerror = () => reject(new Error(`Failed to load: ${url}`));
@@ -1300,14 +1307,13 @@ export class DiscordModelViewer {
     }
     if (textureEl) textureEl.textContent = textureCount.toString();
 
-    // Estimate VRAM usage (rough estimate)
+    // Calculate actual VRAM usage
     // Vertex data: 48 bytes per vertex (12 floats)
     // Index data: 2 bytes per index
-    // Textures: approximate at 4MB each
+    // Textures: tracked during load
     const vertexBytes = this.modelVertexCount * 48;
     const indexBytes = this.modelIndexCount * 2;
-    const textureBytes = textureCount * 4 * 1024 * 1024; // 4MB per texture estimate
-    const totalMB = (vertexBytes + indexBytes + textureBytes) / (1024 * 1024);
+    const totalMB = (vertexBytes + indexBytes + this.textureVRAM) / (1024 * 1024);
     if (vramEl) vramEl.textContent = `${totalMB.toFixed(2)} MB`;
   }
 
