@@ -28,6 +28,7 @@ export class WebGPUModernAPI {
     private getShader: (id: string) => WebGPUShader | undefined,
     private getBuffer: (id: string) => WebGPUBuffer | undefined,
     private getTexture: (id: string) => WebGPUTexture | undefined,
+    private getSampler: (id: string) => GPUSampler | undefined,
     private _config: ModuleConfig
   ) {}
 

@@ -95,10 +95,9 @@ export function addRetroPostProcessPass(
  */
 export function applyRetroPostProcess(
   processor: RetroPostProcessor,
-  inputTexture: BackendTextureHandle,
-  outputTexture: BackendTextureHandle
-): void {
-  processor.apply(inputTexture, outputTexture);
+  inputTexture: BackendTextureHandle
+): BackendTextureHandle {
+  return processor.apply(inputTexture);
 }
 
 /**
