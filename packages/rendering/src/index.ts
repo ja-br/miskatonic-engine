@@ -57,7 +57,6 @@ export {
   type DepthOccluder,
   DepthOcclusionResult,
 } from './culling';
-export { RenderPass, RenderPassManager, type RenderPassConfig, type RenderTarget } from './RenderPass';
 
 // Epic 3.8: GPU Memory Management
 export { GPUBufferPool, BufferUsageType, type BufferPoolStats } from './GPUBufferPool';
@@ -109,9 +108,6 @@ export {
   type BackendFactoryOptions,
   type BackendSupport,
 } from './backends';
-
-// Demo UI utilities
-export { DemoUI, type DemoUICallbacks, type DemoPerformanceMetrics, type QualityTier } from './DemoUI';
 
 // Epic 3.14: Modern Rendering API
 export {
@@ -272,7 +268,6 @@ export {
   type VertexAttribute,
   type Uniform,
   type ShaderSource,
-  type ShaderProgram,
   type RenderState,
   type VertexLayout,
   type IndexType,
@@ -280,7 +275,6 @@ export {
   type SetStateCommand,
   type SetShaderCommand,
   type SetUniformCommand,
-  type BindTextureCommand,
   type BindFramebufferCommand,
   type RenderCommand,
   type RenderStats,

@@ -15,11 +15,11 @@ export enum RenderBackend {
  * Primitive rendering modes
  */
 export enum PrimitiveMode {
-  POINTS = 0, // WebGL POINTS
-  LINES = 1, // WebGL LINES
-  LINE_STRIP = 3, // WebGL LINE_STRIP
-  TRIANGLES = 4, // WebGL TRIANGLES
-  TRIANGLE_STRIP = 5, // WebGL TRIANGLE_STRIP
+  POINTS = 0,
+  LINES = 1,
+  LINE_STRIP = 3,
+  TRIANGLES = 4,
+  TRIANGLE_STRIP = 5,
 }
 
 /**
@@ -136,16 +136,6 @@ export interface ShaderSource {
 }
 
 /**
- * Compiled shader program
- */
-export interface ShaderProgram {
-  id: string;
-  program: WebGLProgram;
-  attributes: Map<string, number>; // name -> location
-  uniforms: Map<string, WebGLUniformLocation>; // name -> location
-}
-
-/**
  * Render state
  */
 export interface RenderState {
@@ -235,15 +225,6 @@ export interface SetUniformCommand {
 }
 
 /**
- * Bind texture command
- */
-export interface BindTextureCommand {
-  type: RenderCommandType.BIND_TEXTURE;
-  texture: WebGLTexture;
-  unit: number;
-}
-
-/**
  * Bind framebuffer command
  */
 export interface BindFramebufferCommand {
@@ -260,7 +241,6 @@ export type RenderCommand =
   | SetStateCommand
   | SetShaderCommand
   | SetUniformCommand
-  | BindTextureCommand
   | BindFramebufferCommand;
 
 /**

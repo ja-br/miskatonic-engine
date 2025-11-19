@@ -137,6 +137,9 @@ export class WebGPURenderPassManager {
       // Conditionally attach depth buffer based on requireDepth flag
       if (requireDepth === true) {
         // Lazy-allocate depth texture at canvas size
+        if (!this.ctx.canvas) {
+          throw new Error('Canvas not initialized');
+        }
         this.ensureDepthTexture(this.ctx.canvas.width, this.ctx.canvas.height);
 
         if (!this.depthTextureView) {
