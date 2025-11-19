@@ -110,9 +110,6 @@ export {
   type BackendSupport,
 } from './backends';
 
-// Demo UI utilities
-export { DemoUI, type DemoUICallbacks, type DemoPerformanceMetrics, type QualityTier } from './DemoUI';
-
 // Epic 3.14: Modern Rendering API
 export {
   // Bind group descriptors
