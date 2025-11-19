@@ -21,6 +21,8 @@ export class DiscordModelViewer {
 
   // Shaders and pipelines
   private mainPipeline: GPURenderPipeline | null = null;
+  private wireframePipeline: GPURenderPipeline | null = null;
+  private wireframeEnabled: boolean = false;
   private bloomExtractPipeline: GPURenderPipeline | null = null;
   private bloomDownsamplePipeline: GPURenderPipeline | null = null;
   private bloomUpsamplePipeline: GPURenderPipeline | null = null;
@@ -507,14 +509,16 @@ export class DiscordModelViewer {
       }
     }
 
+    const pipelineLayout = this.device.createPipelineLayout({
+      bindGroupLayouts: [
+        this.cameraBindGroupLayout!,
+        this.materialBindGroupLayout!,
+        this.lightBindGroupLayout!,
+      ],
+    });
+
     this.mainPipeline = this.device.createRenderPipeline({
-      layout: this.device.createPipelineLayout({
-        bindGroupLayouts: [
-          this.cameraBindGroupLayout!,
-          this.materialBindGroupLayout!,
-          this.lightBindGroupLayout!,
-        ],
-      }),
+      layout: pipelineLayout,
       vertex: {
         module: mainShaderModule,
         entryPoint: 'vs_main',
@@ -537,6 +541,32 @@ export class DiscordModelViewer {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     console.log('Main pipeline created successfully');
+
+    // Wireframe pipeline (line-list topology)
+    this.wireframePipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: mainShaderModule,
+        entryPoint: 'vs_main',
+        buffers: [{
+          arrayStride: 48,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' },
+            { shaderLocation: 3, offset: 32, format: 'float32x4' },
+          ],
+        }],
+      },
+      fragment: {
+        module: mainShaderModule,
+        entryPoint: 'fs_main',
+        targets: [{ format: this.format }],
+      },
+      primitive: { topology: 'line-list', cullMode: 'none' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
+    console.log('Wireframe pipeline created successfully');
 
     // Bloom extract pipeline
     const bloomExtractModule = this.device.createShaderModule({ code: bloomExtractShader });
@@ -1159,7 +1189,9 @@ export class DiscordModelViewer {
       },
     });
 
-    scenePass.setPipeline(this.mainPipeline!);
+    // Select pipeline based on wireframe state
+    const pipeline = this.wireframeEnabled ? this.wireframePipeline! : this.mainPipeline!;
+    scenePass.setPipeline(pipeline);
     scenePass.setBindGroup(0, this.cameraBindGroup!);
     scenePass.setBindGroup(2, this.lightBindGroup!);
 
@@ -1502,8 +1534,8 @@ export class DiscordModelViewer {
     // Already set up in setupControls
   }
 
-  setWireframe(_enabled: boolean): void {
-    // TODO: implement wireframe mode
+  setWireframe(enabled: boolean): void {
+    this.wireframeEnabled = enabled;
   }
 
   setLightDirection(azimuth: number, elevation: number): void {
