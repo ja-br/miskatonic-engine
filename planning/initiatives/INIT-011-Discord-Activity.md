@@ -102,7 +102,7 @@ graph LR
 - [ ] Create `index.html` with canvas and UI controls
 - [ ] Create `src/main.ts` as entry point
 - [ ] Create `src/DiscordModelViewer.ts` - new viewer class that:
-  - Imports from @miskatonic/rendering (loadOBJWithMaterials, WebGPUBackend, etc.)
+  - Imports from NOTHING THIS IS A STANDALONE APP 
   - Implements model loading via fetch() from CDN URLs
   - Implements texture loading via fetch() from CDN URLs
   - Has NO Electron IPC dependencies (built without them)

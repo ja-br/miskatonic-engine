@@ -7,7 +7,7 @@
 
 import { loadOBJWithMaterials, createSphere, createCube, type ModelData, type GeometryData } from './OBJLoader';
 import * as Mat4 from './math';
-import { simpleLambertShader, bloomExtractShader, bloomDownsampleShader, bloomUpsampleShader, compositeShader, crtShader } from './shaders';
+import { simpleLambertShader, simpleLambertNoDiscardShader, bloomExtractShader, bloomDownsampleShader, bloomUpsampleShader, compositeShader, crtShader } from './shaders';
 
 export class DiscordModelViewer {
   // WebGPU resources
@@ -96,13 +96,21 @@ export class DiscordModelViewer {
 
   // Model data
   private materialGroups: {
+    materialName: string;
     vertexBuffer: GPUBuffer;
     indexBuffer: GPUBuffer;
     indexCount: number;
     indexFormat: GPUIndexFormat;
     texture: GPUTexture;
     bindGroup: GPUBindGroup;
+    renderMode: 'opaque' | 'alpha-cutout' | 'alpha-blend' | 'additive';
+    centroid: [number, number, number];
   }[] = [];
+
+  // Additional pipelines for transparency
+  private alphaCutoutPipeline: GPURenderPipeline | null = null;
+  private alphaBlendPipeline: GPURenderPipeline | null = null;
+  private additivePipeline: GPURenderPipeline | null = null;
 
   // Camera state
   private cameraDistance = 30;
@@ -511,6 +519,19 @@ export class DiscordModelViewer {
       }
     }
 
+    // No-discard shader module for alpha-blend and additive pipelines
+    const noDiscardShaderModule = this.device.createShaderModule({
+      code: simpleLambertNoDiscardShader,
+    });
+
+    const noDiscardShaderInfo = await noDiscardShaderModule.getCompilationInfo();
+    for (const msg of noDiscardShaderInfo.messages) {
+      console.error(`No-discard shader ${msg.type}: ${msg.message} at line ${msg.lineNum}`);
+      if (msg.type === 'error') {
+        throw new Error(`No-discard shader compilation error: ${msg.message}`);
+      }
+    }
+
     const pipelineLayout = this.device.createPipelineLayout({
       bindGroupLayouts: [
         this.cameraBindGroupLayout!,
@@ -569,6 +590,96 @@ export class DiscordModelViewer {
       depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
     });
     console.log('Wireframe pipeline created successfully');
+
+    // Alpha-cutout pipeline (same as opaque, shader handles discard)
+    this.alphaCutoutPipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: mainShaderModule,
+        entryPoint: 'vs_main',
+        buffers: [{
+          arrayStride: 48,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' },
+            { shaderLocation: 3, offset: 32, format: 'float32x4' },
+          ],
+        }],
+      },
+      fragment: {
+        module: mainShaderModule,
+        entryPoint: 'fs_main',
+        targets: [{ format: this.format }],
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+    });
+    console.log('Alpha-cutout pipeline created successfully');
+
+    // Alpha-blend pipeline (transparent objects) - uses no-discard shader
+    this.alphaBlendPipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: noDiscardShaderModule,
+        entryPoint: 'vs_main',
+        buffers: [{
+          arrayStride: 48,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' },
+            { shaderLocation: 3, offset: 32, format: 'float32x4' },
+          ],
+        }],
+      },
+      fragment: {
+        module: noDiscardShaderModule,
+        entryPoint: 'fs_main',
+        targets: [{
+          format: this.format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    });
+    console.log('Alpha-blend pipeline created successfully');
+
+    // Additive pipeline (for FX effects like glows) - uses no-discard shader
+    this.additivePipeline = this.device.createRenderPipeline({
+      layout: pipelineLayout,
+      vertex: {
+        module: noDiscardShaderModule,
+        entryPoint: 'vs_main',
+        buffers: [{
+          arrayStride: 48,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x3' },
+            { shaderLocation: 1, offset: 12, format: 'float32x3' },
+            { shaderLocation: 2, offset: 24, format: 'float32x2' },
+            { shaderLocation: 3, offset: 32, format: 'float32x4' },
+          ],
+        }],
+      },
+      fragment: {
+        module: noDiscardShaderModule,
+        entryPoint: 'fs_main',
+        targets: [{
+          format: this.format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+          },
+        }],
+      },
+      primitive: { topology: 'triangle-list', cullMode: 'back' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
+    });
+    console.log('Additive pipeline created successfully');
 
     // Bloom extract pipeline
     const bloomExtractModule = this.device.createShaderModule({ code: bloomExtractShader });
@@ -834,13 +945,54 @@ export class DiscordModelViewer {
           ],
         });
 
+        // Calculate centroid for sorting transparent objects
+        let cx = 0, cy = 0, cz = 0;
+        const numVerts = geo.positions.length / 3;
+        if (numVerts > 0) {
+          for (let i = 0; i < geo.positions.length; i += 3) {
+            cx += geo.positions[i];
+            cy += geo.positions[i + 1];
+            cz += geo.positions[i + 2];
+          }
+          cx /= numVerts;
+          cy /= numVerts;
+          cz /= numVerts;
+        }
+        const centroid: [number, number, number] = [cx, cy, cz];
+
+        // Classify render mode based on texture and material properties
+        let renderMode: 'opaque' | 'alpha-cutout' | 'alpha-blend' | 'additive' = 'opaque';
+        const textureName = materialDef?.texturePath?.toLowerCase() || '';
+        const materialName = group.materialName.toLowerCase();
+
+        // Check for FX/effect materials (additive blending)
+        if (textureName.match(/fx|effect|burst|glow|beam|laser|particle/i) ||
+            materialName.match(/fx|effect|burst|glow|beam|laser|particle/i)) {
+          renderMode = 'additive';
+        }
+        // Check for explicit transparency in MTL (dissolve < 1.0)
+        else if (materialDef?.dissolve !== undefined && materialDef.dissolve < 1.0) {
+          renderMode = 'alpha-blend';
+        }
+        // Check for alpha map
+        else if (materialDef?.alphaMap) {
+          renderMode = 'alpha-blend';
+        }
+        // Check for PNG texture (may have alpha channel) - use alpha-cutout for depth writing
+        else if (textureName.endsWith('.png')) {
+          renderMode = 'alpha-cutout';
+        }
+
         this.materialGroups.push({
+          materialName: group.materialName,
           vertexBuffer,
           indexBuffer,
           indexCount,
           indexFormat: geo.indices instanceof Uint32Array ? 'uint32' : 'uint16',
           texture,
           bindGroup,
+          renderMode,
+          centroid,
         });
       }
 
@@ -879,13 +1031,30 @@ export class DiscordModelViewer {
         ],
       });
 
+      // Calculate centroid for simple geometry
+      let cx = 0, cy = 0, cz = 0;
+      const numVerts = geometry.positions.length / 3;
+      if (numVerts > 0) {
+        for (let i = 0; i < geometry.positions.length; i += 3) {
+          cx += geometry.positions[i];
+          cy += geometry.positions[i + 1];
+          cz += geometry.positions[i + 2];
+        }
+        cx /= numVerts;
+        cy /= numVerts;
+        cz /= numVerts;
+      }
+
       this.materialGroups.push({
+        materialName: 'default',
         vertexBuffer,
         indexBuffer,
         indexCount: geometry.indices.length,
         indexFormat: geometry.indices instanceof Uint32Array ? 'uint32' : 'uint16',
         texture: this.defaultTexture!,
         bindGroup,
+        renderMode: 'opaque',
+        centroid: [cx, cy, cz],
       });
 
       this.modelVertexCount = geometry.positions.length / 3;
@@ -1191,18 +1360,70 @@ export class DiscordModelViewer {
       },
     });
 
-    // Select pipeline based on wireframe state
-    const pipeline = this.wireframeEnabled ? this.wireframePipeline! : this.mainPipeline!;
-    scenePass.setPipeline(pipeline);
+    // Set common bind groups
     scenePass.setBindGroup(0, this.cameraBindGroup!);
     scenePass.setBindGroup(2, this.lightBindGroup!);
 
-    for (const group of this.materialGroups) {
+    // Separate groups by render mode
+    const opaqueGroups = this.materialGroups.filter(g => g.renderMode === 'opaque');
+    const cutoutGroups = this.materialGroups.filter(g => g.renderMode === 'alpha-cutout');
+    const blendGroups = this.materialGroups.filter(g => g.renderMode === 'alpha-blend');
+    const additiveGroups = this.materialGroups.filter(g => g.renderMode === 'additive');
+
+    // Sort transparent groups back-to-front by distance from camera
+    const sortByDistance = (groups: typeof this.materialGroups) => {
+      return groups.sort((a, b) => {
+        const distA = Math.sqrt(
+          (a.centroid[0] - camX) ** 2 +
+          (a.centroid[1] - camY) ** 2 +
+          (a.centroid[2] - camZ) ** 2
+        );
+        const distB = Math.sqrt(
+          (b.centroid[0] - camX) ** 2 +
+          (b.centroid[1] - camY) ** 2 +
+          (b.centroid[2] - camZ) ** 2
+        );
+        return distB - distA; // Back to front
+      });
+    };
+
+    const sortedBlend = sortByDistance([...blendGroups]);
+    const sortedAdditive = sortByDistance([...additiveGroups]);
+
+    // Helper to draw a group
+    const drawGroup = (group: typeof this.materialGroups[0]) => {
       scenePass.setBindGroup(1, group.bindGroup);
       scenePass.setVertexBuffer(0, group.vertexBuffer);
       scenePass.setIndexBuffer(group.indexBuffer, group.indexFormat);
       scenePass.drawIndexed(group.indexCount);
+    };
+
+    // 1. Render opaque materials first (depth write enabled)
+    const opaquePipeline = this.wireframeEnabled ? this.wireframePipeline! : this.mainPipeline!;
+    scenePass.setPipeline(opaquePipeline);
+    for (const group of opaqueGroups) {
+      drawGroup(group);
     }
+
+    // 2. Render alpha-cutout materials (depth write enabled, discard in shader)
+    const cutoutPipeline = this.wireframeEnabled ? this.wireframePipeline! : this.alphaCutoutPipeline!;
+    scenePass.setPipeline(cutoutPipeline);
+    for (const group of cutoutGroups) {
+      drawGroup(group);
+    }
+
+    // 3. Render alpha-blend materials (sorted back-to-front, depth write disabled)
+    scenePass.setPipeline(this.alphaBlendPipeline!);
+    for (const group of sortedBlend) {
+      drawGroup(group);
+    }
+
+    // 4. Render additive materials (sorted back-to-front, additive blending)
+    scenePass.setPipeline(this.additivePipeline!);
+    for (const group of sortedAdditive) {
+      drawGroup(group);
+    }
+
     scenePass.end();
 
     // Pass 2: Bloom extract
