@@ -286,6 +286,7 @@ export class ModelViewer {
 
     // Clean up previous model resources
     this.disposeModelResources();
+    this.clearMessages();
 
     let modelData: ModelData | null = null;
     let simpleGeometry: GeometryData | null = null;
@@ -352,6 +353,7 @@ export class ModelViewer {
             texture = await this.loadTexture(textureUrl, group.materialName);
           } catch (error) {
             console.warn(`Failed to load texture ${materialDef.texturePath}:`, error);
+            this.logMessage(`Failed: ${materialDef.texturePath}`);
             texture = this.checkerboardTexture; // Use checkerboard for failed textures
           }
         }
@@ -472,12 +474,46 @@ export class ModelViewer {
   private updateModelStats(): void {
     const vertexEl = document.getElementById('vertex-count');
     const triangleEl = document.getElementById('triangle-count');
+    const materialEl = document.getElementById('material-count');
 
     if (vertexEl) {
       vertexEl.textContent = this.modelVertexCount.toLocaleString();
     }
     if (triangleEl) {
       triangleEl.textContent = (this.modelIndexCount / 3).toLocaleString();
+    }
+    if (materialEl) {
+      materialEl.textContent = this.materialGroups.length.toString();
+    }
+  }
+
+  /**
+   * Log a message to the UI error console
+   */
+  private logMessage(message: string): void {
+    const consoleEl = document.getElementById('error-console');
+    const messagesEl = document.getElementById('error-messages');
+
+    if (consoleEl && messagesEl) {
+      consoleEl.style.display = 'block';
+      const msgDiv = document.createElement('div');
+      msgDiv.textContent = message;
+      messagesEl.appendChild(msgDiv);
+      // Auto-scroll to bottom
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  }
+
+  /**
+   * Clear the UI error console
+   */
+  private clearMessages(): void {
+    const consoleEl = document.getElementById('error-console');
+    const messagesEl = document.getElementById('error-messages');
+
+    if (consoleEl && messagesEl) {
+      messagesEl.innerHTML = '';
+      consoleEl.style.display = 'none';
     }
   }
 
@@ -1183,12 +1219,14 @@ export class ModelViewer {
             // Skip unsupported texture formats
             if (ext === 'dds' || ext === 'tga') {
               console.warn(`Unsupported texture format: ${materialDef.texturePath}`);
+              this.logMessage(`Unsupported: ${textureFileName} (${ext})`);
               texture = this.checkerboardTexture; // Use checkerboard for unsupported formats
             } else {
               try {
                 texture = await this.loadTextureFromFile(texturePath, `${groupIndex - 1}-${group.materialName}`);
               } catch (error) {
                 console.warn(`Failed to load texture ${textureFileName}:`, error);
+                this.logMessage(`Failed: ${textureFileName}`);
                 texture = this.checkerboardTexture; // Use checkerboard for failed textures
               }
             }

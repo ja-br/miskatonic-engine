@@ -163,6 +163,7 @@
         <div>FPS: <span id="fps-counter">0</span></div>
         <div>Vertices: <span id="vertex-count">0</span></div>
         <div>Triangles: <span id="triangle-count">0</span></div>
+        <div>Materials: <span id="material-count">0</span></div>
         <div>Textures: <span id="texture-count">0</span></div>
         <div>VRAM: <span id="vram-usage">0.0 MB</span></div>
         <div style="margin-top: 8px; border-top: 1px solid #333; padding-top: 8px;">
@@ -170,6 +171,10 @@
           <div>Azimuth: <span id="camera-azimuth">0°</span></div>
           <div>Elevation: <span id="camera-elevation">0°</span></div>
           <div>Target: <span id="camera-target">0, 0, 0</span></div>
+        </div>
+        <div id="error-console" style="margin-top: 8px; border-top: 1px solid #333; padding-top: 8px; max-height: 100px; overflow-y: auto; display: none;">
+          <div style="font-weight: bold; color: #f80; margin-bottom: 4px;">Messages</div>
+          <div id="error-messages" style="font-size: 10px; color: #f80;"></div>
         </div>
       </div>
       <div id="info">
