@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Model Viewer</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+          Arial, sans-serif;
+        background: #000000;
+        color: #ffffff;
+        overflow: hidden;
+      }
+
+      #app {
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+      }
+
+      #canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        font-size: 18px;
+        color: #888;
+      }
+
+      #loading.hidden {
+        display: none;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #333;
+        border-top: 3px solid #5865f2;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 16px;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      #stats {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      #info {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      #controls {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 14px;
+        max-width: 280px;
+        width: 280px;
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+      }
+
+      .control-group {
+        margin-bottom: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .control-group:last-child {
+        margin-bottom: 0;
+      }
+
+      .slider-container {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      input[type="range"] {
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background: #333;
+        outline: none;
+        -webkit-appearance: none;
+      }
+
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #5865f2;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+
+      input[type="range"]::-webkit-slider-thumb:hover {
+        background: #4752c4;
+      }
+
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #5865f2;
+        cursor: pointer;
+        border: none;
+        transition: background 0.2s;
+      }
+
+      input[type="range"]::-moz-range-thumb:hover {
+        background: #4752c4;
+      }
+
+      .slider-label {
+        color: #888;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+
+      select {
+        background: #333;
+        color: #fff;
+        border: 1px solid #555;
+        padding: 8px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 14px;
+        cursor: pointer;
+        width: 100%;
+        text-overflow: ellipsis;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      select:hover {
+        border-color: #5865f2;
+      }
+
+      #error-message {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        color: #ff4444;
+        font-size: 16px;
+        max-width: 80%;
+      }
+
+      #error-message.hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="canvas"></canvas>
+
+      <div id="loading">
+        <div class="spinner"></div>
+        <div>Initializing Discord Activity...</div>
+      </div>
+
+      <div id="error-message" class="hidden"></div>
+
+      <div id="stats">
+        <div style="font-weight: bold; margin-bottom: 8px; color: #5865f2;">Discord Model Viewer</div>
+        <div>FPS: <span id="fps-counter">0</span></div>
+        <div>Vertices: <span id="vertex-count">0</span></div>
+        <div>Triangles: <span id="triangle-count">0</span></div>
+        <div>Materials: <span id="material-count">0</span></div>
+        <div style="margin-top: 8px; border-top: 1px solid #333; padding-top: 8px;">
+          <div>Distance: <span id="camera-distance">0.0</span></div>
+          <div>Azimuth: <span id="camera-azimuth">0°</span></div>
+          <div>Elevation: <span id="camera-elevation">0°</span></div>
+        </div>
+      </div>
+
+      <div id="info">
+        Discord Model Viewer<br>
+        Left drag: Rotate, Right drag: Pan, Scroll: Zoom<br>
+        Q/E: Raise/Lower view, R: Reset camera
+      </div>
+
+      <div id="controls">
+        <div class="control-group">
+          <div class="slider-label">Model</div>
+          <select id="model-select">
+            <option value="naked-snake">Naked Snake</option>
+            <option value="tallgeese">Tallgeese III</option>
+            <option value="kid-goku">Kid Goku</option>
+            <option value="hatsune-miku">Hatsune Miku</option>
+            <option value="patriot">Patriot</option>
+            <option value="sphere">Generated Sphere</option>
+            <option value="cube">Generated Cube</option>
+          </select>
+        </div>
+
+        <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="wireframe-toggle" style="width: 16px; height: 16px; cursor: pointer;">
+            <span style="font-weight: bold; color: #faa61a;">Wireframe</span>
+          </label>
+        </div>
+
+        <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+          <div class="slider-label">Light Azimuth: <span id="light-azimuth-value">45°</span></div>
+          <div class="slider-container">
+            <input type="range" id="light-azimuth-slider" min="0" max="360" value="45" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Light Elevation: <span id="light-elevation-value">45°</span></div>
+          <div class="slider-container">
+            <input type="range" id="light-elevation-slider" min="0" max="90" value="45" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Light Intensity: <span id="light-intensity-value">1.2</span></div>
+          <div class="slider-container">
+            <input type="range" id="light-intensity-slider" min="0" max="300" value="120" step="10">
+          </div>
+        </div>
+
+        <div class="control-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+          <div class="slider-label">Bloom Threshold: <span id="bloom-threshold-value">0.80</span></div>
+          <div class="slider-container">
+            <input type="range" id="bloom-threshold-slider" min="0" max="100" value="80" step="1">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Bloom Intensity: <span id="bloom-intensity-value">0.50</span></div>
+          <div class="slider-container">
+            <input type="range" id="bloom-intensity-slider" min="0" max="200" value="50" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Grain Amount: <span id="grain-amount-value">0.020</span></div>
+          <div class="slider-container">
+            <input type="range" id="grain-amount-slider" min="0" max="100" value="20" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">Gamma: <span id="gamma-value">2.2</span></div>
+          <div class="slider-container">
+            <input type="range" id="gamma-slider" min="10" max="30" value="22" step="1">
+          </div>
+        </div>
+
+        <div class="control-group" style="border-top: 1px solid #333; padding-top: 10px; margin-top: 10px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="crt-enabled-toggle" checked style="width: 16px; height: 16px; cursor: pointer;">
+            <span style="font-weight: bold; color: #5865f2;">CRT Effect</span>
+          </label>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Color Overflow: <span id="color-overflow-value">0.30</span></div>
+          <div class="slider-container">
+            <input type="range" id="color-overflow-slider" min="0" max="300" value="30" step="10">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Scanlines: <span id="scanlines-value">0.50</span></div>
+          <div class="slider-container">
+            <input type="range" id="scanlines-slider" min="0" max="100" value="50" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Mask Intensity: <span id="mask-intensity-value">0.30</span></div>
+          <div class="slider-container">
+            <input type="range" id="mask-intensity-slider" min="0" max="100" value="30" step="5">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Curvature: <span id="curvature-value">0.03</span></div>
+          <div class="slider-container">
+            <input type="range" id="curvature-slider" min="0" max="20" value="3" step="1">
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="slider-label">CRT Vignette: <span id="vignette-value">0.20</span></div>
+          <div class="slider-container">
+            <input type="range" id="vignette-slider" min="0" max="100" value="20" step="5">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
