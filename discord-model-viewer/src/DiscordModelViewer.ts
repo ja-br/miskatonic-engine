@@ -127,6 +127,7 @@ export class DiscordModelViewer {
   private time = 0;
   private bloomThreshold = 0.8;
   private bloomIntensity = 0.3;
+  private bloomMipLevels = 5;
 
   // CRT state
   private crtEnabled = true;
@@ -1207,16 +1208,22 @@ export class DiscordModelViewer {
       pass.end();
     };
 
-    // Downsample: Extract → Mip0
-    executeDownsample(this.bloomExtractTexture!, this.bloomMip0Texture!, this.bloomWidth, this.bloomHeight);
-    // Downsample: Mip0 → Mip1
-    executeDownsample(this.bloomMip0Texture!, this.bloomMip1Texture!, this.mip0Width, this.mip0Height);
-    // Downsample: Mip1 → Mip2
-    executeDownsample(this.bloomMip1Texture!, this.bloomMip2Texture!, this.mip1Width, this.mip1Height);
-    // Downsample: Mip2 → Mip3
-    executeDownsample(this.bloomMip2Texture!, this.bloomMip3Texture!, this.mip2Width, this.mip2Height);
-    // Downsample: Mip3 → Mip4
-    executeDownsample(this.bloomMip3Texture!, this.bloomMip4Texture!, this.mip3Width, this.mip3Height);
+    // Downsample chain with mip level control
+    if (this.bloomMipLevels >= 1) {
+      executeDownsample(this.bloomExtractTexture!, this.bloomMip0Texture!, this.bloomWidth, this.bloomHeight);
+    }
+    if (this.bloomMipLevels >= 2) {
+      executeDownsample(this.bloomMip0Texture!, this.bloomMip1Texture!, this.mip0Width, this.mip0Height);
+    }
+    if (this.bloomMipLevels >= 3) {
+      executeDownsample(this.bloomMip1Texture!, this.bloomMip2Texture!, this.mip1Width, this.mip1Height);
+    }
+    if (this.bloomMipLevels >= 4) {
+      executeDownsample(this.bloomMip2Texture!, this.bloomMip3Texture!, this.mip2Width, this.mip2Height);
+    }
+    if (this.bloomMipLevels >= 5) {
+      executeDownsample(this.bloomMip3Texture!, this.bloomMip4Texture!, this.mip3Width, this.mip3Height);
+    }
 
     // =====================
     // UPSAMPLE CHAIN (5 levels with additive blending)
@@ -1263,16 +1270,22 @@ export class DiscordModelViewer {
       pass.end();
     };
 
-    // Upsample: Mip4 → Mip3 (blend factor controls contribution)
-    executeUpsample(this.bloomMip4Texture!, this.bloomMip3Texture!, this.mip4Width, this.mip4Height, 0.3);
-    // Upsample: Mip3 → Mip2
-    executeUpsample(this.bloomMip3Texture!, this.bloomMip2Texture!, this.mip3Width, this.mip3Height, 0.4);
-    // Upsample: Mip2 → Mip1
-    executeUpsample(this.bloomMip2Texture!, this.bloomMip1Texture!, this.mip2Width, this.mip2Height, 0.5);
-    // Upsample: Mip1 → Mip0
-    executeUpsample(this.bloomMip1Texture!, this.bloomMip0Texture!, this.mip1Width, this.mip1Height, 0.6);
-    // Upsample: Mip0 → Extract
-    executeUpsample(this.bloomMip0Texture!, this.bloomExtractTexture!, this.mip0Width, this.mip0Height, 0.7);
+    // Upsample chain with mip level control and CORRECT blend factors from reference
+    if (this.bloomMipLevels >= 5) {
+      executeUpsample(this.bloomMip4Texture!, this.bloomMip3Texture!, this.mip4Width, this.mip4Height, 0.3);
+    }
+    if (this.bloomMipLevels >= 4) {
+      executeUpsample(this.bloomMip3Texture!, this.bloomMip2Texture!, this.mip3Width, this.mip3Height, 0.5);
+    }
+    if (this.bloomMipLevels >= 3) {
+      executeUpsample(this.bloomMip2Texture!, this.bloomMip1Texture!, this.mip2Width, this.mip2Height, 0.6);
+    }
+    if (this.bloomMipLevels >= 2) {
+      executeUpsample(this.bloomMip1Texture!, this.bloomMip0Texture!, this.mip1Width, this.mip1Height, 0.8);
+    }
+    if (this.bloomMipLevels >= 1) {
+      executeUpsample(this.bloomMip0Texture!, this.bloomExtractTexture!, this.mip0Width, this.mip0Height, 1.0);
+    }
 
     // =====================
     // COMPOSITE PASS (4 bind groups: scene, bloom, LUT, params)
@@ -1470,6 +1483,7 @@ export class DiscordModelViewer {
     return {
       setBloomThreshold: (v: number) => { this.bloomThreshold = v; },
       setBloomIntensity: (v: number) => { this.bloomIntensity = v; },
+      setBloomMipLevels: (v: number) => { this.bloomMipLevels = Math.max(1, Math.min(5, Math.floor(v))); },
       setGrainAmount: (v: number) => { this.grainAmount = v; },
       setGamma: (v: number) => { this.gamma = v; },
       setCRTEnabled: (v: boolean) => { this.crtEnabled = v; },
