@@ -120,6 +120,10 @@ export class DiscordModelViewer {
   private targetY = 8;
   private targetZ = 0;
 
+  // Model-specific defaults for camera reset
+  private defaultCameraDistance = 30;
+  private defaultTargetY = 8;
+
   // Animation
   private animationId: number | null = null;
   private lastFrameTime = 0;
@@ -639,7 +643,8 @@ export class DiscordModelViewer {
         targets: [{
           format: this.format,
           blend: {
-            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            // Premultiplied alpha blend - textures have RGB * A stored
+            color: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
             alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
           },
         }],
@@ -647,7 +652,7 @@ export class DiscordModelViewer {
       primitive: { topology: 'triangle-list', cullMode: 'back' },
       depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     });
-    console.log('Alpha-blend pipeline created successfully');
+    console.log('Alpha-blend pipeline created successfully (premultiplied)');
 
     // Additive pipeline (for FX effects like glows) - uses no-discard shader
     this.additivePipeline = this.device.createRenderPipeline({
@@ -874,7 +879,6 @@ export class DiscordModelViewer {
             'tallgeese': '/models/Tallgeese III/Tallgeese_III.obj',
             'kid-goku': '/models/Kid Goku/Kid_Goku_Budokai_3.obj',
             'hatsune-miku': '/models/Hatsune Miku/Hatsune_Miku.obj',
-            'patriot': '/models/patriot/Patriot.obj',
           };
           path = modelPaths[modelName] || modelPaths['naked-snake'];
         }
@@ -891,6 +895,10 @@ export class DiscordModelViewer {
       let totalVertices = 0;
       let totalTriangles = 0;
 
+      // Calculate bounding box for camera positioning
+      let minY = Infinity;
+      let maxY = -Infinity;
+
       for (const group of modelData.materialGroups) {
         const geo = group.geometry;
         const vertexCount = geo.positions.length / 3;
@@ -898,6 +906,13 @@ export class DiscordModelViewer {
 
         totalVertices += vertexCount;
         totalTriangles += indexCount / 3;
+
+        // Update bounding box from vertex positions
+        for (let i = 1; i < geo.positions.length; i += 3) {
+          const y = geo.positions[i];
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
 
         // Interleave vertex data
         const vertexData = this.interleaveVertexData(geo);
@@ -925,11 +940,14 @@ export class DiscordModelViewer {
 
         // Load texture
         let texture = this.defaultTexture!;
+        let textureHasAlpha = false;
         const materialDef = modelData.materials.get(group.materialName);
         if (materialDef?.texturePath) {
           try {
             const texturePath = basePath + materialDef.texturePath;
-            texture = await this.loadTexture(texturePath);
+            const result = await this.loadTexture(texturePath);
+            texture = result.texture;
+            textureHasAlpha = result.hasAlpha;
           } catch (e) {
             console.warn('Failed to load texture:', e);
           }
@@ -978,9 +996,9 @@ export class DiscordModelViewer {
         else if (materialDef?.alphaMap) {
           renderMode = 'alpha-blend';
         }
-        // Check for PNG texture (may have alpha channel) - use alpha-cutout for depth writing
-        else if (textureName.endsWith('.png')) {
-          renderMode = 'alpha-cutout';
+        // Check for actual transparency in texture (detected at load time)
+        else if (textureHasAlpha) {
+          renderMode = 'alpha-blend';
         }
 
         this.materialGroups.push({
@@ -998,6 +1016,17 @@ export class DiscordModelViewer {
 
       this.modelVertexCount = totalVertices;
       this.modelIndexCount = totalTriangles * 3;
+
+      // Set camera target to model's vertical center
+      if (minY !== Infinity && maxY !== -Infinity) {
+        this.targetY = (minY + maxY) / 2;
+        // Adjust camera distance based on model height
+        const modelHeight = maxY - minY;
+        this.cameraDistance = Math.max(20, modelHeight * 2);
+        // Store as defaults for camera reset
+        this.defaultTargetY = this.targetY;
+        this.defaultCameraDistance = this.cameraDistance;
+      }
     } else if (geometry) {
       // Simple geometry
       const vertexData = this.interleaveVertexData(geometry);
@@ -1059,16 +1088,31 @@ export class DiscordModelViewer {
 
       this.modelVertexCount = geometry.positions.length / 3;
       this.modelIndexCount = geometry.indices.length;
+
+      // Calculate bounding box for simple geometry
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = 1; i < geometry.positions.length; i += 3) {
+        const y = geometry.positions[i];
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      if (minY !== Infinity && maxY !== -Infinity) {
+        this.targetY = (minY + maxY) / 2;
+        const modelHeight = maxY - minY;
+        this.cameraDistance = Math.max(10, modelHeight * 2.5);
+        // Store as defaults for camera reset
+        this.defaultTargetY = this.targetY;
+        this.defaultCameraDistance = this.cameraDistance;
+      }
     }
 
     // Update stats display
     this.updateStats();
 
-    // Reset camera
-    this.cameraDistance = 30;
+    // Reset camera angles (distance and targetY are set based on model bounds)
     this.cameraAzimuth = Math.PI / 4;
     this.cameraElevation = Math.PI / 6;
-    this.targetY = 8;
   }
 
   private getBasePath(modelName: string): string {
@@ -1086,7 +1130,6 @@ export class DiscordModelViewer {
       'tallgeese': '/models/Tallgeese III/',
       'kid-goku': '/models/Kid Goku/',
       'hatsune-miku': '/models/Hatsune Miku/',
-      'patriot': '/models/patriot/',
     };
     return paths[modelName] || paths['naked-snake'];
   }
@@ -1118,8 +1161,39 @@ export class DiscordModelViewer {
     return interleaved;
   }
 
-  private async loadTexture(url: string): Promise<GPUTexture> {
+  // Convert non-premultiplied alpha to premultiplied alpha
+  // This fixes black fringes at transparent edges caused by linear filtering
+  private premultiplyAlpha(data: Uint8ClampedArray): Uint8Array {
+    const result = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      result[i]     = Math.round(data[i]     * alpha); // R
+      result[i + 1] = Math.round(data[i + 1] * alpha); // G
+      result[i + 2] = Math.round(data[i + 2] * alpha); // B
+      result[i + 3] = data[i + 3];                     // A unchanged
+    }
+    return result;
+  }
+
+  // Check if texture data contains significant transparency (> 1% of pixels)
+  private hasTransparency(data: Uint8ClampedArray | Uint8Array): boolean {
+    let transparentCount = 0;
+    const totalPixels = data.length / 4;
+
+    for (let i = 3; i < data.length; i += 4) {
+      if (data[i] < 255) transparentCount++;
+    }
+
+    // Only consider it transparent if > 1% of pixels have alpha < 255
+    // This filters out textures with just a few transparent edge artifacts
+    return (transparentCount / totalPixels) > 0.01;
+  }
+
+  private async loadTexture(url: string): Promise<{ texture: GPUTexture; hasAlpha: boolean }> {
     if (!this.device) throw new Error('Device not initialized');
+
+    // Determine if this texture needs premultiplied alpha
+    const isPNG = url.toLowerCase().endsWith('.png');
 
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -1142,6 +1216,14 @@ export class DiscordModelViewer {
         ctx.drawImage(img, 0, 0, width, height);
         const imageData = ctx.getImageData(0, 0, width, height);
 
+        // Check for actual transparency before premultiplying
+        const hasAlpha = isPNG && this.hasTransparency(imageData.data);
+
+        // Premultiply alpha for PNG textures to fix black fringes
+        const textureData = isPNG
+          ? this.premultiplyAlpha(imageData.data)
+          : imageData.data;
+
         const texture = this.device!.createTexture({
           size: [width, height],
           format: 'rgba8unorm',
@@ -1150,12 +1232,12 @@ export class DiscordModelViewer {
 
         this.device!.queue.writeTexture(
           { texture },
-          imageData.data,
+          textureData,
           { bytesPerRow: width * 4 },
           [width, height]
         );
 
-        resolve(texture);
+        resolve({ texture, hasAlpha });
       };
       img.onerror = () => reject(new Error(`Failed to load: ${url}`));
       img.src = url;
@@ -1279,11 +1361,12 @@ export class DiscordModelViewer {
 
     this.keydownHandler = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
-        this.cameraDistance = 30;
+        // Reset to model-specific defaults
+        this.cameraDistance = this.defaultCameraDistance;
         this.cameraAzimuth = Math.PI / 4;
         this.cameraElevation = Math.PI / 6;
         this.targetX = 0;
-        this.targetY = 8;
+        this.targetY = this.defaultTargetY;
         this.targetZ = 0;
       } else if (e.key === 'q' || e.key === 'Q') {
         this.targetY += 0.5;
