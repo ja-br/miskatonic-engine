@@ -537,10 +537,16 @@ export class DiscordModelViewer {
       fragment: {
         module: mainShaderModule,
         entryPoint: 'fs_main',
-        targets: [{ format: this.format }],
+        targets: [{
+          format: this.format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          },
+        }],
       },
-      primitive: { topology: 'triangle-list', cullMode: 'back' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     });
     console.log('Main pipeline created successfully');
 
@@ -563,10 +569,16 @@ export class DiscordModelViewer {
       fragment: {
         module: mainShaderModule,
         entryPoint: 'fs_main',
-        targets: [{ format: this.format }],
+        targets: [{
+          format: this.format,
+          blend: {
+            color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+            alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          },
+        }],
       },
       primitive: { topology: 'line-list', cullMode: 'none' },
-      depthStencil: { format: 'depth24plus', depthWriteEnabled: true, depthCompare: 'less' },
+      depthStencil: { format: 'depth24plus', depthWriteEnabled: false, depthCompare: 'less' },
     });
     console.log('Wireframe pipeline created successfully');
 
