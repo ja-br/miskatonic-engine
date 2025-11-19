@@ -176,6 +176,19 @@ function setupControls(): void {
     });
   }
 
+  // Bloom mip levels slider
+  const bloomMipLevelsSlider = document.getElementById('bloom-mip-levels-slider') as HTMLInputElement;
+  const bloomMipLevelsValue = document.getElementById('bloom-mip-levels-value');
+  if (bloomMipLevelsSlider) {
+    bloomMipLevelsSlider.addEventListener('input', () => {
+      const value = parseInt(bloomMipLevelsSlider.value, 10);
+      viewer!.retroPostProcessor.setBloomMipLevels(value);
+      if (bloomMipLevelsValue) {
+        bloomMipLevelsValue.textContent = value.toString();
+      }
+    });
+  }
+
   const grainAmountSlider = document.getElementById('grain-amount-slider') as HTMLInputElement;
   const grainAmountValue = document.getElementById('grain-amount-value');
   if (grainAmountSlider) {

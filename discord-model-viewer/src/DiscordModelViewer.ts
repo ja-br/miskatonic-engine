@@ -720,15 +720,21 @@ export class DiscordModelViewer {
       } else if (modelName === 'cube') {
         geometry = createCube(3);
       } else {
-        // Map model names to paths
-        const modelPaths: Record<string, string> = {
-          'naked-snake': '/models/Naked Snake/Naked_Snake.obj',
-          'tallgeese': '/models/Tallgeese III/Tallgeese_III.obj',
-          'kid-goku': '/models/Kid Goku/Kid_Goku_Budokai_3.obj',
-          'hatsune-miku': '/models/Hatsune Miku/Hatsune_Miku.obj',
-          'patriot': '/models/patriot/Patriot.obj',
-        };
-        const path = modelPaths[modelName] || modelPaths['naked-snake'];
+        // Accept either full paths (/models/...) or short names
+        let path: string;
+        if (modelName.startsWith('/models/') || modelName.endsWith('.obj')) {
+          path = modelName;
+        } else {
+          // Legacy short name support
+          const modelPaths: Record<string, string> = {
+            'naked-snake': '/models/Naked Snake/Naked_Snake.obj',
+            'tallgeese': '/models/Tallgeese III/Tallgeese_III.obj',
+            'kid-goku': '/models/Kid Goku/Kid_Goku_Budokai_3.obj',
+            'hatsune-miku': '/models/Hatsune Miku/Hatsune_Miku.obj',
+            'patriot': '/models/patriot/Patriot.obj',
+          };
+          path = modelPaths[modelName] || modelPaths['naked-snake'];
+        }
         modelData = await loadOBJWithMaterials(path);
       }
     } catch (error) {
@@ -865,12 +871,21 @@ export class DiscordModelViewer {
   }
 
   private getBasePath(modelName: string): string {
+    // If it's a full path, extract the directory
+    if (modelName.startsWith('/models/') || modelName.endsWith('.obj')) {
+      const lastSlash = modelName.lastIndexOf('/');
+      if (lastSlash > 0) {
+        return modelName.substring(0, lastSlash + 1);
+      }
+    }
+
+    // Legacy short name support
     const paths: Record<string, string> = {
       'naked-snake': '/models/Naked Snake/',
       'tallgeese': '/models/Tallgeese III/',
       'kid-goku': '/models/Kid Goku/',
       'hatsune-miku': '/models/Hatsune Miku/',
-      'patriot': '/models/Patriot/',
+      'patriot': '/models/patriot/',
     };
     return paths[modelName] || paths['naked-snake'];
   }
@@ -986,10 +1001,31 @@ export class DiscordModelViewer {
     const vertexEl = document.getElementById('vertex-count');
     const triangleEl = document.getElementById('triangle-count');
     const materialEl = document.getElementById('material-count');
+    const textureEl = document.getElementById('texture-count');
+    const vramEl = document.getElementById('vram-usage');
 
     if (vertexEl) vertexEl.textContent = this.modelVertexCount.toLocaleString();
     if (triangleEl) triangleEl.textContent = (this.modelIndexCount / 3).toLocaleString();
     if (materialEl) materialEl.textContent = this.materialGroups.length.toString();
+
+    // Count unique textures (excluding default)
+    let textureCount = 0;
+    for (const group of this.materialGroups) {
+      if (group.texture !== this.defaultTexture) {
+        textureCount++;
+      }
+    }
+    if (textureEl) textureEl.textContent = textureCount.toString();
+
+    // Estimate VRAM usage (rough estimate)
+    // Vertex data: 48 bytes per vertex (12 floats)
+    // Index data: 2 bytes per index
+    // Textures: approximate at 4MB each
+    const vertexBytes = this.modelVertexCount * 48;
+    const indexBytes = this.modelIndexCount * 2;
+    const textureBytes = textureCount * 4 * 1024 * 1024; // 4MB per texture estimate
+    const totalMB = (vertexBytes + indexBytes + textureBytes) / (1024 * 1024);
+    if (vramEl) vramEl.textContent = `${totalMB.toFixed(2)} MB`;
   }
 
   private setupControls(): void {
@@ -1413,9 +1449,11 @@ export class DiscordModelViewer {
       const distEl = document.getElementById('camera-distance');
       const azEl = document.getElementById('camera-azimuth');
       const elevEl = document.getElementById('camera-elevation');
+      const targetEl = document.getElementById('camera-target');
       if (distEl) distEl.textContent = this.cameraDistance.toFixed(1);
       if (azEl) azEl.textContent = `${((this.cameraAzimuth * 180 / Math.PI) % 360).toFixed(0)}°`;
       if (elevEl) elevEl.textContent = `${(this.cameraElevation * 180 / Math.PI).toFixed(0)}°`;
+      if (targetEl) targetEl.textContent = `${this.targetX.toFixed(1)}, ${this.targetY.toFixed(1)}, ${this.targetZ.toFixed(1)}`;
 
       this.frameCount = 0;
       this.lastFpsUpdate = now;
