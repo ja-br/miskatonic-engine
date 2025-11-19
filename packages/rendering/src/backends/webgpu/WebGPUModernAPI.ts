@@ -109,6 +109,19 @@ export class WebGPUModernAPI {
         };
       }
 
+      // Check for BackendSampler
+      if ('__brand' in res && res.__brand === 'BackendSampler') {
+        const samplerHandle = res as { __brand: 'BackendSampler'; id: string };
+        const sampler = this.getSampler(samplerHandle.id);
+        if (!sampler) {
+          throw new Error(`Sampler ${samplerHandle.id} not found`);
+        }
+        return {
+          binding: binding.binding,
+          resource: sampler,
+        };
+      }
+
       // Check for combined texture + sampler binding (legacy)
       if (res?.texture) {
         const textureBinding = res as { texture: BackendTextureHandle; sampler?: any };

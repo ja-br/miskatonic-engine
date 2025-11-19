@@ -18,8 +18,9 @@ import type {
 import type { RetroPostConfig, CRTYahConfig } from './RetroPostConfig.js';
 import { packCRTParams } from './RetroPostConfig.js';
 
-// Re-export config types for external use
+// Re-export config types and defaults for external use
 export type { MaskType, CRTYahConfig, RetroPostConfig } from './RetroPostConfig.js';
+export { DEFAULT_RETRO_POST_CONFIG, DEFAULT_CRT_CONFIG, packCRTParams } from './RetroPostConfig.js';
 
 // Import shaders (Vite ?raw syntax)
 import bloomExtractWGSL from './shaders/bloom-extract.wgsl?raw';
@@ -69,6 +70,20 @@ export class RetroPostProcessor {
   private displayWidth: number = 0;    // Display resolution width
   private displayHeight: number = 0;   // Display resolution height
   private time: number = 0;
+
+  // Mip pyramid dimensions (computed in resize())
+  private bloomWidth: number = 0;
+  private bloomHeight: number = 0;
+  private mip0Width: number = 0;
+  private mip0Height: number = 0;
+  private mip1Width: number = 0;
+  private mip1Height: number = 0;
+  private mip2Width: number = 0;
+  private mip2Height: number = 0;
+  private mip3Width: number = 0;
+  private mip3Height: number = 0;
+  private mip4Width: number = 0;
+  private mip4Height: number = 0;
 
   // Shaders
   private bloomExtractShader: BackendShaderHandle | null = null;
@@ -203,41 +218,41 @@ export class RetroPostProcessor {
 
     // 2. Create bloom textures at quarter of INTERNAL resolution for performance
     // Use Math.max(64, ...) to prevent tiny textures
-    const bloomWidth = Math.max(64, Math.floor(this.width / 4));
-    const bloomHeight = Math.max(64, Math.floor(this.height / 4));
+    this.bloomWidth = Math.max(64, Math.floor(this.width / 4));
+    this.bloomHeight = Math.max(64, Math.floor(this.height / 4));
 
-    console.log(`[RetroPostProcessor] Creating bloom textures: ${bloomWidth}x${bloomHeight}`);
+    console.log(`[RetroPostProcessor] Creating bloom textures: ${this.bloomWidth}x${this.bloomHeight}`);
 
     // Bloom extract texture - bright pixels extracted
     this.bloomExtractTexture = this.backend.createTexture(
       'retro-post-bloom-extract',
-      bloomWidth,
-      bloomHeight,
+      this.bloomWidth,
+      this.bloomHeight,
       null,
       { format: 'rgba' }
     );
 
     // Mip pyramid for bloom (5-level: mip0 through mip4)
-    const mip0Width = Math.max(32, Math.floor(bloomWidth / 2));
-    const mip0Height = Math.max(32, Math.floor(bloomHeight / 2));
-    const mip1Width = Math.max(16, Math.floor(mip0Width / 2));
-    const mip1Height = Math.max(16, Math.floor(mip0Height / 2));
-    const mip2Width = Math.max(8, Math.floor(mip1Width / 2));
-    const mip2Height = Math.max(8, Math.floor(mip1Height / 2));
-    const mip3Width = Math.max(4, Math.floor(mip2Width / 2));
-    const mip3Height = Math.max(4, Math.floor(mip2Height / 2));
-    const mip4Width = Math.max(2, Math.floor(mip3Width / 2));
-    const mip4Height = Math.max(2, Math.floor(mip3Height / 2));
+    this.mip0Width = Math.max(32, Math.floor(this.bloomWidth / 2));
+    this.mip0Height = Math.max(32, Math.floor(this.bloomHeight / 2));
+    this.mip1Width = Math.max(16, Math.floor(this.mip0Width / 2));
+    this.mip1Height = Math.max(16, Math.floor(this.mip0Height / 2));
+    this.mip2Width = Math.max(8, Math.floor(this.mip1Width / 2));
+    this.mip2Height = Math.max(8, Math.floor(this.mip1Height / 2));
+    this.mip3Width = Math.max(4, Math.floor(this.mip2Width / 2));
+    this.mip3Height = Math.max(4, Math.floor(this.mip2Height / 2));
+    this.mip4Width = Math.max(2, Math.floor(this.mip3Width / 2));
+    this.mip4Height = Math.max(2, Math.floor(this.mip3Height / 2));
 
     console.log(`[RetroPostProcessor] Creating 5-level mip pyramid:`);
-    console.log(`  mip0=${mip0Width}x${mip0Height}, mip1=${mip1Width}x${mip1Height}`);
-    console.log(`  mip2=${mip2Width}x${mip2Height}, mip3=${mip3Width}x${mip3Height}, mip4=${mip4Width}x${mip4Height}`);
+    console.log(`  mip0=${this.mip0Width}x${this.mip0Height}, mip1=${this.mip1Width}x${this.mip1Height}`);
+    console.log(`  mip2=${this.mip2Width}x${this.mip2Height}, mip3=${this.mip3Width}x${this.mip3Height}, mip4=${this.mip4Width}x${this.mip4Height}`);
 
     // Mip0 texture (half of extract)
     this.bloomMip0Texture = this.backend.createTexture(
       'retro-post-bloom-mip0',
-      mip0Width,
-      mip0Height,
+      this.mip0Width,
+      this.mip0Height,
       null,
       { format: 'rgba' }
     );
@@ -245,8 +260,8 @@ export class RetroPostProcessor {
     // Mip1 texture (half of mip0)
     this.bloomMip1Texture = this.backend.createTexture(
       'retro-post-bloom-mip1',
-      mip1Width,
-      mip1Height,
+      this.mip1Width,
+      this.mip1Height,
       null,
       { format: 'rgba' }
     );
@@ -254,8 +269,8 @@ export class RetroPostProcessor {
     // Mip2 texture (half of mip1)
     this.bloomMip2Texture = this.backend.createTexture(
       'retro-post-bloom-mip2',
-      mip2Width,
-      mip2Height,
+      this.mip2Width,
+      this.mip2Height,
       null,
       { format: 'rgba' }
     );
@@ -263,8 +278,8 @@ export class RetroPostProcessor {
     // Mip3 texture (half of mip2)
     this.bloomMip3Texture = this.backend.createTexture(
       'retro-post-bloom-mip3',
-      mip3Width,
-      mip3Height,
+      this.mip3Width,
+      this.mip3Height,
       null,
       { format: 'rgba' }
     );
@@ -272,8 +287,8 @@ export class RetroPostProcessor {
     // Mip4 texture (half of mip3, smallest mip)
     this.bloomMip4Texture = this.backend.createTexture(
       'retro-post-bloom-mip4',
-      mip4Width,
-      mip4Height,
+      this.mip4Width,
+      this.mip4Height,
       null,
       { format: 'rgba' }
     );
@@ -1027,11 +1042,11 @@ export class RetroPostProcessor {
 
     // Define downsample chain: [sourceTexture, targetFramebuffer, sourceWidth, sourceHeight, minMipLevel]
     const downsampleChain: [BackendTextureHandle, BackendFramebufferHandle, number, number, number][] = [
-      [this.bloomExtractTexture, this.bloomMip0Framebuffer, 160, 120, 1],
-      [this.bloomMip0Texture, this.bloomMip1Framebuffer, 80, 60, 2],
-      [this.bloomMip1Texture, this.bloomMip2Framebuffer, 40, 30, 3],
-      [this.bloomMip2Texture, this.bloomMip3Framebuffer, 20, 15, 4],
-      [this.bloomMip3Texture, this.bloomMip4Framebuffer, 10, 8, 5],
+      [this.bloomExtractTexture, this.bloomMip0Framebuffer, this.bloomWidth, this.bloomHeight, 1],
+      [this.bloomMip0Texture, this.bloomMip1Framebuffer, this.mip0Width, this.mip0Height, 2],
+      [this.bloomMip1Texture, this.bloomMip2Framebuffer, this.mip1Width, this.mip1Height, 3],
+      [this.bloomMip2Texture, this.bloomMip3Framebuffer, this.mip2Width, this.mip2Height, 4],
+      [this.bloomMip3Texture, this.bloomMip4Framebuffer, this.mip3Width, this.mip3Height, 5],
     ];
 
     for (let i = 0; i < downsampleChain.length; i++) {
@@ -1072,11 +1087,11 @@ export class RetroPostProcessor {
 
     // Define upsample chain: [sourceTexture, targetFramebuffer, sourceWidth, sourceHeight, blendFactor, minMipLevel]
     const upsampleChain: [BackendTextureHandle, BackendFramebufferHandle, number, number, number, number][] = [
-      [this.bloomMip4Texture, this.bloomMip3Framebuffer, 5, 4, 0.3, 5],
-      [this.bloomMip3Texture, this.bloomMip2Framebuffer, 10, 8, 0.5, 4],
-      [this.bloomMip2Texture, this.bloomMip1Framebuffer, 20, 15, 0.6, 3],
-      [this.bloomMip1Texture, this.bloomMip0Framebuffer, 40, 30, 0.8, 2],
-      [this.bloomMip0Texture, this.bloomExtractFramebuffer, 80, 60, 1.0, 1],
+      [this.bloomMip4Texture, this.bloomMip3Framebuffer, this.mip4Width, this.mip4Height, 0.3, 5],
+      [this.bloomMip3Texture, this.bloomMip2Framebuffer, this.mip3Width, this.mip3Height, 0.5, 4],
+      [this.bloomMip2Texture, this.bloomMip1Framebuffer, this.mip2Width, this.mip2Height, 0.6, 3],
+      [this.bloomMip1Texture, this.bloomMip0Framebuffer, this.mip1Width, this.mip1Height, 0.8, 2],
+      [this.bloomMip0Texture, this.bloomExtractFramebuffer, this.mip0Width, this.mip0Height, 1.0, 1],
     ];
 
     for (let i = 0; i < upsampleChain.length; i++) {
