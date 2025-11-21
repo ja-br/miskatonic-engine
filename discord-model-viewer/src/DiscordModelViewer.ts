@@ -252,13 +252,91 @@ export class DiscordModelViewer {
   }
 
   private showError(message: string): void {
-    const errorEl = document.getElementById('error-message');
-    if (errorEl) {
-      errorEl.textContent = message;
-      errorEl.classList.remove('hidden');
-    }
+    console.error(message);
+
+    // Hide loading if present
     const loadingEl = document.getElementById('loading');
     if (loadingEl) loadingEl.classList.add('hidden');
+
+    // Create error overlay
+    const errorDiv = document.createElement('div');
+    errorDiv.id = 'webgpu-error-overlay';
+    errorDiv.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(20, 20, 20, 0.95);
+      color: #ff4444;
+      padding: 30px 40px;
+      border-radius: 8px;
+      border: 2px solid #ff4444;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 600px;
+      text-align: center;
+      z-index: 9999;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    `;
+
+    const title = document.createElement('h2');
+    title.textContent = '⚠️ WebGPU Error';
+    title.style.cssText = 'margin: 0 0 15px 0; font-size: 24px; color: #ff6666;';
+
+    const msg = document.createElement('p');
+    msg.textContent = message;
+    msg.style.cssText = 'margin: 0 0 15px 0; font-size: 16px; line-height: 1.5;';
+
+    errorDiv.appendChild(title);
+    errorDiv.appendChild(msg);
+
+    // Add browser-specific help
+    const help = document.createElement('div');
+    help.style.cssText = 'margin-top: 20px; font-size: 14px; color: #aaa; line-height: 1.6; text-align: left;';
+
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('firefox')) {
+      help.innerHTML = `
+        <strong style="color: #ffaa44;">Firefox Users:</strong><br>
+        1. Type <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">about:config</code> in address bar<br>
+        2. Accept the warning<br>
+        3. Search for <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">dom.webgpu.enabled</code><br>
+        4. Toggle to <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">true</code><br>
+        5. Restart Firefox
+      `;
+    } else if (userAgent.includes('brave')) {
+      help.innerHTML = `
+        <strong style="color: #ffaa44;">Brave Users:</strong><br>
+        1. Type <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">brave://flags</code> in address bar<br>
+        2. Search for "WebGPU"<br>
+        3. Enable <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">#enable-unsafe-webgpu</code><br>
+        4. Relaunch Brave
+      `;
+    } else if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
+      help.innerHTML = `
+        <strong style="color: #ffaa44;">Safari Users:</strong><br>
+        WebGPU is supported in Safari 18+<br>
+        <br>
+        1. Update to macOS Sonoma 14.4+ or later<br>
+        2. Update Safari to version 18+<br>
+        3. WebGPU should be enabled by default<br>
+        <br>
+        If still not working, check Safari → Settings → Advanced → Feature Flags
+      `;
+    } else {
+      help.innerHTML = `
+        <strong style="color: #ffaa44;">Supported Browsers:</strong><br>
+        • Chrome 113+ (WebGPU enabled by default)<br>
+        • Edge 113+ (WebGPU enabled by default)<br>
+        • Safari 18+ (WebGPU enabled by default)<br>
+        • Brave (with flag enabled)<br>
+        • Firefox 133+ (with flag enabled)<br>
+        <br>
+        Try updating your browser or enabling WebGPU in settings.
+      `;
+    }
+
+    errorDiv.appendChild(help);
+    document.body.appendChild(errorDiv);
   }
 
   private resizeCanvas(): void {
