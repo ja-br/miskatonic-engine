@@ -1314,7 +1314,7 @@ export class DiscordModelViewer {
 
         this.device!.queue.writeTexture(
           { texture },
-          textureData,
+          new Uint8Array(textureData),
           { bytesPerRow: width * 4 },
           [width, height]
         );

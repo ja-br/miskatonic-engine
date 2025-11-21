@@ -8,13 +8,23 @@ import { DiscordSDK } from '@discord/embedded-app-sdk';
 import { DiscordModelViewer } from './DiscordModelViewer';
 
 // Discord application client ID - replace with your actual client ID
-const DISCORD_CLIENT_ID = 'YOUR_CLIENT_ID_HERE';
+const DISCORD_CLIENT_ID = '1431397918707028060';
 
 let discordSdk: DiscordSDK | null = null;
 let viewer: DiscordModelViewer | null = null;
 
 async function setupDiscordSdk(): Promise<void> {
   const loadingEl = document.getElementById('loading');
+
+  // Check if we're running inside Discord (frame_id will be in URL params)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (!urlParams.has('frame_id')) {
+    console.log('Running in standalone mode (not inside Discord)');
+    if (loadingEl) {
+      loadingEl.innerHTML = '<div class="spinner"></div><div>Initializing viewer...</div>';
+    }
+    return;
+  }
 
   try {
     // Initialize Discord SDK
