@@ -14,6 +14,37 @@ function build() {
   }
 
   try {
+    // Build workspace packages first (in dependency order)
+    console.log('🔨 Building workspace packages...');
+    const workspacePackages = [
+      'packages/events',
+      'packages/ecs',
+      'packages/resources',
+      'packages/physics',
+      'packages/network',
+      'packages/rendering',
+      'packages/core'
+    ];
+
+    for (const pkg of workspacePackages) {
+      const pkgPath = path.join(__dirname, '..', pkg);
+      const pkgJsonPath = path.join(pkgPath, 'package.json');
+
+      // Check if package exists and has a build script
+      if (fs.existsSync(pkgJsonPath)) {
+        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+        if (pkgJson.scripts && pkgJson.scripts.build) {
+          console.log(`  Building ${pkg}...`);
+          execSync('npm run build', {
+            cwd: pkgPath,
+            stdio: 'inherit',
+            env: { ...process.env, NODE_ENV: 'production' },
+          });
+        }
+      }
+    }
+    console.log('✅ Workspace packages built\n');
+
     // Build main process
     console.log('🔨 Building main process...');
     execSync('webpack --config config/webpack.main.config.js', {
