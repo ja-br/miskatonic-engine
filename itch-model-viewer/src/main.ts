@@ -50,19 +50,29 @@ function initMobileWarning(): void {
 }
 
 async function setupDiscordSdk(): Promise<void> {
+  const updateLoadingText = (text: string) => {
+    const loadingText = document.querySelector('#loading-overlay .loading-text');
+    if (loadingText) {
+      loadingText.textContent = text;
+    }
+  };
+
   // Check if we're running inside Discord (frame_id will be in URL params)
   const urlParams = new URLSearchParams(window.location.search);
   if (!urlParams.has('frame_id')) {
     console.log('Running in standalone mode (not inside Discord)');
+    updateLoadingText('Initializing viewer...');
     return;
   }
 
   try {
     // Initialize Discord SDK
     discordSdk = new DiscordSDK(DISCORD_CLIENT_ID);
+    updateLoadingText('Connecting to Discord...');
 
     // Wait for SDK to be ready
     await discordSdk.ready();
+    updateLoadingText('Authenticating...');
 
     // Authorize with Discord
     const { code } = await discordSdk.commands.authorize({
@@ -79,9 +89,11 @@ async function setupDiscordSdk(): Promise<void> {
     // Exchange code for access token (you'll need a backend for this)
     // For now, we'll skip OAuth and just run the viewer
     console.log('Discord authorization code:', code);
+    updateLoadingText('Initializing viewer...');
   } catch (error) {
     console.warn('Discord SDK initialization failed:', error);
     // Continue without Discord SDK for local development
+    updateLoadingText('Initializing viewer...');
   }
 }
 
@@ -108,6 +120,12 @@ async function initViewer(): Promise<void> {
   // Start rendering
   viewer.start();
   console.log('Discord Model Viewer started');
+
+  // Hide loading overlay
+  const loadingOverlay = document.getElementById('loading-overlay');
+  if (loadingOverlay) {
+    loadingOverlay.classList.add('hidden');
+  }
 }
 
 function setupControls(): void {
@@ -118,7 +136,14 @@ function setupControls(): void {
   if (modelSelect) {
     modelSelect.addEventListener('change', async (e) => {
       const target = e.target as HTMLSelectElement;
+      const loadingOverlay = document.getElementById('loading-overlay');
+      if (loadingOverlay) {
+        loadingOverlay.classList.remove('hidden');
+      }
       await viewer!.loadModel(target.value);
+      if (loadingOverlay) {
+        loadingOverlay.classList.add('hidden');
+      }
     });
   }
 
@@ -315,7 +340,7 @@ function showError(message: string): void {
     errorEl.textContent = message;
     errorEl.classList.remove('hidden');
   }
-  const loadingEl = document.getElementById('loading');
+  const loadingEl = document.getElementById('loading-overlay');
   if (loadingEl) {
     loadingEl.classList.add('hidden');
   }

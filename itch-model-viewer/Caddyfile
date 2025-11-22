@@ -1,0 +1,3 @@
+viewer.bitcrushed.games {
+    reverse_proxy model-viewer:80
+}

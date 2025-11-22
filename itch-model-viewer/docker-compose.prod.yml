@@ -1,0 +1,16 @@
+services:
+  model-viewer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: miskatonic-model-viewer:latest
+    container_name: model-viewer
+    restart: unless-stopped
+    ports:
+      - "8090:80"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
