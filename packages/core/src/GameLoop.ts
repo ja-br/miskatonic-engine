@@ -165,7 +165,7 @@ export class GameLoop {
    * Unregister a system by name
    */
   unregisterSystem(name: string): void {
-    for (const [phase, systemsInPhase] of this.systems.entries()) {
+    for (const [_phase, systemsInPhase] of this.systems.entries()) {
       const index = systemsInPhase.findIndex(s => s.name === name);
       if (index !== -1) {
         systemsInPhase.splice(index, 1);

@@ -319,36 +319,36 @@ export class PhysicsDeterminismVerifier {
       }
 
       // Check joint type
-      if (expectedJoint.type !== actualJoint.type) {
+      if (expectedJoint.descriptor.type !== actualJoint.descriptor.type) {
         mismatches.push({
           type: 'joint',
           handle,
           field: 'type',
-          expected: expectedJoint.type,
-          actual: actualJoint.type
+          expected: expectedJoint.descriptor.type,
+          actual: actualJoint.descriptor.type
         });
         mismatchedJoints++;
       }
 
       // Check connected bodies
-      if (expectedJoint.bodyA !== actualJoint.bodyA) {
+      if (expectedJoint.descriptor.bodyA !== actualJoint.descriptor.bodyA) {
         mismatches.push({
           type: 'joint',
           handle,
           field: 'bodyA',
-          expected: expectedJoint.bodyA,
-          actual: actualJoint.bodyA
+          expected: expectedJoint.descriptor.bodyA,
+          actual: actualJoint.descriptor.bodyA
         });
         mismatchedJoints++;
       }
 
-      if (expectedJoint.bodyB !== actualJoint.bodyB) {
+      if (expectedJoint.descriptor.bodyB !== actualJoint.descriptor.bodyB) {
         mismatches.push({
           type: 'joint',
           handle,
           field: 'bodyB',
-          expected: expectedJoint.bodyB,
-          actual: actualJoint.bodyB
+          expected: expectedJoint.descriptor.bodyB,
+          actual: actualJoint.descriptor.bodyB
         });
         mismatchedJoints++;
       }

@@ -22,6 +22,9 @@ import type {
   SerializedPhysicsState,
   SerializedRigidBody,
   SerializedJoint,
+  JointDebugInfo,
+  DeserializationResult,
+  SerializedCollider,
 } from '../types';
 import { RigidBodyType, CollisionShapeType, JointType } from '../types';
 
@@ -461,13 +464,13 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
     const bodyHandle = this.colliderHandleToBodyHandle.get(hit.collider.handle);
     if (bodyHandle === undefined) return null;
 
-    const hitPoint = ray.pointAt(hit.toi);
+    const hitPoint = ray.pointAt(hit.timeOfImpact);
     const normal = hit.normal;
     return {
       body: bodyHandle,
       point: { x: hitPoint.x, y: hitPoint.y, z: hitPoint.z },
       normal: { x: normal.x, y: normal.y, z: normal.z },
-      distance: hit.toi,
+      distance: hit.timeOfImpact,
     };
   }
 
@@ -790,7 +793,8 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       }
 
       case JointType.GENERIC: {
-        // Generic 6-DOF joint
+        // Generic 6-DOF joint with configurable limits per axis
+        // JointAxesMask: bit = 1 means axis is FREE, bit = 0 means axis is LOCKED
         const anchorA = new RAPIER.Vector3(
           descriptor.anchorA.position.x,
           descriptor.anchorA.position.y,
@@ -802,49 +806,67 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
           descriptor.anchorB.position.z
         );
 
-        const frameA = descriptor.anchorA.rotation
-          ? descriptor.anchorA.rotation
-          : { x: 0, y: 0, z: 0, w: 1 };
-        const frameB = descriptor.anchorB.rotation
-          ? descriptor.anchorB.rotation
-          : { x: 0, y: 0, z: 0, w: 1 };
+        // Axis vector for the joint (primary constraint axis)
+        // For a generic 6-DOF joint, use X as the primary axis
+        const axis = new RAPIER.Vector3(1, 0, 0);
 
-        jointParams = RAPIER.JointData.generic(anchorA, frameA, anchorB, frameB);
+        // JointAxesMask enum values:
+        // LinX=1, LinY=2, LinZ=4 (translation)
+        // AngX=8, AngY=16, AngZ=32 (rotation)
+        //
+        // Logic: An axis with limits must be FREE (bit=1) so the limits can be applied
+        // An axis without limits is LOCKED (bit=0)
+        let axesMask = 0; // Start with all axes locked
 
-        // Configure linear limits (per-axis)
-        // Rapier's generic joint uses axis indices: 0=X, 1=Y, 2=Z for translation
-        if (descriptor.linearLimits) {
-          const { x, y, z } = descriptor.linearLimits;
-          if (x) {
-            jointParams.limitsEnabled = true;
-            jointParams.setLinearLimits?.(0, [x.min, x.max]);
-          }
-          if (y) {
-            jointParams.limitsEnabled = true;
-            jointParams.setLinearLimits?.(1, [y.min, y.max]);
-          }
-          if (z) {
-            jointParams.limitsEnabled = true;
-            jointParams.setLinearLimits?.(2, [z.min, z.max]);
-          }
+        // Free axes that have limits defined
+        if (descriptor.linearLimits?.x) {
+          axesMask |= RAPIER.JointAxesMask.LinX; // Free X translation
+        }
+        if (descriptor.linearLimits?.y) {
+          axesMask |= RAPIER.JointAxesMask.LinY; // Free Y translation
+        }
+        if (descriptor.linearLimits?.z) {
+          axesMask |= RAPIER.JointAxesMask.LinZ; // Free Z translation
+        }
+        if (descriptor.angularLimits?.x) {
+          axesMask |= RAPIER.JointAxesMask.AngX; // Free X rotation
+        }
+        if (descriptor.angularLimits?.y) {
+          axesMask |= RAPIER.JointAxesMask.AngY; // Free Y rotation
+        }
+        if (descriptor.angularLimits?.z) {
+          axesMask |= RAPIER.JointAxesMask.AngZ; // Free Z rotation
         }
 
-        // Configure angular limits (per-axis)
-        // Rapier's generic joint uses axis indices: 0=X, 1=Y, 2=Z for rotation
-        if (descriptor.angularLimits) {
-          const { x, y, z } = descriptor.angularLimits;
-          if (x) {
-            jointParams.limitsEnabled = true;
-            jointParams.setAngularLimits?.(0, [x.min, x.max]);
-          }
-          if (y) {
-            jointParams.limitsEnabled = true;
-            jointParams.setAngularLimits?.(1, [y.min, y.max]);
-          }
-          if (z) {
-            jointParams.limitsEnabled = true;
-            jointParams.setAngularLimits?.(2, [z.min, z.max]);
-          }
+        jointParams = RAPIER.JointData.generic(anchorA, anchorB, axis, axesMask);
+
+        // Apply limits to free axes
+        // Rapier's limits array is a flat array: [min0, max0, min1, max1, ...]
+        // where each pair corresponds to a free axis in the order they appear in the mask
+        const limits: number[] = [];
+
+        if (descriptor.linearLimits?.x) {
+          limits.push(descriptor.linearLimits.x.min, descriptor.linearLimits.x.max);
+        }
+        if (descriptor.linearLimits?.y) {
+          limits.push(descriptor.linearLimits.y.min, descriptor.linearLimits.y.max);
+        }
+        if (descriptor.linearLimits?.z) {
+          limits.push(descriptor.linearLimits.z.min, descriptor.linearLimits.z.max);
+        }
+        if (descriptor.angularLimits?.x) {
+          limits.push(descriptor.angularLimits.x.min, descriptor.angularLimits.x.max);
+        }
+        if (descriptor.angularLimits?.y) {
+          limits.push(descriptor.angularLimits.y.min, descriptor.angularLimits.y.max);
+        }
+        if (descriptor.angularLimits?.z) {
+          limits.push(descriptor.angularLimits.z.min, descriptor.angularLimits.z.max);
+        }
+
+        if (limits.length > 0) {
+          jointParams.limitsEnabled = true;
+          jointParams.limits = limits;
         }
 
         break;
@@ -922,11 +944,11 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
         throw new Error(`Unknown joint type: ${(descriptor as any).type}`);
     }
 
-    // Set collision between connected bodies
-    jointParams.contactsEnabled = descriptor.collideConnected ?? false;
-
     // Create the joint
     const joint = this.world.createImpulseJoint(jointParams, bodyA, bodyB, true);
+
+    // Set collision between connected bodies (must be done AFTER joint creation)
+    joint.setContactsEnabled(descriptor.collideConnected ?? false);
 
     // Store joint with unique handle
     const handle = this.nextJointHandle++;
@@ -979,15 +1001,46 @@ export class RapierPhysicsEngine implements IPhysicsEngine {
       throw new Error(`Invalid joint handle: ${handle}`);
     }
 
+    // Motor configuration only works on UnitImpulseJoint types (Revolute, Prismatic)
+    // Check if this is a supported joint type
+    const metadata = this.jointMetadata.get(handle);
+    if (!metadata) {
+      throw new Error(`No metadata found for joint handle: ${handle}`);
+    }
+
+    // Only revolute and prismatic joints support motors
+    if (metadata.type !== JointType.REVOLUTE && metadata.type !== JointType.PRISMATIC) {
+      console.warn(`setJointMotor: Joint type ${metadata.type} does not support motors`);
+      return;
+    }
+
+    // Type guard: UnitImpulseJoint has motor configuration methods
+    // Check if the joint has the motor methods we need
+    if (!this.isUnitImpulseJoint(joint)) {
+      console.warn('setJointMotor: Joint does not support motor configuration');
+      return;
+    }
+
     if (motor === null) {
-      // Disable motor
+      // Disable motor by setting zero velocity and force
       joint.configureMotorVelocity(0, 0);
     } else {
       // Enable motor with target velocity and max force
-      // IMPORTANT: Need to set motor model to VelocityBased for velocity control to work
-      joint.configureMotorModel(RAPIER.MotorModel.VelocityBased);
+      // Use AccelerationBased model (default in Rapier 0.19.3)
+      joint.configureMotorModel(RAPIER.MotorModel.AccelerationBased);
       joint.configureMotorVelocity(motor.targetVelocity, motor.maxForce);
     }
+  }
+
+  /**
+   * Type guard to check if a joint is a UnitImpulseJoint (supports motors)
+   *
+   * UnitImpulseJoint (revolute, prismatic) has motor configuration methods
+   * that are not present on the base ImpulseJoint class.
+   */
+  private isUnitImpulseJoint(joint: RAPIER.ImpulseJoint): joint is RAPIER.UnitImpulseJoint {
+    return 'configureMotorVelocity' in joint &&
+           'configureMotorModel' in joint;
   }
 
   /**

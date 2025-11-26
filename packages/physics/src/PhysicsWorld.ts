@@ -556,7 +556,7 @@ export class PhysicsWorld<TUserData = unknown> {
     for (const [oldHandle, userData] of oldUserData.entries()) {
       const newHandle = handleMapping.get(oldHandle);
       if (newHandle !== undefined) {
-        this.bodies.set(newHandle, userData);
+        this.bodies.set(newHandle, userData as TUserData);
       }
     }
   }

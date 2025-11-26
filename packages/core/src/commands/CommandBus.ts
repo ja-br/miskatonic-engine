@@ -13,7 +13,6 @@ import type { EventBus } from '../../../events/src';
 import { CommandRegistry } from './CommandRegistry';
 import type {
   CommandContext,
-  CommandDefinition,
   CommandExecutionOptions,
   CommandHistoryEntry,
   CommandResult,
@@ -77,7 +76,7 @@ export class CommandBus {
   ): Promise<CommandResult<TOutput>> {
     // Check rate limit
     if (!this.checkRateLimit()) {
-      const result: CommandResult = {
+      const result: CommandResult<TOutput> = {
         success: false,
         error: 'Rate limit exceeded. Too many commands in short time.',
         executionTime: 0,
@@ -97,7 +96,7 @@ export class CommandBus {
     if (options.queued) {
       // Check queue size limit
       if (this.queuedCommands.length >= this.maxQueueSize) {
-        const result: CommandResult = {
+        const result: CommandResult<TOutput> = {
           success: false,
           error: `Command queue full (${this.maxQueueSize} commands). Cannot queue more.`,
           executionTime: 0,
@@ -126,7 +125,7 @@ export class CommandBus {
     // Get command definition
     const definition = this.registry.get(command);
     if (!definition) {
-      const result: CommandResult = {
+      const result: CommandResult<TOutput> = {
         success: false,
         error: `Command '${command}' not found`,
         executionTime: 0,
@@ -149,7 +148,7 @@ export class CommandBus {
         .map(e => `${e.path.join('.')}: ${e.message}`)
         .join('; ');
 
-      const result: CommandResult = {
+      const result: CommandResult<TOutput> = {
         success: false,
         error: `Validation failed: ${errorMessage}`,
         executionTime: 0,

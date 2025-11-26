@@ -13,6 +13,12 @@ import type {
   Quaternion,
   CollisionEvent,
   RaycastHit,
+  JointDescriptor,
+  JointHandle,
+  JointMotor,
+  JointDebugInfo,
+  SerializedPhysicsState,
+  DeserializationResult,
 } from '../types';
 import { RigidBodyType } from '../types';
 
@@ -225,25 +231,62 @@ export class MockPhysicsEngine implements IPhysicsEngine {
   }
 
   // Joint constraint methods (stub implementations)
-  createJoint(_descriptor: import('../types').JointDescriptor): import('../types').JointHandle {
+  createJoint(_descriptor: JointDescriptor): JointHandle {
     // Mock implementation - just return a unique ID
     console.warn('MockPhysicsEngine: createJoint() is a stub implementation');
     return Math.random();
   }
 
-  removeJoint(_handle: import('../types').JointHandle): void {
+  removeJoint(_handle: JointHandle): void {
     // Mock implementation - no-op
     console.warn('MockPhysicsEngine: removeJoint() is a stub implementation');
   }
 
-  setJointMotor(_handle: import('../types').JointHandle, _motor: import('../types').JointMotor | null): void {
+  setJointMotor(_handle: JointHandle, _motor: JointMotor | null): void {
     // Mock implementation - no-op
     console.warn('MockPhysicsEngine: setJointMotor() is a stub implementation');
   }
 
-  getJointValue(_handle: import('../types').JointHandle): number {
+  getJointValue(_handle: JointHandle): number {
     // Mock implementation - return 0
     console.warn('MockPhysicsEngine: getJointValue() is a stub implementation');
     return 0;
+  }
+
+  getJointDebugInfo(_handle: JointHandle): JointDebugInfo | null {
+    // Mock implementation - return null
+    console.warn('MockPhysicsEngine: getJointDebugInfo() is a stub implementation');
+    return null;
+  }
+
+  checkJointBreaking(): Array<{
+    jointHandle: JointHandle;
+    bodyA: RigidBodyHandle;
+    bodyB: RigidBodyHandle;
+    force: number;
+  }> {
+    // Mock implementation - return empty array
+    return [];
+  }
+
+  serializeState(): SerializedPhysicsState {
+    // Mock implementation - return minimal state
+    return {
+      version: 1,
+      time: 0,
+      step: 0,
+      gravity: this.gravity,
+      bodies: [],
+      joints: [],
+    };
+  }
+
+  deserializeState(_state: SerializedPhysicsState): DeserializationResult {
+    // Mock implementation - return empty maps
+    console.warn('MockPhysicsEngine: deserializeState() is a stub implementation');
+    return {
+      bodyHandleMap: new Map(),
+      jointHandleMap: new Map(),
+    };
   }
 }

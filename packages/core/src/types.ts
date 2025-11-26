@@ -2,9 +2,6 @@
  * Core engine types and configuration interfaces
  */
 
-import type { PhysicsWorld } from '@miskatonic/physics';
-import type { StateReplicationManager } from '@miskatonic/network';
-
 /**
  * Engine lifecycle states
  */

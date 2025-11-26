@@ -4,7 +4,7 @@
  * Manages physics state snapshots for replay, rollback, and network synchronization
  */
 
-import type { PhysicsSnapshot, SerializedPhysicsState } from './types';
+import type { PhysicsSnapshot } from './types';
 import type { PhysicsWorld } from './PhysicsWorld';
 
 /**

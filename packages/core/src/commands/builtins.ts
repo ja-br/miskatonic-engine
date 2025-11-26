@@ -18,7 +18,7 @@ import type { CommandDefinition } from './types';
  * @param engine - Engine instance for command access
  * @returns Array of built-in command definitions
  */
-export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefinition[] {
+export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefinition<any, any>[] {
   return [
     // help - List all commands
     {
@@ -28,7 +28,7 @@ export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefiniti
       schema: z.object({
         command: z.string().optional(),
       }),
-      handler: (input) => {
+      handler: (input: { command?: string }) => {
         const commands = engine.commands;
         if (!commands) {
           return {
@@ -100,7 +100,7 @@ export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefiniti
       schema: z.object({
         message: z.string(),
       }),
-      handler: (input) => {
+      handler: (input: { message: string }) => {
         return {
           success: true,
           output: input.message,
@@ -117,7 +117,7 @@ export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefiniti
       schema: z.object({
         format: z.enum(['json', 'text']).optional().default('json'),
       }),
-      handler: (input) => {
+      handler: (input: { format?: 'json' | 'text' }) => {
         try {
           const stats = engine.getStats();
 
@@ -214,7 +214,7 @@ export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefiniti
       schema: z.object({
         section: z.enum(['physics', 'rendering', 'network', 'debug', 'performance']).optional(),
       }),
-      handler: (input) => {
+      handler: (input: { section?: 'physics' | 'rendering' | 'network' | 'debug' | 'performance' }) => {
         try {
           const config = engine.getConfig();
 
@@ -227,9 +227,22 @@ export function createBuiltinCommands(engine: MiskatonicEngine): CommandDefiniti
           }
 
           if (input.section) {
+            // Runtime validation that section exists in config
+            if (!(input.section in config)) {
+              return {
+                success: false,
+                error: `Unknown config section: ${input.section}`,
+                executionTime: 0,
+              };
+            }
+
+            // Type-safe config section access after validation
+            const section = input.section as keyof typeof config;
+            const sectionConfig = config[section];
+
             return {
               success: true,
-              output: config[input.section],
+              output: sectionConfig,
               executionTime: 0,
             };
           }

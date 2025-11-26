@@ -23,7 +23,7 @@ import { EventPriority } from './types';
  * - Concurrent dispatch protection
  */
 export class EventBus {
-  private listeners: Map<string, EventListener[]> = new Map();
+  private listeners: Map<string, EventListener<any>[]> = new Map();
   private nextListenerId = 1;
   private stats: EventBusStats = {
     totalDispatched: 0,
@@ -107,7 +107,7 @@ export class EventBus {
   /**
    * Binary search to find insertion index for priority
    */
-  private findInsertionIndex(listeners: EventListener[], priority: number): number {
+  private findInsertionIndex(listeners: EventListener<any>[], priority: number): number {
     let low = 0;
     let high = listeners.length;
 
@@ -186,7 +186,7 @@ export class EventBus {
       const activeListeners = listeners.filter((l) => l.active);
 
       // Group listeners by priority for parallel execution within priority levels
-      const priorityGroups = new Map<number, EventListener[]>();
+      const priorityGroups = new Map<number, EventListener<any>[]>();
       for (const listener of activeListeners) {
         // Apply namespace filter
         if (listener.options.namespace && event.namespace !== listener.options.namespace) {

@@ -36,14 +36,14 @@
  */
 
 import type { System, World, EntityId, Query } from '@miskatonic/ecs';
-import { Transform } from '@miskatonic/ecs';
+import { Transform, SystemPriority } from '@miskatonic/ecs';
 import type { TransformSystem } from '@miskatonic/ecs';
 import { PhysicsBody } from '../components/PhysicsBody';
 import type { IPhysicsAdapter, Vector3, Quaternion } from './IPhysicsAdapter';
 
 export class PhysicsSyncSystem implements System {
   readonly name = 'PhysicsSyncSystem';
-  readonly priority = -50; // Run before UPDATE systems
+  readonly priority = SystemPriority.PRE_UPDATE; // Run before UPDATE systems
 
   private query: Query | null = null;
   private physicsAdapter: IPhysicsAdapter;

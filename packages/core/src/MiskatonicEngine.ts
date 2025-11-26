@@ -91,8 +91,12 @@ export class MiskatonicEngine {
 
     // Create core systems
     this._world = new World();
-    this._events = new EventBus(0); // 0ms batch delay for immediate event dispatch
-    this._resources = new ResourceManager();
+    this._events = new EventBus({ batchDelay: 0 }); // 0ms batch delay for immediate event dispatch
+    this._resources = new ResourceManager({
+      maxSize: 1024 * 1024 * 1024, // 1GB cache
+      evictionPolicy: 'lru' as any, // LRU eviction
+      ttl: 60000, // 1 minute TTL
+    });
 
     // Create game loop
     this._gameLoop = new GameLoop({
@@ -492,7 +496,6 @@ export class MiskatonicEngine {
     const [gx, gy, gz] = this.config.physics.gravity!;
     this._physics = await PhysicsWorld.create(engine, {
       gravity: { x: gx, y: gy, z: gz },
-      fixedTimestep: this.config.physics.fixedTimestep!,
     });
 
     this._events.emit({
