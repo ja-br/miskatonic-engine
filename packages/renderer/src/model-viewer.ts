@@ -30,9 +30,9 @@ import {
   OPAQUE_PIPELINE_STATE,
   WIREFRAME_PIPELINE_STATE,
   ADDITIVE_BLEND_PIPELINE_STATE,
-} from '../../rendering/src';
-import { World, TransformSystem, Transform, Camera, type EntityId } from '../../ecs/src';
-import * as Mat4 from '../../ecs/src/math/Mat4';
+} from '@miskatonic/rendering';
+import { World, TransformSystem, Transform, Camera, type EntityId } from '@miskatonic/ecs';
+import * as Mat4 from '@miskatonic/ecs';
 
 export class ModelViewer {
   // Constants

@@ -33,14 +33,16 @@ function build() {
       'physics',
       'network',
       'rendering',
-      'debug-console',
 
       // Fourth level (Electron processes, depend on shared)
       'main',
       'preload',
 
-      // Top level (depends on everything)
+      // Core (depends on ecs, events, resources)
       'core',
+
+      // Debug console (depends on core)
+      'debug-console',
     ];
 
     const rootDir = path.join(__dirname, '..');

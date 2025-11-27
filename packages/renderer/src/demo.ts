@@ -30,16 +30,16 @@ import {
   type SpatialObject,
   type CullResult,
   SortOrder,
-} from '../../rendering/src';
+} from '@miskatonic/rendering';
 import {
   PhysicsWorld,
   RapierPhysicsEngine,
   RigidBodyType,
   CollisionShapeType,
   type RigidBodyHandle,
-} from '../../physics/src';
-import { World, TransformSystem, Transform, Camera, Query, type EntityId } from '../../ecs/src';
-import * as Mat4 from '../../ecs/src/math/Mat4';
+} from '@miskatonic/physics';
+import { World, TransformSystem, Transform, Camera, Query, type EntityId } from '@miskatonic/ecs';
+import * as Mat4 from '@miskatonic/ecs';
 import { DiceEntity } from './components/DiceEntity';
 import './components/registerDemoComponents'; // Register custom components
 import { MatrixPool } from './MatrixPool';
