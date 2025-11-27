@@ -5,10 +5,8 @@ import log from 'electron-log';
  * Builds and manages application menus
  */
 export class MenuBuilder {
-  private window: BrowserWindow;
-
-  constructor(window: BrowserWindow) {
-    this.window = window;
+  constructor(_window: BrowserWindow) {
+    // Window reference kept for future menu actions
   }
 
   /**

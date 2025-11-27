@@ -112,8 +112,8 @@ export class FileReadHandler extends BaseChannelHandler<FileReadRequest, FileRea
       const chunks: Buffer[] = [];
       const stream = createReadStream(filePath, { encoding });
 
-      stream.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
+      stream.on('data', (chunk: string | Buffer) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
       });
 
       stream.on('end', () => {

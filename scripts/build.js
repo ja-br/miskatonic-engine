@@ -16,33 +16,76 @@ function build() {
   try {
     // Build workspace packages first (in dependency order)
     console.log('🔨 Building workspace packages...');
+
+    // CRITICAL: Build order must respect dependencies
+    // Packages must build BEFORE packages that depend on them
+    // This is a topological sort of the dependency graph
     const workspacePackages = [
-      'packages/events',
-      'packages/ecs',
-      'packages/resources',
-      'packages/physics',
-      'packages/network',
-      'packages/rendering',
-      'packages/core'
+      // Leaf packages (no internal dependencies)
+      'shared',
+      'events',
+
+      // Second level (depend on leaf packages)
+      'ecs',
+      'resources',
+
+      // Third level (depend on second level)
+      'physics',
+      'network',
+      'rendering',
+      'debug-console',
+
+      // Fourth level (Electron processes, depend on shared)
+      'main',
+      'preload',
+
+      // Top level (depends on everything)
+      'core',
     ];
 
+    const rootDir = path.join(__dirname, '..');
+
     for (const pkg of workspacePackages) {
-      const pkgPath = path.join(__dirname, '..', pkg);
+      const pkgPath = path.join(rootDir, 'packages', pkg);
       const pkgJsonPath = path.join(pkgPath, 'package.json');
 
-      // Check if package exists and has a build script
-      if (fs.existsSync(pkgJsonPath)) {
-        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
-        if (pkgJson.scripts && pkgJson.scripts.build) {
-          console.log(`  Building ${pkg}...`);
+      if (!fs.existsSync(pkgJsonPath)) {
+        console.warn(`  ⚠️  Package ${pkg} not found, skipping`);
+        continue;
+      }
+
+      const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+
+      if (pkgJson.scripts && pkgJson.scripts.build) {
+        console.log(`  Building ${pkg}...`);
+        try {
           execSync('npm run build', {
             cwd: pkgPath,
             stdio: 'inherit',
             env: { ...process.env, NODE_ENV: 'production' },
           });
+        } catch (buildError) {
+          throw new Error(`Failed to build ${pkg}: ${buildError.message}`);
         }
+
+        // Verify critical outputs exist
+        if (pkgJson.main) {
+          const mainPath = path.join(pkgPath, pkgJson.main);
+          if (!fs.existsSync(mainPath)) {
+            throw new Error(`Build verification failed: ${pkg} - ${pkgJson.main} not created`);
+          }
+        }
+        if (pkgJson.types) {
+          const typesPath = path.join(pkgPath, pkgJson.types);
+          if (!fs.existsSync(typesPath)) {
+            throw new Error(`Build verification failed: ${pkg} - ${pkgJson.types} not created`);
+          }
+        }
+      } else {
+        console.log(`  Skipping ${pkg} (no build script)`);
       }
     }
+
     console.log('✅ Workspace packages built\n');
 
     // Build main process

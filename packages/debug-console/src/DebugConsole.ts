@@ -82,7 +82,7 @@ export class DebugConsole {
       this.hide();
     }
 
-    this.log('Debug console initialized. Press ~ to toggle.', 'info');
+    this.log('Debug console initialized. Press ~ to toggle.', LogLevel.INFO);
   }
 
   /**
@@ -211,17 +211,17 @@ export class DebugConsole {
     }
 
     // Log the command
-    this.log(`> ${command}`, 'info');
+    this.log(`> ${command}`, LogLevel.INFO);
 
     // Add to history
     this.history.add(command);
 
     try {
       // Execute via command system
-      await this.commandSystem.execute(command);
+      await this.commandSystem.execute(command, {});
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Error: ${errorMsg}`, 'error');
+      this.log(`Error: ${errorMsg}`, LogLevel.ERROR);
     }
   }
 
@@ -511,7 +511,7 @@ export class DebugConsole {
         }
       });
 
-      this.suggestionsElement.appendChild(item);
+      this.suggestionsElement!.appendChild(item);
     });
   }
 
@@ -585,7 +585,7 @@ export class DebugConsole {
    */
   private syncAutocomplete(): void {
     // Get all registered commands from command system
-    const commands = this.commandSystem.getAllCommands();
+    const commands = this.commandSystem.getAllCommandInfo();
 
     this.autocomplete.clear();
     for (const cmd of commands) {

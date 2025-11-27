@@ -6,8 +6,8 @@ import { z } from 'zod';
  */
 export interface IPCChannelHandler<TRequest = unknown, TResponse = unknown> {
   channel: string;
-  requestSchema: z.ZodSchema<TRequest>;
-  responseSchema: z.ZodSchema<TResponse>;
+  requestSchema: z.ZodType<TRequest, any, any>;
+  responseSchema: z.ZodType<TResponse, any, any>;
   handle(event: IpcMainInvokeEvent, request: TRequest): Promise<TResponse>;
 }
 
@@ -18,8 +18,8 @@ export abstract class BaseChannelHandler<TRequest = unknown, TResponse = unknown
   implements IPCChannelHandler<TRequest, TResponse>
 {
   abstract channel: string;
-  abstract requestSchema: z.ZodSchema<TRequest>;
-  abstract responseSchema: z.ZodSchema<TResponse>;
+  abstract requestSchema: z.ZodType<TRequest, any, any>;
+  abstract responseSchema: z.ZodType<TResponse, any, any>;
 
   abstract handle(event: IpcMainInvokeEvent, request: TRequest): Promise<TResponse>;
 

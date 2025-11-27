@@ -117,7 +117,7 @@ export class WindowManager {
     }, 3000);
 
     // Debug renderer loading issues
-    window.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
       log.error(`Window ${window.id} failed to load: ${errorDescription} (${errorCode}) - URL: ${validatedURL}`);
     });
 
@@ -156,8 +156,8 @@ export class WindowManager {
     });
 
     // Error handling
-    window.webContents.on('crashed', () => {
-      log.error(`Window ${window.id} crashed`);
+    window.webContents.on('render-process-gone', (_event, details) => {
+      log.error(`Window ${window.id} render process gone: ${details.reason}`);
     });
 
     window.webContents.on('unresponsive', () => {

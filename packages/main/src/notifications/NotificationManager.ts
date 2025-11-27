@@ -12,7 +12,7 @@ export interface NotificationOptions {
   silent?: boolean;
   urgency?: 'normal' | 'critical' | 'low';
   timeoutType?: 'default' | 'never';
-  actions?: Array<{ type: string; text: string }>;
+  actions?: Array<{ type: 'button'; text: string }>;
 }
 
 /**
@@ -57,7 +57,7 @@ export class NotificationManager {
         this.activeNotifications.delete(id);
       });
 
-      notification.on('action', (event, index) => {
+      notification.on('action', (_event, index) => {
         log.info(`Notification action clicked: ${id}, action: ${index}`);
         // TODO: Emit event to renderer process
       });
