@@ -5,11 +5,11 @@ import {
   RigidBodyType,
   CollisionShapeType,
   JointType
-} from '../../../packages/physics/src';
+} from '@miskatonic/physics';
 import type {
   RigidBodyHandle,
   JointHandle
-} from '../../../packages/physics/src';
+} from '@miskatonic/physics';
 
 /**
  * Integration tests for Epic 4.5: Fix Deterministic Simulation (Critical Bugs)

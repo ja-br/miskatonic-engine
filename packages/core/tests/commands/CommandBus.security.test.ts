@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { z } from 'zod';
 import { CommandBus } from '../../src/commands/CommandBus';
 import { CommandRegistry } from '../../src/commands/CommandRegistry';
-import { EventBus } from '../../../events/src';
+import { EventBus } from '@miskatonic/events';
 import type { CommandDefinition } from '../../src/commands/types';
 
 describe('CommandBus Security', () => {

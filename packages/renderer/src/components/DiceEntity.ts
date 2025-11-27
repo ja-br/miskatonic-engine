@@ -5,7 +5,7 @@
  * Stores metadata about the dice for rendering and gameplay.
  */
 
-import type { Component } from '../../../ecs/src/types';
+import type { Component } from '@miskatonic/ecs';
 
 export class DiceEntity implements Component {
   readonly __componentType = 'DiceEntity';

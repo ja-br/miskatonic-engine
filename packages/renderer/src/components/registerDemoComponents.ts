@@ -4,8 +4,8 @@
  * Registers custom components used in the demo applications.
  */
 
-import { ComponentRegistry, createFieldDescriptor } from '../../../ecs/src';
-import type { ComponentType } from '../../../ecs/src/types';
+import { ComponentRegistry, createFieldDescriptor } from '@miskatonic/ecs';
+import type { ComponentType } from '@miskatonic/ecs';
 import { DiceEntity } from './DiceEntity';
 import { JointBodyEntity } from './JointBodyEntity';
 

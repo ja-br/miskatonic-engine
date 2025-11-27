@@ -5,7 +5,7 @@
  * Stores metadata about the body for rendering (type, scale, color).
  */
 
-import type { Component } from '../../../ecs/src/types';
+import type { Component } from '@miskatonic/ecs';
 
 export class JointBodyEntity implements Component {
   readonly __componentType = 'JointBodyEntity';

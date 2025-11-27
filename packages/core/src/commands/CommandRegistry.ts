@@ -8,7 +8,7 @@
  * - Command introspection
  */
 
-import type { EventBus } from '../../../events/src';
+import type { EventBus } from '@miskatonic/events';
 import type {
   CommandDefinition,
   CommandInfo,

@@ -5,7 +5,7 @@
  * Provides a unified API for command registration and execution.
  */
 
-import type { EventBus } from '../../../events/src';
+import type { EventBus } from '@miskatonic/events';
 import { CommandBus } from './CommandBus';
 import { CommandRegistry } from './CommandRegistry';
 import type {

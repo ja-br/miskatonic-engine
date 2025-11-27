@@ -16,11 +16,11 @@
  * - Fail-safe (validates config, graceful degradation)
  */
 
-import { World } from '../../ecs/src';
-import { EventBus } from '../../events/src';
-import { ResourceManager } from '../../resources/src';
-import { PhysicsWorld } from '../../physics/src';
-import { StateReplicationManager } from '../../network/src';
+import { World } from '@miskatonic/ecs';
+import { EventBus } from '@miskatonic/events';
+import { ResourceManager } from '@miskatonic/resources';
+import { PhysicsWorld } from '@miskatonic/physics';
+import { StateReplicationManager } from '@miskatonic/network';
 import type {
   EngineConfig,
   EngineStats,

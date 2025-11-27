@@ -9,7 +9,7 @@
  * - Undo/redo support
  */
 
-import type { EventBus } from '../../../events/src';
+import type { EventBus } from '@miskatonic/events';
 import { CommandRegistry } from './CommandRegistry';
 import type {
   CommandContext,
